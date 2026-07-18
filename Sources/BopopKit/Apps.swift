@@ -39,18 +39,26 @@ public final class AppCatalog {
         ]
     }
 
+    /// Apps that live outside every scanned directory but belong in a launcher.
+    public static var defaultExtraApplicationPaths: [String] {
+        ["/System/Library/CoreServices/Finder.app"]
+    }
+
     public private(set) var apps: [AppInfo] = []
 
     private let directories: [URL]
+    private let extraApplicationPaths: [String]
     private let staleAfter: TimeInterval
     private var lastScan: Date?
     private var refreshTask: Task<Void, Never>?
 
     public init(
         directories: [URL] = AppCatalog.defaultDirectories,
+        extraApplicationPaths: [String] = AppCatalog.defaultExtraApplicationPaths,
         staleAfter: TimeInterval = 300
     ) {
         self.directories = directories
+        self.extraApplicationPaths = extraApplicationPaths
         self.staleAfter = staleAfter
     }
 
@@ -65,8 +73,12 @@ public final class AppCatalog {
         }
 
         let directories = directories
+        let extraApplicationPaths = extraApplicationPaths
         refreshTask = Task { [weak self] in
-            let scannedApps = await Self.scan(directories: directories)
+            let scannedApps = await Self.scan(
+                directories: directories,
+                extraApplicationPaths: extraApplicationPaths
+            )
             guard let self, !Task.isCancelled else {
                 return
             }
@@ -79,11 +91,17 @@ public final class AppCatalog {
     public func refreshNow() async {
         refreshTask?.cancel()
         refreshTask = nil
-        apps = await Self.scan(directories: directories)
+        apps = await Self.scan(
+            directories: directories,
+            extraApplicationPaths: extraApplicationPaths
+        )
         lastScan = Date()
     }
 
-    public static nonisolated func scan(directories: [URL]) async -> [AppInfo] {
+    public static nonisolated func scan(
+        directories: [URL],
+        extraApplicationPaths: [String] = []
+    ) async -> [AppInfo] {
         let fileManager = FileManager.default
         let resourceKeys: [URLResourceKey] = [.isDirectoryKey]
         var appURLs: [URL] = []
@@ -112,6 +130,11 @@ public final class AppCatalog {
                 )
                 appURLs.append(contentsOf: nestedEntries.filter(isApplication))
             }
+        }
+
+        for extraPath in extraApplicationPaths
+        where fileManager.fileExists(atPath: extraPath) {
+            appURLs.append(URL(fileURLWithPath: extraPath, isDirectory: true))
         }
 
         var bundleIDs = Set<String>()

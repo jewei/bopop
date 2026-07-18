@@ -82,13 +82,37 @@ func appCatalogUsesDifferingBundleNameAsKeyword() async throws {
     #expect(apps.first(where: { $0.name == "Bar" })?.keywords == [])
 }
 
+@Test
+func appCatalogIncludesExistingExtraApplicationPaths() async throws {
+    let root = try makeAppFixtureDirectory()
+    let extraRoot = try makeAppFixtureDirectory()
+    defer {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: extraRoot)
+    }
+    try makeFakeBundle(
+        at: root.appendingPathComponent("Foo.app", isDirectory: true),
+        bundleID: "foo",
+        bundleName: "Foo"
+    )
+    let extraURL = extraRoot.appendingPathComponent("Extra.app", isDirectory: true)
+    try makeFakeBundle(at: extraURL, bundleID: "extra", bundleName: "Extra")
+
+    let apps = await AppCatalog.scan(
+        directories: [root],
+        extraApplicationPaths: [extraURL.path, "/nonexistent/Nope.app"]
+    )
+
+    #expect(apps.map(\.name) == ["Extra", "Foo"])
+}
+
 @MainActor
 @Test
 func appsProviderReturnsFrecentAppsForEmptyTerm() async throws {
     let root = try makeAppFixtureDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     try makeLetteredBundles(in: root)
-    let catalog = AppCatalog(directories: [root])
+    let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
     await catalog.refreshNow()
     let scores = [
         "app:b": 10.0,
@@ -120,7 +144,7 @@ func appsProviderReturnsAllAppsForNonemptyTerm() async throws {
     let root = try makeAppFixtureDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     try makeLetteredBundles(in: root)
-    let catalog = AppCatalog(directories: [root])
+    let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
     await catalog.refreshNow()
     let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in 0 })
 
