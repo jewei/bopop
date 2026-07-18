@@ -24,12 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             catalog: appCatalog,
             frecencyFor: usageStore.score
         )
+        let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
         let engine = QueryEngine(
             providers: [
                 .general: [
                     CommandsProvider(),
                     appsProvider,
-                    CalculatorProvider()
+                    CalculatorProvider(),
+                    ScriptsProvider(catalog: scriptCatalog)
                 ],
                 .fileSearch: [
                     FileSearchProvider(searcher: FileSearcher())
@@ -38,7 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ],
             frecencyFor: usageStore.score
         )
-        let actionRunner = ActionRunner()
+        let scriptFeedback = ScriptFeedback(storage: storage)
+        let actionRunner = ActionRunner(
+            storage: storage,
+            scriptFeedback: scriptFeedback
+        )
         actionRunner.onExecuted = { usageStore.record($0.id) }
         self.storage = storage
         self.usageStore = usageStore
@@ -128,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openScriptsFolder() {
-        logger.info("Open Scripts Folder selected")
+        NSWorkspace.shared.open(storage.scriptsDirectory)
     }
 
     @objc private func quitBopop() {

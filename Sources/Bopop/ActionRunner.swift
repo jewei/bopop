@@ -1,12 +1,19 @@
 import AppKit
 import BopopKit
-import os
 
 @MainActor
 final class ActionRunner {
+    private let storage: Storage
+    private let scriptFeedback: ScriptFeedback
+
     var onModeChange: ((Mode) -> Void)?
     var onExecuted: ((SearchResult) -> Void)?
     var hidePalette: (() -> Void)?
+
+    init(storage: Storage, scriptFeedback: ScriptFeedback) {
+        self.storage = storage
+        self.scriptFeedback = scriptFeedback
+    }
 
     func perform(_ result: SearchResult) {
         if case let .enterMode(mode) = result.action {
@@ -15,8 +22,8 @@ final class ActionRunner {
         }
 
         hidePalette?()
-        execute(result.action)
         onExecuted?(result)
+        execute(result.action)
     }
 
     func performCopy(_ result: SearchResult) {
@@ -49,16 +56,19 @@ final class ActionRunner {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         case let .runScript(path):
-            Self.logger.info(
-                "Script execution lands in step 8: \(path, privacy: .private)"
-            )
+            let name = URL(fileURLWithPath: path)
+                .deletingPathExtension()
+                .lastPathComponent
+            // ponytail: no timeout — add a SIGTERM deadline if a hung script ever bothers anyone
+            Task {
+                let result = await ScriptRunner.run(
+                    scriptAt: path,
+                    workingDirectory: storage.scriptsDirectory
+                )
+                scriptFeedback.report(name: name, result: result)
+            }
         case .enterMode:
             break
         }
     }
-
-    private static let logger = Logger(
-        subsystem: "com.oneone.bopop",
-        category: "actions"
-    )
 }
