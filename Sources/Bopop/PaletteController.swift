@@ -7,6 +7,10 @@ final class PaletteController: NSObject {
     private static let rowHeight: CGFloat = 48
     private static let maximumVisibleRows = 9
     private static let resultsBottomPadding: CGFloat = 8
+    private static let footerHeight: CGFloat = 24
+    private static let emptyFileSearchMessage = "Type to search files in your home folder"
+    private static let searchingMessage = "Searching…"
+    private static let noFileMatchesMessage = "No matches — some locations may require permissions (System Settings → Privacy & Security → Files and Folders / Full Disk Access), or Spotlight indexing may be off"
 
     private let engine: QueryEngine
     private let actionRunner: ActionRunner
@@ -16,6 +20,7 @@ final class PaletteController: NSObject {
     private let modeChip = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
+    private let footerLabel = NSTextField(labelWithString: "")
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
     private var stickyMode: Mode = .general
@@ -45,7 +50,8 @@ final class PaletteController: NSObject {
             queryField: queryField,
             modeChip: modeChip,
             scrollView: scrollView,
-            tableView: tableView
+            tableView: tableView,
+            footerLabel: footerLabel
         )
         super.init()
         connectCallbacks()
@@ -79,7 +85,7 @@ final class PaletteController: NSObject {
         panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(queryField)
-        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
+        updateQuery()
     }
 
     func hide() {
@@ -98,6 +104,7 @@ final class PaletteController: NSObject {
         tableView.reloadData()
         scrollView.isHidden = true
         layoutConstraints.resultsBottom.constant = 0
+        setFooter(nil)
         updateModeChip()
         resizePanel()
     }
@@ -137,6 +144,7 @@ final class PaletteController: NSObject {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
             tableView.scrollRowToVisible(0)
         }
+        updateFooter(after: update)
         resizePanel()
     }
 
@@ -144,7 +152,7 @@ final class PaletteController: NSObject {
         stickyMode = mode
         queryField.stringValue = ""
         updateModeChip()
-        engine.update(raw: "", stickyMode: stickyMode)
+        updateQuery()
     }
 
     private func updateModeChip() {
@@ -193,20 +201,69 @@ final class PaletteController: NSObject {
     private func resizePanel() {
         let visibleRows = min(results.count, Self.maximumVisibleRows)
         let bottomPadding = results.isEmpty ? 0 : Self.resultsBottomPadding
+        let footerHeight = footerLabel.isHidden ? 0 : Self.footerHeight
         let newHeight = Self.searchHeight
             + CGFloat(visibleRows) * Self.rowHeight
             + bottomPadding
+            + footerHeight
         var frame = panel.frame
         let top = frame.maxY
         frame.origin.y = top - newHeight
         frame.size.height = newHeight
         panel.setFrame(frame, display: true)
     }
+
+    private func updateQuery() {
+        let query = QueryParser.parse(
+            raw: queryField.stringValue,
+            stickyMode: stickyMode
+        )
+        if query.mode == .fileSearch {
+            setFooter(
+                query.term.isEmpty
+                    ? Self.emptyFileSearchMessage
+                    : Self.searchingMessage
+            )
+        } else {
+            setFooter(nil)
+        }
+        resizePanel()
+        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
+    }
+
+    private func updateFooter(after update: QueryEngine.Update) {
+        let query = QueryParser.parse(
+            raw: queryField.stringValue,
+            stickyMode: stickyMode
+        )
+        guard query.mode == .fileSearch else {
+            setFooter(nil)
+            return
+        }
+        guard !query.term.isEmpty else {
+            setFooter(Self.emptyFileSearchMessage)
+            return
+        }
+        guard update.isFinal else {
+            setFooter(Self.searchingMessage)
+            return
+        }
+        setFooter(update.results.isEmpty ? Self.noFileMatchesMessage : nil)
+    }
+
+    private func setFooter(_ message: String?) {
+        footerLabel.stringValue = message ?? ""
+        footerLabel.toolTip = message
+        footerLabel.isHidden = message == nil
+        layoutConstraints.footerHeight.constant = message == nil
+            ? 0
+            : Self.footerHeight
+    }
 }
 
 extension PaletteController: NSTextFieldDelegate {
     func controlTextDidChange(_ notification: Notification) {
-        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
+        updateQuery()
     }
 
     func control(
@@ -230,11 +287,11 @@ extension PaletteController: NSTextFieldDelegate {
             ) {
             case .clearText:
                 queryField.stringValue = ""
-                engine.update(raw: "", stickyMode: stickyMode)
+                updateQuery()
             case .exitMode:
                 stickyMode = .general
                 updateModeChip()
-                engine.update(raw: "", stickyMode: stickyMode)
+                updateQuery()
             case .closePanel:
                 hide()
             }

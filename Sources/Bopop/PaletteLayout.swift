@@ -5,6 +5,7 @@ enum PaletteLayout {
         let generalFieldLeading: NSLayoutConstraint
         let modeFieldLeading: NSLayoutConstraint
         let resultsBottom: NSLayoutConstraint
+        let footerHeight: NSLayoutConstraint
     }
 
     static func install(
@@ -12,12 +13,14 @@ enum PaletteLayout {
         queryField: NSTextField,
         modeChip: NSTextField,
         scrollView: NSScrollView,
-        tableView: NSTableView
+        tableView: NSTableView,
+        footerLabel: NSTextField
     ) -> InstalledConstraints {
         configurePanel(panel)
         configureQueryField(queryField)
         configureModeChip(modeChip)
         configureResults(scrollView, tableView: tableView)
+        configureFooter(footerLabel)
 
         let contentView = NSVisualEffectView()
         contentView.material = .popover
@@ -33,6 +36,7 @@ enum PaletteLayout {
         searchArea.addSubview(queryField)
         searchArea.addSubview(modeChip)
         contentView.addSubview(scrollView)
+        contentView.addSubview(footerLabel)
 
         let generalLeading = queryField.leadingAnchor.constraint(
             equalTo: searchArea.leadingAnchor,
@@ -43,8 +47,9 @@ enum PaletteLayout {
             constant: 10
         )
         let resultsBottom = scrollView.bottomAnchor.constraint(
-            equalTo: contentView.bottomAnchor
+            equalTo: footerLabel.topAnchor
         )
+        let footerHeight = footerLabel.heightAnchor.constraint(equalToConstant: 0)
 
         generalLeading.isActive = true
         NSLayoutConstraint.activate([
@@ -64,14 +69,20 @@ enum PaletteLayout {
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: searchArea.bottomAnchor),
-            resultsBottom
+            resultsBottom,
+
+            footerLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            footerLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            footerLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            footerHeight
         ])
 
         panel.contentView = contentView
         return InstalledConstraints(
             generalFieldLeading: generalLeading,
             modeFieldLeading: modeLeading,
-            resultsBottom: resultsBottom
+            resultsBottom: resultsBottom,
+            footerHeight: footerHeight
         )
     }
 
@@ -139,5 +150,14 @@ enum PaletteLayout {
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.isHidden = true
+    }
+
+    private static func configureFooter(_ footerLabel: NSTextField) {
+        footerLabel.font = .systemFont(ofSize: 11)
+        footerLabel.textColor = .secondaryLabelColor
+        footerLabel.lineBreakMode = .byTruncatingTail
+        footerLabel.maximumNumberOfLines = 1
+        footerLabel.translatesAutoresizingMaskIntoConstraints = false
+        footerLabel.isHidden = true
     }
 }

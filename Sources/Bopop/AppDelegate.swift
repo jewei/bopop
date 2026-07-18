@@ -31,7 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     appsProvider,
                     CalculatorProvider()
                 ],
-                .fileSearch: [],
+                .fileSearch: [
+                    FileSearchProvider(searcher: FileSearcher())
+                ],
                 .clipboard: [ClipboardProvider(store: clipboardStore)]
             ],
             frecencyFor: usageStore.score
