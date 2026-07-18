@@ -23,6 +23,12 @@ public final class AppCatalog {
     public static var defaultDirectories: [URL] {
         [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
+            // Cryptex-hosted apps (Safari) are invisible to directory
+            // enumeration of /Applications — their firmlink is not listed.
+            URL(
+                fileURLWithPath: "/System/Cryptexes/App/System/Applications",
+                isDirectory: true
+            ),
             URL(fileURLWithPath: "/System/Applications", isDirectory: true),
             URL(
                 fileURLWithPath: "/System/Applications/Utilities",
