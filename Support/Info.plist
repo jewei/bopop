@@ -8,6 +8,8 @@
 	<string>Bopop</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.oneone.bopop</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

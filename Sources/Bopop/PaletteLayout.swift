@@ -195,7 +195,7 @@ final class PaletteModeChipView: NSView {
         setContentCompressionResistancePriority(.required, for: .horizontal)
 
         label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .labelColor
+        label.textColor = .bopopAccent
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -211,7 +211,9 @@ final class PaletteModeChipView: NSView {
 
     private func updateLayerColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+            layer?.backgroundColor = NSColor.bopopAccent
+                .withAlphaComponent(0.14)
+                .cgColor
         }
     }
 }

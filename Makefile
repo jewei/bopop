@@ -15,6 +15,8 @@ app: build
 	mkdir -p $(DIST)/Contents/MacOS
 	cp $(BIN) $(DIST)/Contents/MacOS/$(APP)
 	cp Support/Info.plist $(DIST)/Contents/Info.plist
+	mkdir -p $(DIST)/Contents/Resources
+	cp Resources/AppIcon.icns $(DIST)/Contents/Resources/AppIcon.icns
 	printf 'APPL????' > $(DIST)/Contents/PkgInfo
 	codesign --force --sign - $(DIST)
 

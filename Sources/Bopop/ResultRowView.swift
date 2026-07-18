@@ -2,10 +2,27 @@ import AppKit
 import BopopKit
 
 final class PaletteRowView: NSTableRowView {
-    private static let selectionColor = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor.white.withAlphaComponent(0.10)
-            : NSColor.black.withAlphaComponent(0.06)
+    private static let selectionFillColor = NSColor(name: nil) { appearance in
+        let alpha = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? 0.12
+            : 0.09
+        return resolvedAccent(for: appearance, alpha: alpha)
+    }
+
+    private static let selectionStrokeColor = NSColor(name: nil) { appearance in
+        resolvedAccent(for: appearance, alpha: 0.25)
+    }
+
+    private static func resolvedAccent(
+        for appearance: NSAppearance,
+        alpha: CGFloat
+    ) -> NSColor {
+        var accent = NSColor.bopopAccent
+        appearance.performAsCurrentDrawingAppearance {
+            accent = NSColor.bopopAccent.usingColorSpace(.sRGB)
+                ?? NSColor.bopopAccent
+        }
+        return accent.withAlphaComponent(alpha)
     }
 
     override var isEmphasized: Bool {
@@ -14,15 +31,26 @@ final class PaletteRowView: NSTableRowView {
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
-        Self.selectionColor.setFill()
-        NSBezierPath(
-            roundedRect: bounds.insetBy(
-                dx: PaletteMetrics.rowSelectionInset,
-                dy: 2
-            ),
+        let capsuleRect = bounds.insetBy(
+            dx: PaletteMetrics.rowSelectionInset,
+            dy: 2
+        )
+        let capsulePath = NSBezierPath(
+            roundedRect: capsuleRect,
             xRadius: 8,
             yRadius: 8
-        ).fill()
+        )
+        Self.selectionFillColor.setFill()
+        capsulePath.fill()
+
+        let strokePath = NSBezierPath(
+            roundedRect: capsuleRect.insetBy(dx: 0.5, dy: 0.5),
+            xRadius: 7.5,
+            yRadius: 7.5
+        )
+        strokePath.lineWidth = 1
+        Self.selectionStrokeColor.setStroke()
+        strokePath.stroke()
     }
 
     override func viewDidChangeEffectiveAppearance() {

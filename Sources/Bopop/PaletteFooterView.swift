@@ -56,7 +56,7 @@ final class PaletteFooterView: NSView {
         )?.withSymbolConfiguration(
             NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         )
-        statusIcon.contentTintColor = .secondaryLabelColor
+        statusIcon.contentTintColor = .bopopAccent
         statusIcon.imageScaling = .scaleProportionallyDown
         statusIcon.translatesAutoresizingMaskIntoConstraints = false
         statusIcon.setAccessibilityHidden(true)

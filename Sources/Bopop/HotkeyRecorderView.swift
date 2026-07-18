@@ -102,6 +102,9 @@ final class RecorderNSView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.borderWidth = 1
         label.alignment = .center
         label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -111,6 +114,7 @@ final class RecorderNSView: NSView {
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             label.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
+        refreshColors()
     }
 
     @available(*, unavailable)
@@ -169,6 +173,11 @@ final class RecorderNSView: NSView {
 
     override func flagsChanged(with event: NSEvent) {}
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshColors()
+    }
+
     func update(config: HotkeyConfig, isRecording: Bool) {
         if config != self.config {
             capturedKeyName = nil
@@ -185,6 +194,16 @@ final class RecorderNSView: NSView {
                 for: config,
                 capturedKeyName: capturedKeyName
             )
+        refreshColors()
+    }
+
+    private func refreshColors() {
+        label.textColor = isRecording ? .bopopAccent : .labelColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = (isRecording
+                ? NSColor.bopopAccent
+                : NSColor.separatorColor).cgColor
+        }
     }
 
     private static func keyName(for event: NSEvent) -> String? {

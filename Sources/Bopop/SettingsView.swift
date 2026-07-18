@@ -14,10 +14,6 @@ struct SettingsView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 28)
                 .contentShape(Rectangle())
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(.separator, lineWidth: 1)
-                }
 
                 if model.spotlightConflict, model.hotkey == .default {
                     VStack(alignment: .leading, spacing: 6) {
@@ -61,7 +57,9 @@ struct SettingsView: View {
                 }
             }
         }
+        .tint(Color(nsColor: .bopopAccent))
         .formStyle(.grouped)
-        .frame(width: 360, height: 280)
+        .padding(20)
+        .frame(width: 380, height: 280)
     }
 }

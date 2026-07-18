@@ -83,6 +83,8 @@ final class PaletteController: NSObject {
         panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(queryField)
+        (panel.fieldEditor(true, for: queryField) as? NSTextView)?
+            .insertionPointColor = .bopopAccent
         updateQuery()
     }
 
