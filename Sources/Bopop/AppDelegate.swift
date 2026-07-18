@@ -6,6 +6,8 @@ import os
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.oneone.bopop", category: "app")
     private let storage = Storage.production()
+    private let paletteController = PaletteController()
+    private let hotkeyManager = HotkeyManager()
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -61,10 +63,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem.menu = menu
         self.statusItem = statusItem
+
+        let hotkeyConfig = HotkeyConfig.load(from: .standard)
+        hotkeyManager.onHotkey = { [weak self] in
+            self?.paletteController.toggle()
+        }
+        hotkeyManager.register(hotkeyConfig)
+        DispatchQueue.main.async {
+            SpotlightConflict.warnIfConflicting(with: hotkeyConfig)
+        }
     }
 
     @objc private func showBopop() {
-        logger.info("Show Bopop selected")
+        paletteController.toggle()
     }
 
     @objc private func showSettings() {
