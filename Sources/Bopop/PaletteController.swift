@@ -272,6 +272,8 @@ final class PaletteController: NSObject {
             "Open"
         case .copyText:
             "Copy"
+        case .clearClipboardHistory:
+            "Clear"
         case .runScript:
             "Run Script"
         case .enterMode:

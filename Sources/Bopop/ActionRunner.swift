@@ -4,14 +4,20 @@ import BopopKit
 @MainActor
 final class ActionRunner {
     private let storage: Storage
+    private let clipboardStore: ClipboardStore
     private let scriptFeedback: ScriptFeedback
 
     var onModeChange: ((Mode) -> Void)?
     var onExecuted: ((SearchResult) -> Void)?
     var hidePalette: (() -> Void)?
 
-    init(storage: Storage, scriptFeedback: ScriptFeedback) {
+    init(
+        storage: Storage,
+        clipboardStore: ClipboardStore,
+        scriptFeedback: ScriptFeedback
+    ) {
         self.storage = storage
+        self.clipboardStore = clipboardStore
         self.scriptFeedback = scriptFeedback
     }
 
@@ -55,6 +61,8 @@ final class ActionRunner {
         case let .copyText(text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        case .clearClipboardHistory:
+            clipboardStore.clear()
         case let .runScript(path):
             let name = URL(fileURLWithPath: path)
                 .deletingPathExtension()

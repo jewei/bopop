@@ -1,5 +1,25 @@
 import Foundation
 
+public nonisolated enum ClipboardCapturePolicy {
+    private static let concealedType = "org.nspasteboard.ConcealedType"
+    private static let transientType = "org.nspasteboard.TransientType"
+
+    public static func shouldCapture(
+        types: [String],
+        frontmostBundleID: String?,
+        denied: Set<String>
+    ) -> Bool {
+        guard !types.contains(concealedType),
+              !types.contains(transientType) else {
+            return false
+        }
+        guard let frontmostBundleID else {
+            return true
+        }
+        return !denied.contains(frontmostBundleID)
+    }
+}
+
 public struct ClipboardEntry: Codable, Equatable, Sendable {
     public let text: String
     public let capturedAt: Date
@@ -61,6 +81,11 @@ public final class ClipboardStore {
         persist()
     }
 
+    public func clear() {
+        entries.removeAll()
+        persist()
+    }
+
     private func trimToLimit() {
         if entries.count > limit {
             entries.removeLast(entries.count - limit)
@@ -93,8 +118,12 @@ public final class ClipboardProvider: ResultProvider {
         guard query.mode == .clipboard else {
             return []
         }
+        let entries = store.entries
+        guard !entries.isEmpty else {
+            return []
+        }
 
-        return store.entries.enumerated().map { index, entry in
+        var results = entries.enumerated().map { index, entry in
             SearchResult(
                 id: "clip:\(entry.capturedAt.timeIntervalSince1970)",
                 providerID: .clipboard,
@@ -111,6 +140,19 @@ public final class ClipboardProvider: ResultProvider {
                 sortHint: index
             )
         }
+        results.append(
+            SearchResult(
+                id: "clip:clear",
+                providerID: .clipboard,
+                title: "Clear Clipboard History",
+                icon: .symbol("trash"),
+                keywords: ["clear", "delete"],
+                action: .clearClipboardHistory,
+                secondaryActions: [],
+                sortHint: entries.count
+            )
+        )
+        return results
     }
 
     private func title(for text: String) -> String {

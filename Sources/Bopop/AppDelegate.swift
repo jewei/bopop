@@ -46,9 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let scriptFeedback = ScriptFeedback(storage: storage)
         let actionRunner = ActionRunner(
             storage: storage,
+            clipboardStore: clipboardStore,
             scriptFeedback: scriptFeedback
         )
-        actionRunner.onExecuted = { usageStore.record($0.id) }
+        actionRunner.onExecuted = { result in
+            guard result.action != .clearClipboardHistory else {
+                return
+            }
+            usageStore.record(result.id)
+        }
         self.storage = storage
         self.usageStore = usageStore
         self.clipboardStore = clipboardStore

@@ -48,13 +48,13 @@ Deliberate decisions:
 ## Security & privacy
 
 - Fully local. No telemetry, no analytics, no network calls.
-- Clipboard: transient/concealed pasteboard types (password managers) are never captured; entries are capped at 100 KB; contents never appear in any log; `clipboard.json` is `-rw-------` inside a `drwx------` directory.
+- Clipboard privacy has three layers: (1) apps marking `org.nspasteboard.ConcealedType` or `org.nspasteboard.TransientType` are never captured; (2) copies made while Apple Passwords or Keychain Access is frontmost are skipped using a heuristic, though a copy followed by an instant app switch within the 0.5 s poll can evade it; (3) "Clear Clipboard History" wipes the stored history on demand. Entries are capped at 100 KB; contents never appear in any log; `clipboard.json` is `-rw-------` inside a `drwx------` directory.
 - Scripts (`~/Library/Application Support/Bopop/Scripts`): run only on explicit Return, never from typed input alone; executed directly via `Process` with an empty argv — no shell, no interpolation; rows carry a visible "Script" badge; output goes to `scripts.log` only. There is deliberately no timeout — a long-running script is legitimate.
 - Permissions: nothing requested up front. Notification auth is requested on first script run; macOS file-access prompts appear only when you open a protected file. Accessibility is never requested.
 - Logs use `os.Logger` with private interpolation for paths and queries.
 
 ## Testing
 
-`swift test` — 66 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), app catalog (fixture bundles), and script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang).
+`swift test` — 73 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles), and script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang).
 
 Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.

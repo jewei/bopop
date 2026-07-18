@@ -108,6 +108,23 @@ func clipboardStoreSetLimitTrimsAndPersists() throws {
 
 @MainActor
 @Test
+func clipboardStoreClearEmptiesAndPersistsWithPrivatePermissions() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(storage: fixture.storage)
+    store.add("private clipboard text")
+
+    store.clear()
+
+    #expect(store.entries.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: fixture.storage.clipboardFileURL.path))
+    let reloadedStore = ClipboardStore(storage: fixture.storage)
+    #expect(reloadedStore.entries.isEmpty)
+    #expect(try clipboardPermissions(at: fixture.storage.clipboardFileURL) == 0o600)
+}
+
+@MainActor
+@Test
 func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
     let fixture = try makeClipboardStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -131,10 +148,38 @@ func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
     )
 
     #expect(generalResults.isEmpty)
-    #expect(firstResults.map(\.title) == ["newer", "older"])
-    #expect(firstResults.map(\.id) == ["clip:1001.0", "clip:1000.0"])
+    #expect(firstResults.map(\.title) == [
+        "newer",
+        "older",
+        "Clear Clipboard History"
+    ])
+    #expect(firstResults.map(\.id) == [
+        "clip:1001.0",
+        "clip:1000.0",
+        "clip:clear"
+    ])
     #expect(secondResults.map(\.id) == firstResults.map(\.id))
-    #expect(firstResults.map(\.sortHint) == [0, 1])
+    #expect(firstResults.map(\.sortHint) == [0, 1, 2])
+    #expect(firstResults.last?.icon == .symbol("trash"))
+    #expect(firstResults.last?.keywords == ["clear", "delete"])
+    #expect(firstResults.last?.action == .clearClipboardHistory)
+    #expect(firstResults.last?.secondaryActions == [])
+}
+
+@MainActor
+@Test
+func clipboardProviderReturnsNoClearCommandForEmptyStore() async throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let provider = ClipboardProvider(
+        store: ClipboardStore(storage: fixture.storage)
+    )
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .clipboard, term: "")
+    )
+
+    #expect(results.isEmpty)
 }
 
 @MainActor
@@ -172,6 +217,51 @@ func clipboardProviderCapsSearchKeywordsButCopiesFullText() async throws {
     #expect(results[0].keywords == [String(repeating: "x", count: 1_000)])
     #expect(results[0].action == .copyText(text))
     #expect(results[0].secondaryActions == [.copyText(text)])
+}
+
+@Test
+func clipboardCapturePolicyRejectsConcealedType() {
+    #expect(!ClipboardCapturePolicy.shouldCapture(
+        types: ["public.utf8-plain-text", "org.nspasteboard.ConcealedType"],
+        frontmostBundleID: nil,
+        denied: []
+    ))
+}
+
+@Test
+func clipboardCapturePolicyRejectsTransientType() {
+    #expect(!ClipboardCapturePolicy.shouldCapture(
+        types: ["org.nspasteboard.TransientType"],
+        frontmostBundleID: nil,
+        denied: []
+    ))
+}
+
+@Test
+func clipboardCapturePolicyRejectsDeniedFrontmostApp() {
+    #expect(!ClipboardCapturePolicy.shouldCapture(
+        types: ["public.utf8-plain-text"],
+        frontmostBundleID: "com.apple.Passwords",
+        denied: ["com.apple.Passwords"]
+    ))
+}
+
+@Test
+func clipboardCapturePolicyAllowsNilFrontmostApp() {
+    #expect(ClipboardCapturePolicy.shouldCapture(
+        types: ["public.utf8-plain-text"],
+        frontmostBundleID: nil,
+        denied: ["com.apple.Passwords"]
+    ))
+}
+
+@Test
+func clipboardCapturePolicyAllowsNormalCopy() {
+    #expect(ClipboardCapturePolicy.shouldCapture(
+        types: ["public.utf8-plain-text"],
+        frontmostBundleID: "com.apple.TextEdit",
+        denied: ["com.apple.Passwords"]
+    ))
 }
 
 private func makeClipboardStorage() throws -> (root: URL, storage: Storage) {

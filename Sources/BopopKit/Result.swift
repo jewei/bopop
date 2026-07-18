@@ -20,6 +20,7 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case openApp(String)
     case openFile(String)
     case copyText(String)
+    case clearClipboardHistory
     case runScript(String)
     case enterMode(Mode)
 }
