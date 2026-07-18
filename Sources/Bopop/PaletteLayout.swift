@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 enum PaletteLayout {
     struct InstalledConstraints {
@@ -6,10 +7,23 @@ enum PaletteLayout {
         let modeFieldLeading: NSLayoutConstraint
     }
 
+    private static let queryFont = NSFont.systemFont(ofSize: 34, weight: .heavy)
+    private static let queryKern = -0.68
+
+    private static var queryTextAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: queryFont,
+            .foregroundColor: NSColor.white,
+            .kern: queryKern
+        ]
+    }
+
     static func install(
         in panel: PalettePanel,
         queryField: NSTextField,
+        brandView: PaletteBrandView,
         modeChip: PaletteModeChipView,
+        escapeKeycap: PaletteKeycapView,
         scrollView: NSScrollView,
         tableView: NSTableView,
         footerView: PaletteFooterView
@@ -23,11 +37,17 @@ enum PaletteLayout {
         contentView.blendingMode = .behindWindow
         contentView.state = .active
 
+        let tintView = PaletteTintView()
+        tintView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(tintView)
+
         let searchArea = NSView()
         searchArea.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(searchArea)
-        searchArea.addSubview(queryField)
+        searchArea.addSubview(brandView)
         searchArea.addSubview(modeChip)
+        searchArea.addSubview(queryField)
+        searchArea.addSubview(escapeKeycap)
 
         let fieldSeparator = PaletteSeparatorView()
         fieldSeparator.translatesAutoresizingMaskIntoConstraints = false
@@ -36,8 +56,8 @@ enum PaletteLayout {
         contentView.addSubview(footerView)
 
         let generalLeading = queryField.leadingAnchor.constraint(
-            equalTo: searchArea.leadingAnchor,
-            constant: PaletteMetrics.horizontalInset
+            equalTo: brandView.trailingAnchor,
+            constant: 14
         )
         let modeLeading = queryField.leadingAnchor.constraint(
             equalTo: modeChip.trailingAnchor,
@@ -46,21 +66,40 @@ enum PaletteLayout {
 
         generalLeading.isActive = true
         NSLayoutConstraint.activate([
+            tintView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            tintView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            tintView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            tintView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
             searchArea.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             searchArea.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             searchArea.topAnchor.constraint(equalTo: contentView.topAnchor),
             searchArea.heightAnchor.constraint(equalToConstant: PaletteMetrics.fieldHeight),
 
-            modeChip.leadingAnchor.constraint(
+            brandView.leadingAnchor.constraint(
                 equalTo: searchArea.leadingAnchor,
-                constant: PaletteMetrics.horizontalInset
+                constant: PaletteMetrics.headerInset
+            ),
+            brandView.centerYAnchor.constraint(equalTo: searchArea.centerYAnchor),
+            brandView.widthAnchor.constraint(equalToConstant: PaletteMetrics.brandSquareSize),
+            brandView.heightAnchor.constraint(equalToConstant: PaletteMetrics.brandSquareSize),
+
+            modeChip.leadingAnchor.constraint(
+                equalTo: brandView.trailingAnchor,
+                constant: 10
             ),
             modeChip.centerYAnchor.constraint(equalTo: searchArea.centerYAnchor),
             modeChip.heightAnchor.constraint(equalToConstant: 20),
 
-            queryField.trailingAnchor.constraint(
+            escapeKeycap.trailingAnchor.constraint(
                 equalTo: searchArea.trailingAnchor,
-                constant: -PaletteMetrics.horizontalInset
+                constant: -PaletteMetrics.headerInset
+            ),
+            escapeKeycap.centerYAnchor.constraint(equalTo: searchArea.centerYAnchor),
+
+            queryField.trailingAnchor.constraint(
+                equalTo: escapeKeycap.leadingAnchor,
+                constant: -16
             ),
             queryField.centerYAnchor.constraint(equalTo: searchArea.centerYAnchor),
 
@@ -87,7 +126,17 @@ enum PaletteLayout {
         )
     }
 
+    static func configureFieldEditor(_ editor: NSTextView) {
+        editor.font = queryFont
+        editor.textColor = .white
+        editor.insertionPointColor = .bopopAccent
+        editor.typingAttributes.merge(queryTextAttributes) { _, newValue in
+            newValue
+        }
+    }
+
     private static func configurePanel(_ panel: PalettePanel) {
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.level = .statusBar
         panel.collectionBehavior = [
             .canJoinAllSpaces,
@@ -105,21 +154,24 @@ enum PaletteLayout {
     }
 
     private static func configureQueryField(_ queryField: NSTextField) {
-        let font = NSFont.systemFont(ofSize: 20, weight: .regular)
         queryField.isEditable = true
         queryField.isBordered = false
         queryField.drawsBackground = false
         queryField.focusRingType = .none
-        queryField.font = font
-        queryField.textColor = .labelColor
+        queryField.font = queryFont
+        queryField.textColor = .white
+        queryField.allowsEditingTextAttributes = true
+        queryField.lineBreakMode = .byTruncatingTail
         queryField.placeholderAttributedString = NSAttributedString(
             string: "Search Bopop…",
             attributes: [
-                .font: font,
-                .foregroundColor: NSColor.secondaryLabelColor
+                .font: queryFont,
+                .foregroundColor: NSColor.white.withAlphaComponent(0.35),
+                .kern: queryKern
             ]
         )
         queryField.translatesAutoresizingMaskIntoConstraints = false
+        queryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         queryField.setAccessibilityLabel("Search Bopop")
     }
 
@@ -133,7 +185,7 @@ enum PaletteLayout {
         tableView.headerView = nil
         tableView.style = .plain
         tableView.rowHeight = PaletteMetrics.rowHeight
-        tableView.intercellSpacing = .zero
+        tableView.intercellSpacing = NSSize(width: 0, height: PaletteMetrics.interRowGap)
         tableView.selectionHighlightStyle = .regular
         tableView.allowsEmptySelection = false
         tableView.allowsMultipleSelection = false
@@ -147,13 +199,51 @@ enum PaletteLayout {
         scrollView.scrollerStyle = .overlay
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets(
-            top: PaletteMetrics.listVerticalPadding,
-            left: 0,
-            bottom: PaletteMetrics.listVerticalPadding,
-            right: 0
+            top: PaletteMetrics.listTopInset,
+            left: PaletteMetrics.listSideInset,
+            bottom: PaletteMetrics.listBottomInset,
+            right: PaletteMetrics.listSideInset
         )
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.isHidden = true
+    }
+}
+
+final class PaletteBrandView: NSView {
+    private let gradientLayer = CAGradientLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureView()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = bounds
+        CATransaction.commit()
+    }
+
+    private func configureView() {
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        layer?.cornerRadius = PaletteMetrics.brandSquareRadius
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+
+        gradientLayer.colors = [
+            NSColor.bopopAccent.cgColor,
+            NSColor.bopopAccentSoft.cgColor
+        ]
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        layer?.addSublayer(gradientLayer)
+        setAccessibilityHidden(true)
     }
 }
 
@@ -181,20 +271,19 @@ final class PaletteModeChipView: NSView {
         invalidateIntrinsicContentSize()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateLayerColors()
-    }
-
     private func configureView() {
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = 10
+        layer?.cornerCurve = .continuous
+        layer?.backgroundColor = NSColor.bopopAccent
+            .withAlphaComponent(0.15)
+            .cgColor
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         label.textColor = .bopopAccent
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -206,15 +295,73 @@ final class PaletteModeChipView: NSView {
             label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
         ])
-        updateLayerColors()
+    }
+}
+
+final class PaletteKeycapView: NSView {
+    private let label: NSTextField
+    private let horizontalPadding: CGFloat
+    private let verticalPadding: CGFloat
+
+    init(
+        text: String,
+        fontSize: CGFloat,
+        textAlpha: CGFloat,
+        horizontalPadding: CGFloat,
+        verticalPadding: CGFloat
+    ) {
+        label = NSTextField(labelWithString: text)
+        self.horizontalPadding = horizontalPadding
+        self.verticalPadding = verticalPadding
+        super.init(frame: .zero)
+        configureView(fontSize: fontSize, textAlpha: textAlpha)
     }
 
-    private func updateLayerColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.bopopAccent
-                .withAlphaComponent(0.14)
-                .cgColor
-        }
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: label.intrinsicContentSize.width + horizontalPadding * 2,
+            height: label.intrinsicContentSize.height + verticalPadding * 2
+        )
+    }
+
+    private func configureView(fontSize: CGFloat, textAlpha: CGFloat) {
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setAccessibilityHidden(true)
+
+        label.font = .monospacedSystemFont(ofSize: fontSize, weight: .medium)
+        label.textColor = NSColor.white.withAlphaComponent(textAlpha)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: horizontalPadding
+            ),
+            label.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -horizontalPadding
+            ),
+            label.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: verticalPadding
+            ),
+            label.bottomAnchor.constraint(
+                equalTo: bottomAnchor,
+                constant: -verticalPadding
+            )
+        ])
     }
 }
 
@@ -226,22 +373,28 @@ private final class PaletteMaterialView: NSVisualEffectView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.borderWidth = PaletteMetrics.separatorHeight
-        updateLayerColors()
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
     }
 
     required init?(coder: NSCoder) {
         nil
     }
+}
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateLayerColors()
+private final class PaletteTintView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(
+            srgbRed: 22 / 255,
+            green: 20 / 255,
+            blue: 30 / 255,
+            alpha: 0.72
+        ).cgColor
     }
 
-    private func updateLayerColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.borderColor = NSColor.separatorColor.cgColor
-        }
+    required init?(coder: NSCoder) {
+        nil
     }
 }
 
@@ -249,21 +402,10 @@ private final class PaletteSeparatorView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        updateLayerColors()
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.07).cgColor
     }
 
     required init?(coder: NSCoder) {
         nil
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateLayerColors()
-    }
-
-    private func updateLayerColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.separatorColor.cgColor
-        }
     }
 }

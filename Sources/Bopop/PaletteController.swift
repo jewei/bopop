@@ -11,7 +11,15 @@ final class PaletteController: NSObject {
     private let onWillShow: () -> Void
     private let panel: PalettePanel
     private let queryField = NSTextField()
+    private let brandView = PaletteBrandView()
     private let modeChip = PaletteModeChipView()
+    private let escapeKeycap = PaletteKeycapView(
+        text: "esc",
+        fontSize: 11,
+        textAlpha: 0.40,
+        horizontalPadding: 8,
+        verticalPadding: 3
+    )
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let footerView = PaletteFooterView()
@@ -45,7 +53,9 @@ final class PaletteController: NSObject {
         layoutConstraints = PaletteLayout.install(
             in: panel,
             queryField: queryField,
+            brandView: brandView,
             modeChip: modeChip,
+            escapeKeycap: escapeKeycap,
             scrollView: scrollView,
             tableView: tableView,
             footerView: footerView
@@ -83,8 +93,6 @@ final class PaletteController: NSObject {
         panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(queryField)
-        (panel.fieldEditor(true, for: queryField) as? NSTextView)?
-            .insertionPointColor = .bopopAccent
         updateQuery()
     }
 
@@ -192,7 +200,11 @@ final class PaletteController: NSObject {
         guard results.indices.contains(selectedIndex) else {
             return false
         }
-        actionRunner.performCopy(results[selectedIndex])
+        let result = results[selectedIndex]
+        guard Self.hasCopyAction(result) else {
+            return false
+        }
+        actionRunner.performCopy(result)
         return true
     }
 
@@ -206,6 +218,9 @@ final class PaletteController: NSObject {
     }
 
     private func updateQuery() {
+        if let editor = queryField.currentEditor() as? NSTextView {
+            PaletteLayout.configureFieldEditor(editor)
+        }
         let query = QueryParser.parse(
             raw: queryField.stringValue,
             stickyMode: stickyMode
@@ -263,24 +278,28 @@ final class PaletteController: NSObject {
         let result = results[selectedIndex]
         footerView.setActions(
             primary: Self.actionTitle(for: result.action),
-            hasCopy: !Self.isCopyAction(result.action)
-                && result.secondaryActions.contains(where: Self.isCopyAction)
+            hasCopy: Self.hasCopyAction(result)
         )
     }
 
     private static func actionTitle(for action: ResultAction) -> String {
         switch action {
         case .openApp, .openFile:
-            "Open"
+            "open"
         case .copyText:
-            "Copy"
+            "copy"
         case .clearClipboardHistory:
-            "Clear"
+            "clear"
         case .runScript:
-            "Run Script"
+            "run"
         case .enterMode:
-            "Enter"
+            "select"
         }
+    }
+
+    private static func hasCopyAction(_ result: SearchResult) -> Bool {
+        isCopyAction(result.action)
+            || result.secondaryActions.contains(where: isCopyAction)
     }
 
     private static func isCopyAction(_ action: ResultAction) -> Bool {
@@ -291,11 +310,16 @@ final class PaletteController: NSObject {
     }
 
     private static func panelHeight(resultCount: Int) -> CGFloat {
-        let listHeight = resultCount == 0
-            ? 0
-            : CGFloat(min(resultCount, PaletteMetrics.maxVisibleRows))
-                * PaletteMetrics.rowHeight
-                + PaletteMetrics.listVerticalPadding * 2
+        let visibleRows = min(resultCount, PaletteMetrics.maxVisibleRows)
+        let listHeight: CGFloat
+        if visibleRows == 0 {
+            listHeight = 0
+        } else {
+            listHeight = CGFloat(visibleRows) * PaletteMetrics.rowHeight
+                + CGFloat(visibleRows - 1) * PaletteMetrics.interRowGap
+                + PaletteMetrics.listTopInset
+                + PaletteMetrics.listBottomInset
+        }
         return PaletteMetrics.fieldHeight
             + PaletteMetrics.separatorHeight
             + listHeight
@@ -359,6 +383,7 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
             owner: self
         ) as? ResultRowView ?? ResultRowView()
         rowView.configure(with: results[row])
+        rowView.setSelected(tableView.selectedRow == row)
         return rowView
     }
 

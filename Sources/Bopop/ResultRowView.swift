@@ -1,28 +1,12 @@
 import AppKit
 import BopopKit
+import QuartzCore
 
 final class PaletteRowView: NSTableRowView {
-    private static let selectionFillColor = NSColor(name: nil) { appearance in
-        let alpha = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? 0.12
-            : 0.09
-        return resolvedAccent(for: appearance, alpha: alpha)
-    }
-
-    private static let selectionStrokeColor = NSColor(name: nil) { appearance in
-        resolvedAccent(for: appearance, alpha: 0.25)
-    }
-
-    private static func resolvedAccent(
-        for appearance: NSAppearance,
-        alpha: CGFloat
-    ) -> NSColor {
-        var accent = NSColor.bopopAccent
-        appearance.performAsCurrentDrawingAppearance {
-            accent = NSColor.bopopAccent.usingColorSpace(.sRGB)
-                ?? NSColor.bopopAccent
+    override var isSelected: Bool {
+        didSet {
+            updateCellSelection()
         }
-        return accent.withAlphaComponent(alpha)
     }
 
     override var isEmphasized: Bool {
@@ -30,42 +14,52 @@ final class PaletteRowView: NSTableRowView {
         set { super.isEmphasized = true }
     }
 
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        updateCellSelection()
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
-        let capsuleRect = bounds.insetBy(
-            dx: PaletteMetrics.rowSelectionInset,
-            dy: 2
-        )
+        let capsuleRect = bounds.insetBy(dx: 0, dy: 2)
         let capsulePath = NSBezierPath(
             roundedRect: capsuleRect,
-            xRadius: 8,
-            yRadius: 8
+            xRadius: PaletteMetrics.selectionRadius,
+            yRadius: PaletteMetrics.selectionRadius
         )
-        Self.selectionFillColor.setFill()
+        NSColor.bopopAccent.withAlphaComponent(0.14).setFill()
         capsulePath.fill()
 
+        let strokeRect = capsuleRect.insetBy(dx: 0.5, dy: 0.5)
         let strokePath = NSBezierPath(
-            roundedRect: capsuleRect.insetBy(dx: 0.5, dy: 0.5),
-            xRadius: 7.5,
-            yRadius: 7.5
+            roundedRect: strokeRect,
+            xRadius: PaletteMetrics.selectionRadius - 0.5,
+            yRadius: PaletteMetrics.selectionRadius - 0.5
         )
         strokePath.lineWidth = 1
-        Self.selectionStrokeColor.setStroke()
+        NSColor.bopopAccent.withAlphaComponent(0.30).setStroke()
         strokePath.stroke()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+    private func updateCellSelection() {
+        (view(atColumn: 0) as? ResultRowView)?.setSelected(isSelected)
     }
 }
 
 final class ResultRowView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("ResultRowView")
 
-    private let iconView = NSImageView()
+    private let iconView = ResultIconView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let badgeView = PaletteBadgeView()
+    private let returnKeycap = PaletteKeycapView(
+        text: "↵",
+        fontSize: 10,
+        textAlpha: 0.50,
+        horizontalPadding: 7,
+        verticalPadding: 3
+    )
+    private var selected = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -77,12 +71,13 @@ final class ResultRowView: NSTableCellView {
     }
 
     func configure(with result: SearchResult) {
-        iconView.image = image(for: result.icon)
+        iconView.configure(with: result.icon)
         titleLabel.stringValue = result.title
         detailLabel.stringValue = result.subtitle ?? ""
         detailLabel.isHidden = result.subtitle == nil
         badgeView.setText(result.badge ?? "")
         badgeView.isHidden = result.badge == nil
+        applySelectionStyle()
 
         let accessibilityText = [result.title, result.subtitle]
             .compactMap { $0 }
@@ -90,71 +85,181 @@ final class ResultRowView: NSTableCellView {
         setAccessibilityLabel(accessibilityText)
     }
 
+    func setSelected(_ isSelected: Bool) {
+        selected = isSelected
+        applySelectionStyle()
+    }
+
     private func configureView() {
         identifier = Self.reuseIdentifier
 
-        iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: 22),
-            iconView.heightAnchor.constraint(equalToConstant: 22)
+            iconView.widthAnchor.constraint(equalToConstant: PaletteMetrics.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: PaletteMetrics.iconSize)
         ])
 
-        titleLabel.font = .systemFont(ofSize: 13, weight: .regular)
-        titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
-        titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        detailLabel.font = .systemFont(ofSize: 11)
-        detailLabel.textColor = .secondaryLabelColor
-        detailLabel.alignment = .right
+        detailLabel.alignment = .left
         detailLabel.lineBreakMode = .byTruncatingHead
         detailLabel.maximumNumberOfLines = 1
-        detailLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let textStack = NSStackView(views: [titleLabel, detailLabel])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 2
+        textStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        returnKeycap.isHidden = true
 
         let rowStack = NSStackView(views: [
             iconView,
-            titleLabel,
-            detailLabel,
-            badgeView
+            textStack,
+            badgeView,
+            returnKeycap
         ])
         rowStack.orientation = .horizontal
         rowStack.alignment = .centerY
         rowStack.spacing = 8
-        rowStack.setCustomSpacing(10, after: iconView)
+        rowStack.setCustomSpacing(12, after: iconView)
+        rowStack.setCustomSpacing(10, after: textStack)
         rowStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowStack)
 
         NSLayoutConstraint.activate([
             rowStack.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: PaletteMetrics.horizontalInset
+                constant: PaletteMetrics.rowContentPadding
             ),
             rowStack.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -PaletteMetrics.horizontalInset
+                constant: -PaletteMetrics.rowContentPadding
             ),
-            rowStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            detailLabel.widthAnchor.constraint(
-                lessThanOrEqualTo: widthAnchor,
-                multiplier: 0.45
-            )
+            rowStack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
 
+        applySelectionStyle()
         setAccessibilityElement(true)
     }
 
-    private func image(for icon: BopopKit.IconRef) -> NSImage? {
+    private func applySelectionStyle() {
+        titleLabel.font = .systemFont(
+            ofSize: selected ? 14.5 : 14,
+            weight: selected ? .semibold : .medium
+        )
+        titleLabel.textColor = NSColor.white.withAlphaComponent(selected ? 1 : 0.85)
+        detailLabel.font = .systemFont(ofSize: selected ? 11.5 : 11, weight: .regular)
+        detailLabel.textColor = NSColor.white.withAlphaComponent(0.45)
+        iconView.setSelected(selected)
+        returnKeycap.isHidden = !selected
+    }
+}
+
+private final class ResultIconView: NSView {
+    private let tileView = NSView()
+    private let gradientLayer = CAGradientLayer()
+    private let imageView = NSImageView()
+    private var showsTile = false
+    private var selected = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureView()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = tileView.bounds
+        CATransaction.commit()
+    }
+
+    func configure(with icon: BopopKit.IconRef) {
         switch icon {
         case let .appBundle(path), let .file(path):
-            return NSWorkspace.shared.icon(forFile: path)
+            showsTile = false
+            imageView.image = NSWorkspace.shared.icon(forFile: path)
+            imageView.contentTintColor = nil
+            imageView.imageScaling = .scaleProportionallyUpOrDown
         case let .symbol(name):
-            return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            configureSymbol(named: name)
         case .none:
-            return NSImage(systemSymbolName: "doc", accessibilityDescription: "Item")
+            configureSymbol(named: "doc")
         }
+        updateTileStyle()
+    }
+
+    func setSelected(_ isSelected: Bool) {
+        selected = isSelected
+        updateTileStyle()
+    }
+
+    private func configureView() {
+        wantsLayer = true
+
+        tileView.wantsLayer = true
+        tileView.layer?.cornerRadius = PaletteMetrics.tileRadius
+        tileView.layer?.cornerCurve = .continuous
+        tileView.layer?.masksToBounds = true
+        tileView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(tileView)
+
+        gradientLayer.colors = [
+            NSColor.bopopAccent.cgColor,
+            NSColor.bopopAccentDeep.cgColor
+        ]
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        tileView.layer?.addSublayer(gradientLayer)
+
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+
+        NSLayoutConstraint.activate([
+            tileView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tileView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            tileView.topAnchor.constraint(equalTo: topAnchor),
+            tileView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    private func configureSymbol(named name: String) {
+        showsTile = true
+        imageView.image = NSImage(
+            systemSymbolName: name,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        )
+        imageView.contentTintColor = .white
+        imageView.imageScaling = .scaleProportionallyDown
+    }
+
+    private func updateTileStyle() {
+        tileView.isHidden = !showsTile
+        tileView.layer?.backgroundColor = NSColor.white
+            .withAlphaComponent(0.06)
+            .cgColor
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.isHidden = !showsTile || !selected
+        CATransaction.commit()
     }
 }
 
@@ -174,20 +279,17 @@ private final class PaletteBadgeView: NSView {
         label.stringValue = text
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateLayerColors()
-    }
-
     private func configureView() {
         wantsLayer = true
         layer?.cornerRadius = 5
+        layer?.cornerCurve = .continuous
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
         translatesAutoresizingMaskIntoConstraints = false
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        label.font = .systemFont(ofSize: 10, weight: .medium)
-        label.textColor = .secondaryLabelColor
+        label.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        label.textColor = NSColor.white.withAlphaComponent(0.55)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -198,12 +300,5 @@ private final class PaletteBadgeView: NSView {
             label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
         ])
-        updateLayerColors()
-    }
-
-    private func updateLayerColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
-        }
     }
 }

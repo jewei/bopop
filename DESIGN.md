@@ -1,54 +1,48 @@
-# Bopop Design System
+# Bopop Design System — v2 "Minimal Mono"
 
-Mood: **one neon accent in a matte workshop** — a single magenta-plum glow against quiet system materials. The brand lives in the accent and nowhere else; surfaces are always native translucent material, never painted.
+Source: Claude design export `~/Downloads/next-generation-productivity-launcher` option **1a (Minimal Mono — dark glass, restrained)**. The palette is committed dark glass regardless of system appearance; the Settings window follows the system. Fonts are native equivalents: Inter → SF Pro (system), JetBrains Mono → SF Mono (`.monospacedSystemFont`). No bundled fonts.
 
-## Color
+## Color (palette surface — dark-committed, literal values)
 
-Brand hue 340° (OKLCH), one accent, dynamic per appearance:
-
-| Role | Light | Dark | Usage |
-|---|---|---|---|
-| `accent` | `#aa2b8a` (oklch 0.52 0.19 340) | `#ec7fca` (oklch 0.74 0.16 340) | Selection tint/edge, mode chip, footer glyph, query caret, settings focus. NOTHING else. |
-| `iconBG` | `#6f1859` | same | App icon background only |
-| `iconDot` | `#f59cd8` | same | App icon "pop" dot only |
-
-Everything else is a system dynamic color: `labelColor`, `secondaryLabelColor`, `quaternaryLabelColor`, `separatorColor`. Panel/window surfaces: `NSVisualEffectView` `.underWindowBackground`. Never tint a surface with the accent; never use the accent for body text.
-
-Derived accent uses (both appearances must pass):
-- Selection capsule: accent at 12% alpha fill (dark) / 9% (light) + 1px inner border accent at 25% alpha. Row text stays `labelColor` on top.
-- Mode chip: accent at 14% alpha fill, text in full `accent` (contrast verified ≥ 5.8:1 light, ≥ 6.6:1 dark against material).
-- Query caret (`insertionPointColor`) and footer ⌘ glyph: full `accent`.
-- Keycaps, badges, separators: stay neutral (informational, not brand).
-
-## Typography
-
-System font only (SF Pro via `.systemFont`). Fixed scale:
-
-| Element | Size / weight | Color |
+| Token | Value | Usage |
 |---|---|---|
-| Query field | 20 regular | labelColor; placeholder secondaryLabelColor |
-| Row title | 13 regular | labelColor |
-| Row detail (trailing path/kind) | 11 regular | secondaryLabelColor, truncate head |
-| Badge / chip / keycap / footer | 11 (badge 10) medium; chip semibold | see color table |
+| `accent` | `#7c5cff` | THE brand violet: selection tint/border, brand square, keycap emphasis, settings tint |
+| `accentDeep` | `#5b3ff0` | Gradient partner (tiles, icon) |
+| `accentSoft` | `#a48bff` | Gradient partner (brand square), icon dot |
+| `panelTint` | `rgba(22,20,30,0.72)` | Overlay on the blur material |
+| `panelBorder` | `white 10%` | 1px hairline edge |
+| `hairline` | `white 7%` | Header/footer separators |
+| `textPrimary` | `white` | Query text, selected title |
+| `textStrong` | `white 85%` | Unselected titles |
+| `textSecondary` | `white 45%` | Subtitles, footer, esc keycap |
+| `tileNeutral` | `white 6%` | Symbol icon tiles |
+| `keycapBorder` | `white 15%` | Keycap outlines |
+| Selection | fill `#7c5cff` 14%, border 1px `#7c5cff` 30% | Selected row |
 
-## Spacing & radii
+Settings window: system appearance + `.tint(#7c5cff)`. App icon: gradient `#7c5cff→#5b3ff0`, white rounded "b", `#a48bff` dot.
 
-- Panel: width 680, corner 16 continuous, 1px `separatorColor` hairline edge.
-- Field area 56 · row 40 · footer 34 · list vertical padding 4 · horizontal inset 16 · selection capsule inset 8, radius 8 · chip radius 6 · keycap radius 4 · icons 22 (rows), 13 (footer).
-- Settings window: 380 wide, grouped Form, 20 outer padding.
+## Typography (SF Pro / SF Mono)
 
-## Components
+| Element | Spec |
+|---|---|
+| Query field | 34 heavy (`.heavy`), tracking −0.02em, white; placeholder white 35% |
+| Row title | 14.5 semibold (selected) / 14 medium, textStrong |
+| Row subtitle | 11.5 / 11 regular, textSecondary, 2pt below title |
+| Footer + keycaps + chip | SF Mono medium 11 (keycap ↵ 10) |
 
-- **Palette**: field / hairline / list / footer. Footer always visible: left = mode/status with accent ⌘ glyph, right = verb + `↩` keycap, divider, "Copy" + `⌘C` keycap.
-- **Selection**: accent-tinted capsule (above), always emphasized (field keeps first responder).
-- **Mode chip**: pill, accent-tinted, text "Files"/"Clipboard".
-- **Settings**: SwiftUI grouped Form — Shortcut (recorder w/ accent focus ring), Clipboard (retention stepper), General (launch at login). Same accent, same type scale.
-- **App icon**: deep-plum rounded square, white rounded "b" + pale-pink pop dot ("b•").
+## Layout & metrics
+
+- Panel: width 620, radius 20 continuous, `NSVisualEffectView` (dark appearance forced) + `panelTint` overlay, 1px `panelBorder`, heavy shadow.
+- Header: 76 tall, insets 24; contents: 20×20 radius-6 brand square (gradient `#7c5cff→#a48bff`, 135°) · query field · `esc` keycap (SF Mono 11, textSecondary, border keycapBorder, radius 6, padding 8×3). 1px hairline below.
+- List: insets 8 top / 10 sides / 14 bottom; row height 52; 4pt gap between rows (intercell); row content padding 14 h; selection radius 10.
+- Rows: 32×32 leading icon — real app/file icons raw; symbol results in a radius-8 tile (`tileNeutral`; selected row's tile: gradient `#7c5cff→#5b3ff0`, white symbol). Two-line text block (single line vertically centered when no subtitle). Selected row shows trailing `↵` keycap.
+- Footer: 40 tall, insets 22, hairline above, SF Mono 11 textSecondary. Left: "Bopop" (or mode/status text). Right: `↑↓ navigate` · `⌘C copy` · `↵ select` (⌘K reserved until an actions menu exists).
+- Mode chip (Files/Clipboard): SF Mono 11, accent text on accent 15% pill, radius 10, after the brand square.
 
 ## Motion
 
-None. A launcher that animates is a launcher that is slow. `animationBehavior = .none` stays.
+None. Instant show/hide.
 
 ## Accessibility
 
-Both appearances first-class; every accent use listed above passes ≥ 4.5:1 where it carries text, ≥ 3:1 for large glyphs. VoiceOver labels on rows, field, footer verbs; keycaps hidden from accessibility.
+Dark-committed palette: all text tokens above pass ≥ 4.5:1 on the tinted glass (white 45% floor ≈ 4.6:1 on `#16141e`). VoiceOver labels unchanged; keycaps stay accessibility-hidden.
