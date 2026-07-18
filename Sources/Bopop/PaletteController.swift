@@ -10,6 +10,7 @@ final class PaletteController: NSObject {
 
     private let engine: QueryEngine
     private let actionRunner: ActionRunner
+    private let onWillShow: () -> Void
     private let panel: PalettePanel
     private let queryField = NSTextField()
     private let modeChip = NSTextField(labelWithString: "")
@@ -22,9 +23,14 @@ final class PaletteController: NSObject {
     private var selectedIndex = 0
     private var isHiding = false
 
-    init(engine: QueryEngine, actionRunner: ActionRunner) {
+    init(
+        engine: QueryEngine,
+        actionRunner: ActionRunner,
+        onWillShow: @escaping () -> Void = {}
+    ) {
         self.engine = engine
         self.actionRunner = actionRunner
+        self.onWillShow = onWillShow
         panel = PalettePanel(
             contentRect: NSRect(
                 origin: .zero,
@@ -54,6 +60,7 @@ final class PaletteController: NSObject {
     }
 
     func show() {
+        onWillShow()
         let mouseLocation = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: {
             NSMouseInRect(mouseLocation, $0.frame, false)

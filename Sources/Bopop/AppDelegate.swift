@@ -5,29 +5,45 @@ import os
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.oneone.bopop", category: "app")
-    private let storage = Storage.production()
+    private let storage: Storage
+    private let usageStore: UsageStore
+    private let appCatalog: AppCatalog
     private let paletteController: PaletteController
     private let hotkeyManager = HotkeyManager()
     private var statusItem: NSStatusItem?
 
     override init() {
+        let storage = Storage.production()
+        let usageStore = UsageStore(storage: storage)
+        let appCatalog = AppCatalog()
+        let appsProvider = AppsProvider(
+            catalog: appCatalog,
+            frecencyFor: usageStore.score
+        )
         let engine = QueryEngine(
             providers: [
-                .general: [CommandsProvider(), DemoProvider()],
+                .general: [CommandsProvider(), appsProvider],
                 .fileSearch: [],
                 .clipboard: []
-            ]
+            ],
+            frecencyFor: usageStore.score
         )
         let actionRunner = ActionRunner()
+        actionRunner.onExecuted = { usageStore.record($0.id) }
+        self.storage = storage
+        self.usageStore = usageStore
+        self.appCatalog = appCatalog
         paletteController = PaletteController(
             engine: engine,
-            actionRunner: actionRunner
+            actionRunner: actionRunner,
+            onWillShow: appCatalog.refreshIfStale
         )
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? storage.ensureDirectories()
+        appCatalog.refreshIfStale()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
