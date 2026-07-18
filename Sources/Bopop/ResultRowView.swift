@@ -117,22 +117,28 @@ final class ResultRowView: NSTableCellView {
         textStack.orientation = .vertical
         textStack.alignment = .leading
         textStack.spacing = 2
-        textStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // The text block must be the ONLY stretchable member, or Auto Layout
+        // breaks the tie arbitrarily per reuse pass and the ↵ keycap wanders.
+        textStack.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
         textStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        badgeView.setContentHuggingPriority(.required, for: .horizontal)
+        badgeView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        returnKeycap.setContentHuggingPriority(.required, for: .horizontal)
+        returnKeycap.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         returnKeycap.isHidden = true
 
-        let rowStack = NSStackView(views: [
-            iconView,
-            textStack,
-            badgeView,
-            returnKeycap
-        ])
+        // Gravity areas, not a flat view list: leading cluster hugs left,
+        // trailing cluster (badge + ↵) pins right, free space in between.
+        let rowStack = NSStackView()
+        rowStack.addView(iconView, in: .leading)
+        rowStack.addView(textStack, in: .leading)
+        rowStack.addView(badgeView, in: .trailing)
+        rowStack.addView(returnKeycap, in: .trailing)
         rowStack.orientation = .horizontal
         rowStack.alignment = .centerY
         rowStack.spacing = 8
         rowStack.setCustomSpacing(12, after: iconView)
-        rowStack.setCustomSpacing(10, after: textStack)
         rowStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowStack)
 
