@@ -36,6 +36,10 @@ enum PaletteLayout {
         contentView.material = .underWindowBackground
         contentView.blendingMode = .behindWindow
         contentView.state = .active
+        // Layer cornerRadius clips the CONTENT but not the blur material —
+        // the visual-effect region needs its own rounded mask, otherwise a
+        // faint square material edge ghosts around the corners.
+        contentView.maskImage = roundedCornerMask(radius: PaletteMetrics.cornerRadius)
 
         let tintView = PaletteTintView()
         tintView.translatesAutoresizingMaskIntoConstraints = false
@@ -135,6 +139,26 @@ enum PaletteLayout {
         }
     }
 
+    private static func roundedCornerMask(radius: CGFloat) -> NSImage {
+        let edge = radius * 2 + 1
+        let image = NSImage(
+            size: NSSize(width: edge, height: edge),
+            flipped: false
+        ) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(
+            top: radius,
+            left: radius,
+            bottom: radius,
+            right: radius
+        )
+        image.resizingMode = .stretch
+        return image
+    }
+
     private static func configurePanel(_ panel: PalettePanel) {
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.level = .statusBar
@@ -145,6 +169,7 @@ enum PaletteLayout {
             .ignoresCycle
         ]
         panel.isFloatingPanel = true
+        panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
