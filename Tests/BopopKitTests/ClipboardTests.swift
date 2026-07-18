@@ -1,0 +1,188 @@
+import Foundation
+import Testing
+@testable import BopopKit
+
+@MainActor
+@Test
+func clipboardStoreDeduplicatesOnlyConsecutiveEntries() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+
+    store.add("A")
+    store.add("A")
+    #expect(store.entries.map(\.text) == ["A"])
+
+    store.add("B")
+    store.add("A")
+    #expect(store.entries.map(\.text) == ["A", "B", "A"])
+    #expect(store.entries.map(\.capturedAt) == [
+        Date(timeIntervalSince1970: 1_002),
+        Date(timeIntervalSince1970: 1_001),
+        Date(timeIntervalSince1970: 1_000)
+    ])
+}
+
+@MainActor
+@Test
+func clipboardStoreEvictsOldestEntries() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(storage: fixture.storage, limit: 3)
+
+    for text in ["A", "B", "C", "D"] {
+        store.add(text)
+    }
+
+    #expect(store.entries.map(\.text) == ["D", "C", "B"])
+}
+
+@MainActor
+@Test
+func clipboardStoreEnforcesUTF8SizeLimit() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(storage: fixture.storage)
+
+    store.add(String(repeating: "x", count: 100_001))
+    #expect(store.entries.isEmpty)
+
+    let maximumText = String(repeating: "x", count: 100_000)
+    store.add(maximumText)
+    #expect(store.entries.map(\.text) == [maximumText])
+}
+
+@MainActor
+@Test
+func clipboardStoreSkipsEmptyAndWhitespaceOnlyText() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(storage: fixture.storage)
+
+    store.add("")
+    store.add(" \t\n\r")
+
+    #expect(store.entries.isEmpty)
+}
+
+@MainActor
+@Test
+func clipboardStorePersistsWithPrivatePermissions() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let capturedAt = Date(timeIntervalSince1970: 1_000)
+    let firstStore = ClipboardStore(
+        storage: fixture.storage,
+        now: { capturedAt }
+    )
+    firstStore.add("persisted")
+
+    let secondStore = ClipboardStore(storage: fixture.storage)
+
+    #expect(secondStore.entries == [
+        ClipboardEntry(text: "persisted", capturedAt: capturedAt)
+    ])
+    #expect(try clipboardPermissions(at: fixture.storage.clipboardFileURL) == 0o600)
+}
+
+@MainActor
+@Test
+func clipboardStoreSetLimitTrimsAndPersists() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(storage: fixture.storage, limit: 5)
+    for text in ["A", "B", "C", "D", "E"] {
+        store.add(text)
+    }
+
+    store.setLimit(2)
+
+    #expect(store.entries.map(\.text) == ["E", "D"])
+    let reloadedStore = ClipboardStore(storage: fixture.storage, limit: 5)
+    #expect(reloadedStore.entries.map(\.text) == ["E", "D"])
+}
+
+@MainActor
+@Test
+func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+    store.add("older")
+    store.add("newer")
+    let provider = ClipboardProvider(store: store)
+
+    let generalResults = try await provider.results(
+        for: ParsedQuery(mode: .general, term: "")
+    )
+    let firstResults = try await provider.results(
+        for: ParsedQuery(mode: .clipboard, term: "")
+    )
+    let secondResults = try await provider.results(
+        for: ParsedQuery(mode: .clipboard, term: "")
+    )
+
+    #expect(generalResults.isEmpty)
+    #expect(firstResults.map(\.title) == ["newer", "older"])
+    #expect(firstResults.map(\.id) == ["clip:1001.0", "clip:1000.0"])
+    #expect(secondResults.map(\.id) == firstResults.map(\.id))
+    #expect(firstResults.map(\.sortHint) == [0, 1])
+}
+
+@MainActor
+@Test
+func clipboardProviderBuildsTruncatedFirstLineTitles() async throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(storage: fixture.storage)
+    store.add(String(repeating: "x", count: 100))
+    store.add("line1\nline2")
+    let provider = ClipboardProvider(store: store)
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .clipboard, term: "")
+    )
+
+    #expect(results[0].title == "line1")
+    #expect(results[1].title == String(repeating: "x", count: 60) + "…")
+}
+
+@MainActor
+@Test
+func clipboardProviderCapsSearchKeywordsButCopiesFullText() async throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let text = String(repeating: "x", count: 2_000)
+    let store = ClipboardStore(storage: fixture.storage)
+    store.add(text)
+    let provider = ClipboardProvider(store: store)
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .clipboard, term: "needle")
+    )
+
+    #expect(results[0].keywords == [String(repeating: "x", count: 1_000)])
+    #expect(results[0].action == .copyText(text))
+    #expect(results[0].secondaryActions == [.copyText(text)])
+}
+
+private func makeClipboardStorage() throws -> (root: URL, storage: Storage) {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+    return (root, storage)
+}
+
+private func clipboardPermissions(at url: URL) throws -> Int {
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
+}

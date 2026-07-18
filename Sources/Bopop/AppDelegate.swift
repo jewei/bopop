@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.oneone.bopop", category: "app")
     private let storage: Storage
     private let usageStore: UsageStore
+    private let clipboardStore: ClipboardStore
+    private let pasteboardWatcher: PasteboardWatcher
     private let appCatalog: AppCatalog
     private let paletteController: PaletteController
     private let hotkeyManager = HotkeyManager()
@@ -15,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         let storage = Storage.production()
         let usageStore = UsageStore(storage: storage)
+        let clipboardStore = ClipboardStore(storage: storage)
+        let pasteboardWatcher = PasteboardWatcher(store: clipboardStore)
         let appCatalog = AppCatalog()
         let appsProvider = AppsProvider(
             catalog: appCatalog,
@@ -28,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     CalculatorProvider()
                 ],
                 .fileSearch: [],
-                .clipboard: []
+                .clipboard: [ClipboardProvider(store: clipboardStore)]
             ],
             frecencyFor: usageStore.score
         )
@@ -36,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actionRunner.onExecuted = { usageStore.record($0.id) }
         self.storage = storage
         self.usageStore = usageStore
+        self.clipboardStore = clipboardStore
+        self.pasteboardWatcher = pasteboardWatcher
         self.appCatalog = appCatalog
         paletteController = PaletteController(
             engine: engine,
@@ -47,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? storage.ensureDirectories()
+        pasteboardWatcher.start()
         appCatalog.refreshIfStale()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
