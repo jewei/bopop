@@ -46,7 +46,6 @@ public final class CalculatorProvider: ResultProvider {
                 id: "calc",
                 providerID: .calculator,
                 title: "= \(formatted)",
-                subtitle: "Press Return to copy",
                 icon: .symbol("equal.circle"),
                 // The title does not match the expression. Preserve the raw term so
                 // Ranker gives this result an exact tier instead of filtering it out.
