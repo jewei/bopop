@@ -1,21 +1,48 @@
 import AppKit
+import BopopKit
 
-final class PaletteController: NSObject, NSTextFieldDelegate {
-    private static let panelSize = NSSize(width: 640, height: 60)
+final class PaletteController: NSObject {
+    private static let panelWidth: CGFloat = 640
+    private static let searchHeight: CGFloat = 60
+    private static let rowHeight: CGFloat = 48
+    private static let maximumVisibleRows = 9
+    private static let resultsBottomPadding: CGFloat = 8
 
+    private let engine: QueryEngine
+    private let actionRunner: ActionRunner
     private let panel: PalettePanel
     private let queryField = NSTextField()
+    private let modeChip = NSTextField(labelWithString: "")
+    private let scrollView = NSScrollView()
+    private let tableView = NSTableView()
+    private let layoutConstraints: PaletteLayout.InstalledConstraints
+
+    private var stickyMode: Mode = .general
+    private var results: [SearchResult] = []
+    private var selectedIndex = 0
     private var isHiding = false
 
-    override init() {
+    init(engine: QueryEngine, actionRunner: ActionRunner) {
+        self.engine = engine
+        self.actionRunner = actionRunner
         panel = PalettePanel(
-            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: Self.panelWidth, height: Self.searchHeight)
+            ),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        layoutConstraints = PaletteLayout.install(
+            in: panel,
+            queryField: queryField,
+            modeChip: modeChip,
+            scrollView: scrollView,
+            tableView: tableView
+        )
         super.init()
-        configurePanel()
+        connectCallbacks()
     }
 
     func toggle() {
@@ -36,13 +63,16 @@ final class PaletteController: NSObject, NSTextFieldDelegate {
 
         let visibleFrame = screen.visibleFrame
         let top = visibleFrame.maxY - (visibleFrame.height * 0.25)
-        let origin = NSPoint(
-            x: visibleFrame.midX - (Self.panelSize.width / 2),
-            y: top - Self.panelSize.height
+        let frame = NSRect(
+            x: visibleFrame.midX - (Self.panelWidth / 2),
+            y: top - Self.searchHeight,
+            width: Self.panelWidth,
+            height: Self.searchHeight
         )
-        panel.setFrame(NSRect(origin: origin, size: Self.panelSize), display: true)
+        panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(queryField)
+        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
     }
 
     func hide() {
@@ -52,8 +82,124 @@ final class PaletteController: NSObject, NSTextFieldDelegate {
 
         isHiding = true
         defer { isHiding = false }
+        engine.cancel()
         panel.orderOut(nil)
+        stickyMode = .general
         queryField.stringValue = ""
+        results = []
+        selectedIndex = 0
+        tableView.reloadData()
+        scrollView.isHidden = true
+        layoutConstraints.resultsBottom.constant = 0
+        updateModeChip()
+        resizePanel()
+    }
+
+    private func connectCallbacks() {
+        queryField.delegate = self
+        tableView.dataSource = self
+        tableView.delegate = self
+
+        panel.onResign = { [weak self] in self?.hide() }
+        panel.onCommandCopy = { [weak self] in
+            self?.performSelectedCopy() ?? false
+        }
+        engine.onUpdate = { [weak self] update in
+            self?.apply(update)
+        }
+        actionRunner.onModeChange = { [weak self] mode in
+            self?.enterMode(mode)
+        }
+        actionRunner.hidePalette = { [weak self] in
+            self?.hide()
+        }
+    }
+
+    private func apply(_ update: QueryEngine.Update) {
+        results = update.results
+        selectedIndex = 0
+        tableView.reloadData()
+        scrollView.isHidden = results.isEmpty
+        layoutConstraints.resultsBottom.constant = results.isEmpty
+            ? 0
+            : -Self.resultsBottomPadding
+
+        if results.isEmpty {
+            tableView.deselectAll(nil)
+        } else {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            tableView.scrollRowToVisible(0)
+        }
+        resizePanel()
+    }
+
+    private func enterMode(_ mode: Mode) {
+        stickyMode = mode
+        queryField.stringValue = ""
+        updateModeChip()
+        engine.update(raw: "", stickyMode: stickyMode)
+    }
+
+    private func updateModeChip() {
+        switch stickyMode {
+        case .general:
+            modeChip.isHidden = true
+            layoutConstraints.modeFieldLeading.isActive = false
+            layoutConstraints.generalFieldLeading.isActive = true
+        case .fileSearch:
+            modeChip.stringValue = "Files"
+            modeChip.isHidden = false
+            layoutConstraints.generalFieldLeading.isActive = false
+            layoutConstraints.modeFieldLeading.isActive = true
+        case .clipboard:
+            modeChip.stringValue = "Clipboard"
+            modeChip.isHidden = false
+            layoutConstraints.generalFieldLeading.isActive = false
+            layoutConstraints.modeFieldLeading.isActive = true
+        }
+    }
+
+    private func moveSelection(by offset: Int) {
+        guard !results.isEmpty else {
+            return
+        }
+        selectedIndex = min(max(selectedIndex + offset, 0), results.count - 1)
+        tableView.selectRowIndexes(
+            IndexSet(integer: selectedIndex),
+            byExtendingSelection: false
+        )
+        tableView.scrollRowToVisible(selectedIndex)
+    }
+
+    private func performSelectedCopy() -> Bool {
+        if let editor = queryField.currentEditor() as? NSTextView,
+           editor.selectedRange().length > 0 {
+            return false
+        }
+        guard results.indices.contains(selectedIndex) else {
+            return false
+        }
+        actionRunner.performCopy(results[selectedIndex])
+        return true
+    }
+
+    private func resizePanel() {
+        let visibleRows = min(results.count, Self.maximumVisibleRows)
+        let bottomPadding = results.isEmpty ? 0 : Self.resultsBottomPadding
+        let newHeight = Self.searchHeight
+            + CGFloat(visibleRows) * Self.rowHeight
+            + bottomPadding
+        var frame = panel.frame
+        let top = frame.maxY
+        frame.origin.y = top - newHeight
+        frame.size.height = newHeight
+        panel.setFrame(frame, display: true)
+    }
+}
+
+extension PaletteController: NSTextFieldDelegate {
+    func controlTextDidChange(_ notification: Notification) {
+        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
     }
 
     func control(
@@ -62,56 +208,57 @@ final class PaletteController: NSObject, NSTextFieldDelegate {
         doCommandBy commandSelector: Selector
     ) -> Bool {
         switch commandSelector {
+        case #selector(NSResponder.moveUp(_:)):
+            moveSelection(by: -1)
+        case #selector(NSResponder.moveDown(_:)):
+            moveSelection(by: 1)
+        case #selector(NSResponder.insertNewline(_:)):
+            if results.indices.contains(selectedIndex) {
+                actionRunner.perform(results[selectedIndex])
+            }
         case #selector(NSResponder.cancelOperation(_:)):
-            hide()
-            return true
+            switch EscapePolicy.action(
+                textIsEmpty: queryField.stringValue.isEmpty,
+                stickyMode: stickyMode
+            ) {
+            case .clearText:
+                queryField.stringValue = ""
+                engine.update(raw: "", stickyMode: stickyMode)
+            case .exitMode:
+                stickyMode = .general
+                updateModeChip()
+                engine.update(raw: "", stickyMode: stickyMode)
+            case .closePanel:
+                hide()
+            }
         default:
             return false
         }
+        return true
+    }
+}
+
+extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        results.count
     }
 
-    private func configurePanel() {
-        panel.level = .statusBar
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .fullScreenAuxiliary,
-            .transient,
-            .ignoresCycle
-        ]
-        panel.isFloatingPanel = true
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.animationBehavior = .none
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.onResign = { [weak self] in
-            self?.hide()
+    func tableView(
+        _ tableView: NSTableView,
+        viewFor tableColumn: NSTableColumn?,
+        row: Int
+    ) -> NSView? {
+        let rowView = tableView.makeView(
+            withIdentifier: ResultRowView.reuseIdentifier,
+            owner: self
+        ) as? ResultRowView ?? ResultRowView()
+        rowView.configure(with: results[row])
+        return rowView
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        if results.indices.contains(tableView.selectedRow) {
+            selectedIndex = tableView.selectedRow
         }
-
-        let contentView = NSVisualEffectView()
-        contentView.material = .popover
-        contentView.blendingMode = .behindWindow
-        contentView.state = .active
-        contentView.wantsLayer = true
-        contentView.layer?.cornerRadius = 12
-        contentView.layer?.masksToBounds = true
-
-        queryField.isEditable = true
-        queryField.isBordered = false
-        queryField.drawsBackground = false
-        queryField.focusRingType = .none
-        queryField.font = .systemFont(ofSize: 22)
-        queryField.placeholderString = "Search"
-        queryField.delegate = self
-        queryField.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(queryField)
-        NSLayoutConstraint.activate([
-            queryField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            queryField.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            queryField.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
-        ])
-        panel.contentView = contentView
     }
 }

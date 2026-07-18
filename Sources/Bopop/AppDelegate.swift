@@ -6,9 +6,25 @@ import os
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.oneone.bopop", category: "app")
     private let storage = Storage.production()
-    private let paletteController = PaletteController()
+    private let paletteController: PaletteController
     private let hotkeyManager = HotkeyManager()
     private var statusItem: NSStatusItem?
+
+    override init() {
+        let engine = QueryEngine(
+            providers: [
+                .general: [CommandsProvider(), DemoProvider()],
+                .fileSearch: [],
+                .clipboard: []
+            ]
+        )
+        let actionRunner = ActionRunner()
+        paletteController = PaletteController(
+            engine: engine,
+            actionRunner: actionRunner
+        )
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? storage.ensureDirectories()
