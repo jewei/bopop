@@ -29,6 +29,8 @@ final class PaletteController: NSObject {
     private var results: [SearchResult] = []
     private var selectedIndex = 0
     private var isHiding = false
+    private var isProgrammaticFrameChange = false
+    private var userAdjustedPosition = false
 
     init(
         engine: QueryEngine,
@@ -74,23 +76,32 @@ final class PaletteController: NSObject {
 
     func show() {
         onWillShow()
-        let mouseLocation = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: {
-            NSMouseInRect(mouseLocation, $0.frame, false)
-        }) ?? NSScreen.main else {
-            return
-        }
-
-        let visibleFrame = screen.visibleFrame
-        let top = visibleFrame.maxY - (visibleFrame.height * 0.25)
         let height = Self.panelHeight(resultCount: results.count)
-        let frame = NSRect(
-            x: visibleFrame.midX - (PaletteMetrics.width / 2),
-            y: top - height,
-            width: PaletteMetrics.width,
-            height: height
-        )
-        panel.setFrame(frame, display: true)
+        let frame: NSRect
+        if let topLeft = savedTopLeft(), Self.isOnAnyScreen(topLeft) {
+            frame = NSRect(
+                x: topLeft.x,
+                y: topLeft.y - height,
+                width: PaletteMetrics.width,
+                height: height
+            )
+        } else {
+            let mouseLocation = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: {
+                NSMouseInRect(mouseLocation, $0.frame, false)
+            }) ?? NSScreen.main else {
+                return
+            }
+            let visibleFrame = screen.visibleFrame
+            let top = visibleFrame.maxY - (visibleFrame.height * 0.25)
+            frame = NSRect(
+                x: visibleFrame.midX - (PaletteMetrics.width / 2),
+                y: top - height,
+                width: PaletteMetrics.width,
+                height: height
+            )
+        }
+        setFrameProgrammatically(frame)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(queryField)
         updateQuery()
@@ -104,6 +115,7 @@ final class PaletteController: NSObject {
         isHiding = true
         defer { isHiding = false }
         engine.cancel()
+        persistPositionIfUserAdjusted()
         panel.orderOut(nil)
         stickyMode = .general
         queryField.stringValue = ""
@@ -128,6 +140,18 @@ final class PaletteController: NSObject {
         }
         engine.onUpdate = { [weak self] update in
             self?.apply(update)
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.isProgrammaticFrameChange else {
+                    return
+                }
+                self.userAdjustedPosition = true
+            }
         }
         actionRunner.onModeChange = { [weak self] mode in
             self?.enterMode(mode)
@@ -214,7 +238,42 @@ final class PaletteController: NSObject {
         let top = frame.maxY
         frame.origin.y = top - newHeight
         frame.size.height = newHeight
+        setFrameProgrammatically(frame)
+    }
+
+    // MARK: - Dragged-position memory
+
+    private static let positionXKey = "palettePositionTopLeftX"
+    private static let positionYKey = "palettePositionTopLeftY"
+
+    private func setFrameProgrammatically(_ frame: NSRect) {
+        isProgrammaticFrameChange = true
+        defer { isProgrammaticFrameChange = false }
         panel.setFrame(frame, display: true)
+    }
+
+    private func persistPositionIfUserAdjusted() {
+        guard userAdjustedPosition else {
+            return
+        }
+        let defaults = UserDefaults.standard
+        defaults.set(Double(panel.frame.origin.x), forKey: Self.positionXKey)
+        defaults.set(Double(panel.frame.maxY), forKey: Self.positionYKey)
+    }
+
+    private func savedTopLeft() -> NSPoint? {
+        let defaults = UserDefaults.standard
+        guard let x = defaults.object(forKey: Self.positionXKey) as? NSNumber,
+              let y = defaults.object(forKey: Self.positionYKey) as? NSNumber else {
+            return nil
+        }
+        return NSPoint(x: x.doubleValue, y: y.doubleValue)
+    }
+
+    private static func isOnAnyScreen(_ topLeft: NSPoint) -> Bool {
+        NSScreen.screens.contains { screen in
+            NSMouseInRect(topLeft, screen.visibleFrame, false)
+        }
     }
 
     private func updateQuery() {
