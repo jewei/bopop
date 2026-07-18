@@ -140,6 +140,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             SpotlightConflict.warnIfConflicting(with: hotkeyConfig)
         }
+        // Headless smoke hook: BOPOP_DEBUG_AUTOSHOW=1 opens the palette
+        // shortly after launch so UI regressions are reproducible without
+        // a keyboard (used to catch the row-init exception in 2720f0c-era).
+        if ProcessInfo.processInfo.environment["BOPOP_DEBUG_AUTOSHOW"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.paletteController.toggle()
+            }
+        }
     }
 
     @objc private func showBopop() {

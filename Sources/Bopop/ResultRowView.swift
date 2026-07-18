@@ -41,6 +41,11 @@ final class PaletteRowView: NSTableRowView {
     }
 
     private func updateCellSelection() {
+        // AppKit sets isSelected during row initialization, before any cell
+        // view exists — viewAtColumn: throws on the empty row then.
+        guard numberOfColumns > 0 else {
+            return
+        }
         (view(atColumn: 0) as? ResultRowView)?.setSelected(isSelected)
     }
 }
