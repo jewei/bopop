@@ -7,6 +7,7 @@ final class PasteboardWatcher {
         "com.apple.Passwords",
         "com.apple.keychainaccess"
     ]
+    static let upstreamClearScrubWindow: TimeInterval = 600
 
     private static let concealedType = NSPasteboard.PasteboardType(
         "org.nspasteboard.ConcealedType"
@@ -66,6 +67,13 @@ final class PasteboardWatcher {
         lastChangeCount = changeCount
 
         let types = pasteboard.types ?? []
+        if ClipboardCapturePolicy.isUpstreamClear(types: types.map(\.rawValue)) {
+            // A bare clearContents (Apple Passwords fires one ~90 s after a
+            // copy) means the source considered the content sensitive — forget
+            // our newest capture too.
+            store.forgetNewest(ifCapturedWithin: Self.upstreamClearScrubWindow)
+            return
+        }
         guard !types.contains(Self.concealedType),
               !types.contains(Self.transientType) else {
             return

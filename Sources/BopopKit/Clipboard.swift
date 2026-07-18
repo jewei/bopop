@@ -18,6 +18,12 @@ public nonisolated enum ClipboardCapturePolicy {
         }
         return !denied.contains(frontmostBundleID)
     }
+
+    /// A pasteboard change carrying zero types is a deliberate upstream clear —
+    /// real copies always declare types (text, images, and files included).
+    public static func isUpstreamClear(types: [String]) -> Bool {
+        types.isEmpty
+    }
 }
 
 public struct ClipboardEntry: Codable, Equatable, Sendable {
@@ -83,6 +89,19 @@ public final class ClipboardStore {
 
     public func clear() {
         entries.removeAll()
+        persist()
+    }
+
+    /// Upstream sensitive-clear scrub: when something wipes the pasteboard with
+    /// a bare clearContents (zero types — Apple Passwords does this ~90 s after
+    /// a copy), drop the most recent capture so the secret doesn't outlive the
+    /// clipboard here.
+    public func forgetNewest(ifCapturedWithin window: TimeInterval) {
+        guard let newest = entries.first,
+              now().timeIntervalSince(newest.capturedAt) <= window else {
+            return
+        }
+        entries.removeFirst()
         persist()
     }
 

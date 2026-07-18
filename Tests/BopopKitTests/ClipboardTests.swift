@@ -43,6 +43,52 @@ func clipboardStoreEvictsOldestEntries() throws {
 
 @MainActor
 @Test
+func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) { currentDate }
+
+    store.add("older")
+    currentDate = Date(timeIntervalSince1970: 1_010)
+    store.add("secret")
+    currentDate = Date(timeIntervalSince1970: 1_100)
+
+    store.forgetNewest(ifCapturedWithin: 600)
+    #expect(store.entries.map(\.text) == ["older"])
+
+    let reloaded = ClipboardStore(storage: fixture.storage)
+    #expect(reloaded.entries.map(\.text) == ["older"])
+}
+
+@MainActor
+@Test
+func clipboardStoreKeepsNewestWhenClearArrivesLate() throws {
+    let fixture = try makeClipboardStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) { currentDate }
+
+    store.add("kept")
+    currentDate = Date(timeIntervalSince1970: 1_700)
+
+    store.forgetNewest(ifCapturedWithin: 600)
+    #expect(store.entries.map(\.text) == ["kept"])
+
+    store.clear()
+    store.forgetNewest(ifCapturedWithin: 600)
+    #expect(store.entries.isEmpty)
+}
+
+@Test
+func capturePolicyDetectsUpstreamClear() {
+    #expect(ClipboardCapturePolicy.isUpstreamClear(types: []))
+    #expect(!ClipboardCapturePolicy.isUpstreamClear(types: ["public.utf8-plain-text"]))
+    #expect(!ClipboardCapturePolicy.isUpstreamClear(types: ["public.png"]))
+}
+
+@MainActor
+@Test
 func clipboardStoreEnforcesUTF8SizeLimit() throws {
     let fixture = try makeClipboardStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
