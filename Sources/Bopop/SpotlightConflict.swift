@@ -2,16 +2,24 @@ import AppKit
 import BopopKit
 
 enum SpotlightConflict {
-    static func warnIfConflicting(with config: HotkeyConfig) {
+    static let keyboardSettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension?Shortcuts"
+    )!
+
+    static func isConflicting(with config: HotkeyConfig) -> Bool {
         guard config == .default else {
-            return
+            return false
         }
 
         let symbolicHotkeys = CFPreferencesCopyAppValue(
             "AppleSymbolicHotKeys" as CFString,
             "com.apple.symbolichotkeys" as CFString
         ) as? [String: Any]
-        guard SpotlightShortcut.isEnabled(inSymbolicHotkeys: symbolicHotkeys) else {
+        return SpotlightShortcut.isEnabled(inSymbolicHotkeys: symbolicHotkeys)
+    }
+
+    static func warnIfConflicting(with config: HotkeyConfig) {
+        guard isConflicting(with: config) else {
             return
         }
 
@@ -26,10 +34,6 @@ enum SpotlightConflict {
             return
         }
 
-        NSWorkspace.shared.open(
-            URL(
-                string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension?Shortcuts"
-            )!
-        )
+        NSWorkspace.shared.open(keyboardSettingsURL)
     }
 }

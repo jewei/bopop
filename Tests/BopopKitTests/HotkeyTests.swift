@@ -32,6 +32,19 @@ func hotkeyConfigSaveAndLoadRoundTrip() {
 }
 
 @Test
+func recordedHotkeyConfigSaveAndLoadRoundTrip() {
+    let suiteName = "HotkeyTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let recorded = HotkeyConfig(keyCode: 49, modifiers: [.option])
+    recorded.save(to: defaults)
+
+    #expect(HotkeyConfig.load(from: defaults) == recorded)
+}
+
+@Test
 func hotkeyConfigLoadsDefaultFromEmptyDefaults() {
     let suiteName = "HotkeyTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!

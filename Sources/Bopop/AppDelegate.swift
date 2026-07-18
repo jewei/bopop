@@ -1,25 +1,28 @@
 import AppKit
 import BopopKit
-import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let logger = Logger(subsystem: "com.oneone.bopop", category: "app")
     private let storage: Storage
     private let usageStore: UsageStore
     private let clipboardStore: ClipboardStore
     private let pasteboardWatcher: PasteboardWatcher
     private let appCatalog: AppCatalog
     private let paletteController: PaletteController
-    private let hotkeyManager = HotkeyManager()
+    private let hotkeyManager: HotkeyManager
+    private let settingsModel: SettingsModel
+    private let settingsWindowController: SettingsWindowController
     private var statusItem: NSStatusItem?
 
     override init() {
+        let defaults = UserDefaults.standard
         let storage = Storage.production()
         let usageStore = UsageStore(storage: storage)
-        let clipboardStore = ClipboardStore(storage: storage)
+        let clipboardLimit = SettingsModel.storedClipboardLimit(in: defaults)
+        let clipboardStore = ClipboardStore(storage: storage, limit: clipboardLimit)
         let pasteboardWatcher = PasteboardWatcher(store: clipboardStore)
         let appCatalog = AppCatalog()
+        let hotkeyManager = HotkeyManager()
         let appsProvider = AppsProvider(
             catalog: appCatalog,
             frecencyFor: usageStore.score
@@ -56,6 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actionRunner: actionRunner,
             onWillShow: appCatalog.refreshIfStale
         )
+        self.hotkeyManager = hotkeyManager
+        let settingsModel = SettingsModel(
+            hotkeyManager: hotkeyManager,
+            clipboardStore: clipboardStore,
+            defaults: defaults
+        )
+        self.settingsModel = settingsModel
+        settingsWindowController = SettingsWindowController(model: settingsModel)
         super.init()
     }
 
@@ -115,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
         self.statusItem = statusItem
 
-        let hotkeyConfig = HotkeyConfig.load(from: .standard)
+        let hotkeyConfig = settingsModel.hotkey
         hotkeyManager.onHotkey = { [weak self] in
             self?.paletteController.toggle()
         }
@@ -130,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showSettings() {
-        logger.info("Settings selected")
+        settingsWindowController.show()
     }
 
     @objc private func openScriptsFolder() {
