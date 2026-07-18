@@ -22,7 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let engine = QueryEngine(
             providers: [
-                .general: [CommandsProvider(), appsProvider],
+                .general: [
+                    CommandsProvider(),
+                    appsProvider,
+                    CalculatorProvider()
+                ],
                 .fileSearch: [],
                 .clipboard: []
             ],
