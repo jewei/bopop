@@ -172,6 +172,12 @@ public nonisolated enum TimeQueryParser {
         now: Date,
         localZone: TimeZone
     ) -> TimeConversion? {
+        // Weekday phrases ("next monday 3pm") and numeric dates ("10/13 9am")
+        // would fall through to the time-only path and silently answer with
+        // the wrong day — refuse them instead of guessing.
+        guard !containsUnsupportedDateToken(phrase.lowercased()) else {
+            return nil
+        }
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
             return nil
         }
@@ -250,6 +256,27 @@ public nonisolated enum TimeQueryParser {
     private static func containsMonthName(_ lowerPhrase: String) -> Bool {
         let words = lowerPhrase.split { !$0.isLetter }.map(String.init)
         return words.contains { monthNames.contains($0) }
+    }
+
+    private static let weekdayTokens: Set<String> = [
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun"
+    ]
+
+    private static func containsUnsupportedDateToken(_ lowerPhrase: String) -> Bool {
+        let words = lowerPhrase.split { !$0.isLetter && !$0.isNumber }
+        if words.contains(where: { weekdayTokens.contains(String($0)) }) {
+            return true
+        }
+
+        let characters = Array(lowerPhrase)
+        for index in characters.indices.dropFirst().dropLast()
+        where characters[index] == "/" || characters[index] == "-" {
+            if characters[index - 1].isNumber, characters[index + 1].isNumber {
+                return true
+            }
+        }
+        return false
     }
 
     private static func relativeDayOffset(in lowerPhrase: String) -> Int? {

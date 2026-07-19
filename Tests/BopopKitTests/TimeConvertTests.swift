@@ -54,6 +54,15 @@ private let localZone = TimeZone(identifier: "Asia/Kuala_Lumpur")!
     #expect(TimeQueryParser.parse("   ", now: fixedNow, localZone: localZone) == nil)
 }
 
+@Test func timeParserRejectsUnsupportedDateShapes() {
+    // Weekday and numeric-date phrases would silently resolve to the wrong
+    // day via the time-only fallback — they must refuse instead.
+    #expect(TimeQueryParser.parse("monday 3pm eastern", now: fixedNow, localZone: localZone) == nil)
+    #expect(TimeQueryParser.parse("next fri 9am PST", now: fixedNow, localZone: localZone) == nil)
+    #expect(TimeQueryParser.parse("10/13 9am eastern", now: fixedNow, localZone: localZone) == nil)
+    #expect(TimeQueryParser.parse("13-10 9am eastern", now: fixedNow, localZone: localZone) == nil)
+}
+
 // MARK: - DST awareness (America/New_York flips offset by date)
 
 @Test func timeParserUsesDaylightOffsetInOctober() throws {
