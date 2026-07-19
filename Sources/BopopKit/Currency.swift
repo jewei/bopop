@@ -229,6 +229,7 @@ public final class CurrencyProvider: ResultProvider {
     private let fetcher: RateFetcher
     private let now: @Sendable () -> Date
     private let relativeDateFormatter: RelativeDateTimeFormatter
+    private var refreshInFlight = false
 
     public init(
         store: RateStore,
@@ -272,10 +273,14 @@ public final class CurrencyProvider: ResultProvider {
     /// and let this unstructured task refresh it for next time without
     /// blocking the current query.
     private func refreshInBackground() {
-        let store = store
-        let fetcher = fetcher
-        let now = now
+        // One refresh at a time — while the cache is stale, every keystroke of
+        // the query re-enters here, and each must not become its own request.
+        guard !refreshInFlight else {
+            return
+        }
+        refreshInFlight = true
         Task {
+            defer { refreshInFlight = false }
             guard let freshRates = try? await fetcher.fetchEURBaseRates() else {
                 return
             }

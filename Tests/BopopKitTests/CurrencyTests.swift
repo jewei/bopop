@@ -293,3 +293,57 @@ private func makeCurrencyStorage() throws -> (root: URL, storage: Storage) {
     try storage.ensureDirectories()
     return (root, storage)
 }
+
+@MainActor
+@Test
+func currencyProviderStaleCacheRefreshesOnlyOnce() async throws {
+    let fixture = try makeCurrencyStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = RateStore(storage: fixture.storage)
+    let fixedNow = Date(timeIntervalSince1970: 1_000_000)
+    store.save(
+        rates: ["EUR": 1.0, "MYR": 4.0, "USD": 1.0],
+        fetchedAt: fixedNow.addingTimeInterval(-13 * 3_600)
+    )
+    let fetcher = GatedRateFetcher(rates: ["EUR": 1.0, "MYR": 4.1, "USD": 1.0])
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow })
+
+    // Two rapid stale-cache queries must share one background refresh.
+    _ = try await provider.results(for: ParsedQuery(mode: .general, term: "123myr to usd"))
+    _ = try await provider.results(for: ParsedQuery(mode: .general, term: "123myr to usd"))
+
+    await fetcher.waitUntilStarted()
+    #expect(await fetcher.startCount == 1)
+    await fetcher.release()
+}
+
+private actor GatedRateFetcher: RateFetcher {
+    private(set) var startCount = 0
+    private let rates: [String: Double]
+    private var gate: CheckedContinuation<Void, Never>?
+    private var startWaiter: CheckedContinuation<Void, Never>?
+
+    init(rates: [String: Double]) {
+        self.rates = rates
+    }
+
+    func fetchEURBaseRates() async throws -> [String: Double] {
+        startCount += 1
+        startWaiter?.resume()
+        startWaiter = nil
+        await withCheckedContinuation { gate = $0 }
+        return rates
+    }
+
+    func waitUntilStarted() async {
+        if startCount > 0 {
+            return
+        }
+        await withCheckedContinuation { startWaiter = $0 }
+    }
+
+    func release() {
+        gate?.resume()
+        gate = nil
+    }
+}
