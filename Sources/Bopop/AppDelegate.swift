@@ -152,20 +152,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    // Retained as @objc selectors (not currently wired to any live control —
-    // the gear menu closures above duplicate this logic because they must
-    // close over locals rather than self, see the init comment) so a future
-    // Dock-menu or NSMenuItem entry point can target them directly without
-    // re-deriving the bodies.
-    @objc private func showSettings() {
-        settingsWindowController.show()
-    }
-
-    @objc private func openScriptsFolder() {
-        NSWorkspace.shared.open(storage.scriptsDirectory)
-    }
-
-    @objc private func quitBopop() {
-        NSApp.terminate(nil)
-    }
 }
