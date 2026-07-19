@@ -6,6 +6,7 @@ import ServiceManagement
 @MainActor
 final class SettingsModel: ObservableObject {
     static let clipboardLimitKey = "clipboardLimit"
+    static let chineseVariantKey = "chineseVariant"
 
     @Published var hotkey: HotkeyConfig {
         didSet {
@@ -46,6 +47,12 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    @Published var chineseVariant: TranslationTarget {
+        didSet {
+            defaults.set(chineseVariant.rawValue, forKey: Self.chineseVariantKey)
+        }
+    }
+
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
 
@@ -67,6 +74,7 @@ final class SettingsModel: ObservableObject {
         clipboardLimit = Self.storedClipboardLimit(in: defaults)
         launchAtLogin = SMAppService.mainApp.status == .enabled
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
+        chineseVariant = Self.storedChineseVariant(in: defaults)
     }
 
     static func storedClipboardLimit(in defaults: UserDefaults) -> Int {
@@ -74,6 +82,14 @@ final class SettingsModel: ObservableObject {
             return 100
         }
         return clampClipboardLimit(stored.intValue)
+    }
+
+    static func storedChineseVariant(in defaults: UserDefaults) -> TranslationTarget {
+        guard let stored = defaults.string(forKey: chineseVariantKey),
+              let target = TranslationTarget(rawValue: stored) else {
+            return .chineseSimplified
+        }
+        return target
     }
 
     func recheckConflict() {

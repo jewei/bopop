@@ -35,6 +35,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let emojiFrecencyFor: @Sendable (String) -> Double = { id in
             MainActor.assumeIsolated { usageStore.score(id) }
         }
+        // settingsModel is constructed AFTER this engine (it needs
+        // hotkeyManager/clipboardStore which are wired up below), so this
+        // closure must not capture settingsModel — it reads defaults
+        // directly via the same static-read pattern as
+        // storedClipboardLimit, avoiding the ordering trap. It's invoked
+        // off the main actor during concurrent provider ranking (same
+        // reasoning as emojiFrecencyFor above), so bridge through
+        // assumeIsolated rather than relaxing SettingsModel's isolation.
+        let chineseVariantFor: @Sendable () -> TranslationTarget = {
+            MainActor.assumeIsolated { SettingsModel.storedChineseVariant(in: .standard) }
+        }
+        let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(
             providers: [
                 .general: [
@@ -52,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .clipboard: [ClipboardProvider(store: clipboardStore)],
                 .emoji: [
                     EmojiProvider(catalog: EmojiCatalog(), frecencyFor: emojiFrecencyFor)
+                ],
+                .translation: [
+                    TranslationProvider(
+                        translator: appleTranslator,
+                        chineseVariant: chineseVariantFor
+                    )
                 ]
             ],
             frecencyFor: usageStore.score

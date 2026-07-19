@@ -48,6 +48,13 @@ struct SettingsView: View {
                 )
             }
 
+            Section("Translation") {
+                Picker("Chinese variant", selection: $model.chineseVariant) {
+                    Text("Simplified Chinese").tag(TranslationTarget.chineseSimplified)
+                    Text("Traditional Chinese").tag(TranslationTarget.chineseTraditional)
+                }
+            }
+
             Section("General") {
                 Toggle("Launch Bopop at login", isOn: $model.launchAtLogin)
                 if let error = model.launchAtLoginError {
@@ -60,6 +67,6 @@ struct SettingsView: View {
         .tint(Color(nsColor: .bopopAccent))
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 380, height: 280)
+        .frame(width: 380, height: 320)
     }
 }
