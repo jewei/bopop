@@ -25,7 +25,10 @@ public nonisolated enum QueryParser {
         }
 
         if raw.first == ":", raw.count > 1 {
-            return ParsedQuery(mode: .emoji, term: String(raw.dropFirst()))
+            return ParsedQuery(
+                mode: .emoji,
+                term: String(raw.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
 
         guard raw.count >= 2 else {

@@ -33,6 +33,8 @@ import Testing
 @Test func queryParserEmojiPrefix() {
     #expect(QueryParser.parse(raw: ":fire", stickyMode: .general)
         == ParsedQuery(mode: .emoji, term: "fire"))
+    #expect(QueryParser.parse(raw: ":fire ", stickyMode: .general)
+        == ParsedQuery(mode: .emoji, term: "fire"))
     #expect(QueryParser.parse(raw: ":", stickyMode: .general).mode == .general)
     #expect(QueryParser.parse(raw: "t hello", stickyMode: .general)
         == ParsedQuery(mode: .translation, term: "hello"))
