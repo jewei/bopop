@@ -77,9 +77,12 @@ final class ActionRunner {
             }
         case .enterMode:
             break
-        case .openURL:
-            // stub — real NSWorkspace handling lands with the hero card UI wiring
-            break
+        case let .openURL(string):
+            guard let url = URL(string: string),
+                  url.scheme == "http" || url.scheme == "https" else {
+                return
+            }
+            NSWorkspace.shared.open(url)
         }
     }
 }

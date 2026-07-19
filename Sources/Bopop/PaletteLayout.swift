@@ -5,6 +5,8 @@ enum PaletteLayout {
     struct InstalledConstraints {
         let generalFieldLeading: NSLayoutConstraint
         let modeFieldLeading: NSLayoutConstraint
+        let scrollTopToSeparator: NSLayoutConstraint
+        let scrollTopToHero: NSLayoutConstraint
     }
 
     private static let queryFont = NSFont.systemFont(ofSize: 34, weight: .heavy)
@@ -24,6 +26,7 @@ enum PaletteLayout {
         brandView: PaletteBrandView,
         modeChip: PaletteModeChipView,
         escapeKeycap: PaletteKeycapView,
+        heroView: PaletteHeroView,
         scrollView: NSScrollView,
         tableView: NSTableView,
         footerView: PaletteFooterView
@@ -56,6 +59,8 @@ enum PaletteLayout {
         let fieldSeparator = PaletteSeparatorView()
         fieldSeparator.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(fieldSeparator)
+        heroView.isHidden = true
+        contentView.addSubview(heroView)
         contentView.addSubview(scrollView)
         contentView.addSubview(footerView)
 
@@ -112,9 +117,22 @@ enum PaletteLayout {
             fieldSeparator.topAnchor.constraint(equalTo: searchArea.bottomAnchor),
             fieldSeparator.heightAnchor.constraint(equalToConstant: PaletteMetrics.separatorHeight),
 
+            heroView.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: PaletteMetrics.listSideInset
+            ),
+            heroView.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -PaletteMetrics.listSideInset
+            ),
+            heroView.topAnchor.constraint(
+                equalTo: fieldSeparator.bottomAnchor,
+                constant: PaletteMetrics.listTopInset
+            ),
+            heroView.heightAnchor.constraint(equalToConstant: PaletteMetrics.heroHeight),
+
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: fieldSeparator.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor),
 
             footerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -123,10 +141,21 @@ enum PaletteLayout {
             footerView.heightAnchor.constraint(equalToConstant: PaletteMetrics.footerHeight)
         ])
 
+        // Toggled by the controller: the list sits directly under the field
+        // hairline normally, or under the hero card when one is showing.
+        let scrollTopToSeparator = scrollView.topAnchor.constraint(equalTo: fieldSeparator.bottomAnchor)
+        let scrollTopToHero = scrollView.topAnchor.constraint(
+            equalTo: heroView.bottomAnchor,
+            constant: PaletteMetrics.listTopInset
+        )
+        scrollTopToSeparator.isActive = true
+
         panel.contentView = contentView
         return InstalledConstraints(
             generalFieldLeading: generalLeading,
-            modeFieldLeading: modeLeading
+            modeFieldLeading: modeLeading,
+            scrollTopToSeparator: scrollTopToSeparator,
+            scrollTopToHero: scrollTopToHero
         )
     }
 

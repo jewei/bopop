@@ -28,18 +28,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frecencyFor: usageStore.score
         )
         let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
+        // EmojiProvider's frecency hook must be a plain @Sendable closure
+        // (it's invoked off the main actor during concurrent provider
+        // ranking); UsageStore itself is main-actor isolated, so bridge
+        // through assumeIsolated rather than relaxing UsageStore's isolation.
+        let emojiFrecencyFor: @Sendable (String) -> Double = { id in
+            MainActor.assumeIsolated { usageStore.score(id) }
+        }
         let engine = QueryEngine(
             providers: [
                 .general: [
                     CommandsProvider(),
                     appsProvider,
                     CalculatorProvider(),
-                    ScriptsProvider(catalog: scriptCatalog)
+                    ScriptsProvider(catalog: scriptCatalog),
+                    CurrencyProvider(store: RateStore(storage: storage), fetcher: LiveRateFetcher()),
+                    TimeProvider(),
+                    URLCleanProvider()
                 ],
                 .fileSearch: [
                     FileSearchProvider(searcher: FileSearcher())
                 ],
-                .clipboard: [ClipboardProvider(store: clipboardStore)]
+                .clipboard: [ClipboardProvider(store: clipboardStore)],
+                .emoji: [
+                    EmojiProvider(catalog: EmojiCatalog(), frecencyFor: emojiFrecencyFor)
+                ]
             ],
             frecencyFor: usageStore.score
         )

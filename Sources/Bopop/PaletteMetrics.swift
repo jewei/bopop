@@ -6,6 +6,7 @@ enum PaletteMetrics {
     static let separatorHeight: CGFloat = 1
     static let rowHeight: CGFloat = 52
     static let maxVisibleRows = 9
+    static let heroHeight: CGFloat = 96
     static let listTopInset: CGFloat = 8
     static let listSideInset: CGFloat = 10
     static let listBottomInset: CGFloat = 14
