@@ -20,6 +20,15 @@ public nonisolated enum CalculatorFormatter {
         }
         return formatted
     }
+
+    public static func grouped(from value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.maximumFractionDigits = 10
+        return formatter.string(from: NSNumber(value: value)) ?? string(from: value)
+    }
 }
 
 public final class CalculatorProvider: ResultProvider {
@@ -41,6 +50,13 @@ public final class CalculatorProvider: ResultProvider {
         }
 
         let formatted = CalculatorFormatter.string(from: value)
+        let heroLeft = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hero = HeroContent(
+            left: heroLeft,
+            leftBadge: Self.operationBadge(heroLeft),
+            right: CalculatorFormatter.grouped(from: value),
+            rightBadge: Self.spellOutBadge(value)
+        )
         return [
             SearchResult(
                 id: "calc",
@@ -52,9 +68,69 @@ public final class CalculatorProvider: ResultProvider {
                 keywords: [query.term],
                 action: .copyText(formatted),
                 secondaryActions: [.copyText(formatted)],
+                hero: hero,
                 sortHint: 0
             )
         ]
+    }
+
+    private nonisolated static func operationBadge(_ expression: String) -> String? {
+        var depth = 0
+        var categories: Set<String> = []
+        var previousSignificant: Character?
+
+        for character in expression {
+            if character == "(" {
+                depth += 1
+                previousSignificant = character
+                continue
+            }
+            if character == ")" {
+                depth -= 1
+                previousSignificant = character
+                continue
+            }
+            if character.isWhitespace {
+                continue
+            }
+            if depth == 0, let category = operatorCategory(character) {
+                let isMinus = character == "-" || character == "−" || character == "–"
+                let isUnary = isMinus
+                    && !(previousSignificant?.isNumber == true || previousSignificant == ")")
+                if !isUnary {
+                    categories.insert(category)
+                }
+            }
+            previousSignificant = character
+        }
+
+        return categories.count == 1 ? categories.first : nil
+    }
+
+    private nonisolated static func operatorCategory(_ character: Character) -> String? {
+        switch character {
+        case "*", "×": return "Product"
+        case "+": return "Sum"
+        case "-", "−", "–": return "Difference"
+        case "/", "÷": return "Quotient"
+        case "%": return "Remainder"
+        case "^": return "Power"
+        default: return nil
+        }
+    }
+
+    private nonisolated static func spellOutBadge(_ value: Double) -> String? {
+        guard value.rounded(.towardZero) == value, abs(value) < 1e9 else {
+            return nil
+        }
+
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .spellOut
+        guard let spelled = formatter.string(from: NSNumber(value: value)) else {
+            return nil
+        }
+        return spelled.capitalized
     }
 
     public nonisolated static func isCandidate(_ term: String) -> Bool {

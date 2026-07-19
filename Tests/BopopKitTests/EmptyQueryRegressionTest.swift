@@ -27,6 +27,8 @@ func emptyQueryProducesCommandRows() async throws {
 
     let final = try #require(received.last)
     #expect(final.isFinal)
-    #expect(final.results.count >= 2)
+    #expect(final.results.count >= 4)
     #expect(final.results.contains { $0.id == "cmd:file-search" })
+    #expect(final.results.contains { $0.id == "cmd:emoji" })
+    #expect(final.results.contains { $0.id == "cmd:translate" })
 }

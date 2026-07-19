@@ -200,6 +200,16 @@ final class PaletteController: NSObject {
             modeChip.isHidden = false
             layoutConstraints.generalFieldLeading.isActive = false
             layoutConstraints.modeFieldLeading.isActive = true
+        case .emoji:
+            modeChip.setTitle("Emoji")
+            modeChip.isHidden = false
+            layoutConstraints.generalFieldLeading.isActive = false
+            layoutConstraints.modeFieldLeading.isActive = true
+        case .translation:
+            modeChip.setTitle("Translate")
+            modeChip.isHidden = false
+            layoutConstraints.generalFieldLeading.isActive = false
+            layoutConstraints.modeFieldLeading.isActive = true
         }
     }
 
@@ -309,6 +319,10 @@ final class PaletteController: NSObject {
             } else {
                 footerView.setStatus("Files")
             }
+        case .emoji:
+            footerView.setStatus("Emoji")
+        case .translation:
+            footerView.setStatus("Translate")
         }
         updateFooterActions()
     }
@@ -325,6 +339,10 @@ final class PaletteController: NSObject {
             )
         case .clipboard:
             footerView.setStatus("Clipboard")
+        case .emoji:
+            footerView.setStatus("Emoji")
+        case .translation:
+            footerView.setStatus("Translate")
         }
     }
 
@@ -343,7 +361,7 @@ final class PaletteController: NSObject {
 
     private static func actionTitle(for action: ResultAction) -> String {
         switch action {
-        case .openApp, .openFile:
+        case .openApp, .openFile, .openURL:
             "open"
         case .copyText:
             "copy"

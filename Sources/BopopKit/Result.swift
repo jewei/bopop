@@ -7,6 +7,11 @@ public nonisolated enum ProviderID: String, Hashable, Sendable {
     case clipboard
     case scripts
     case commands
+    case currency
+    case time
+    case emoji
+    case urlClean
+    case translation
 }
 
 public nonisolated enum IconRef: Equatable, Sendable {
@@ -23,6 +28,29 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case clearClipboardHistory
     case runScript(String)
     case enterMode(Mode)
+    case openURL(String)
+}
+
+public nonisolated struct HeroContent: Equatable, Sendable {
+    public let left: String
+    public let leftBadge: String?
+    public let right: String
+    public let rightBadge: String?
+    public let note: String?
+
+    public init(
+        left: String,
+        leftBadge: String? = nil,
+        right: String,
+        rightBadge: String? = nil,
+        note: String? = nil
+    ) {
+        self.left = left
+        self.leftBadge = leftBadge
+        self.right = right
+        self.rightBadge = rightBadge
+        self.note = note
+    }
 }
 
 public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
@@ -35,6 +63,7 @@ public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
     public let badge: String?
     public let action: ResultAction
     public let secondaryActions: [ResultAction]
+    public let hero: HeroContent?
     public let sortHint: Int
 
     public init(
@@ -47,6 +76,7 @@ public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
         badge: String? = nil,
         action: ResultAction,
         secondaryActions: [ResultAction] = [],
+        hero: HeroContent? = nil,
         sortHint: Int
     ) {
         self.id = id
@@ -58,6 +88,7 @@ public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
         self.badge = badge
         self.action = action
         self.secondaryActions = secondaryActions
+        self.hero = hero
         self.sortHint = sortHint
     }
 }

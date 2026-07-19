@@ -77,6 +77,9 @@ final class ActionRunner {
             }
         case .enterMode:
             break
+        case .openURL:
+            // stub — real NSWorkspace handling lands with the hero card UI wiring
+            break
         }
     }
 }

@@ -15,11 +15,16 @@ public nonisolated enum MatchTier: Int, Comparable, Sendable {
 
 public nonisolated enum Ranker {
     public static let defaultWeights: [ProviderID: Double] = [
+        .urlClean: 112,
+        .currency: 110,
+        .translation: 110,
+        .time: 108,
         .calculator: 100,
         .commands: 60,
         .apps: 50,
         .scripts: 40,
         .clipboard: 30,
+        .emoji: 45,
         .files: 20
     ]
 

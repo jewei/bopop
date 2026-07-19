@@ -28,6 +28,24 @@ public final class CommandsProvider: ResultProvider {
                 keywords: ["clipboard", "paste", "history"],
                 action: .enterMode(.clipboard),
                 sortHint: 1
+            ),
+            SearchResult(
+                id: "cmd:emoji",
+                providerID: .commands,
+                title: "Emoji Picker…",
+                icon: .symbol("face.smiling"),
+                keywords: ["emoji", "picker"],
+                action: .enterMode(.emoji),
+                sortHint: 2
+            ),
+            SearchResult(
+                id: "cmd:translate",
+                providerID: .commands,
+                title: "Translate…",
+                icon: .symbol("character.bubble"),
+                keywords: ["translate", "chinese", "english"],
+                action: .enterMode(.translation),
+                sortHint: 3
             )
         ]
     }
