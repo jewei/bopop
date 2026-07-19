@@ -1,14 +1,28 @@
 # Handover
 
-State of the project as of 2026-07-19, commit `601317c`. MVP is complete: all planned features shipped, 78 tests green, every user-reported issue fixed and verified.
+State of the project as of 2026-07-20, v2 feature branch (`feature/v2-answers`) merged. 150 tests green.
 
 ## Where things stand
 
-- 21 commits, `89a6011` → `601317c`, Conventional Commits throughout (security fixes carry explanatory bodies).
-- All five providers live: apps, calculator, opt-in file search, clipboard history, user scripts.
-- Design v2 "Minimal Mono" applied (see DESIGN.md); custom app icon in `Resources/AppIcon.icns`.
-- Manual QA passed end-to-end: hotkey over full-screen, `fs_usage` audit (zero mds traffic outside file mode), clipboard privacy including the Apple Passwords menu-bar popover case, Esc chain, Settings hotkey recorder, drag-position persistence across relaunch.
-- Idle footprint: ~0.0 % CPU, ~32 MB RSS. Data files `-rw-------` in a `drwx------` dir.
+- v2 added five new answer providers (currency, timezone, emoji, URL cleaner, translation), a shared
+  hero answer card, and removed the menu-bar status item in favor of a footer gear menu. See
+  `git log --oneline 6cd8638..HEAD` for the 13-commit sequence (Conventional Commits throughout).
+- Ten providers live: apps, calculator, opt-in file search, clipboard history, user scripts,
+  currency, timezone, emoji, URL cleaner, translation — each still one file + one line of wiring,
+  no plugin layer.
+- Design v2 "Minimal Mono" applied (see DESIGN.md), extended with the hero-card spec; custom app icon
+  in `Resources/AppIcon.icns`.
+- Manual QA (v1 MVP) passed end-to-end: hotkey over full-screen, `fs_usage` audit (zero mds traffic
+  outside file mode), clipboard privacy including the Apple Passwords menu-bar popover case, Esc
+  chain, Settings hotkey recorder, drag-position persistence across relaunch.
+- Manual QA (v2, partial — see "Known pending manual QA" below): gear menu opens Settings and quits
+  correctly, `open -a Bopop` while running shows the palette (reopen failsafe), hotkey still works,
+  currency/timezone/URL/emoji hero cards and rows confirmed via `screencapture`. Translation mode
+  rendering, the Settings Chinese-variant picker, and the footer gear glyph/hover state were **not**
+  visually verified — the screen was locked during that portion of agent QA.
+- Idle footprint: ~0.0 % CPU, ~32 MB RSS (v1 baseline; not re-measured with the new providers, but
+  currency/timezone/URL/emoji are all pure-CPU parsers and translation only runs on typed input, so
+  no change expected).
 
 ## Build & run
 
@@ -35,11 +49,13 @@ Live Spotlight tests (machine-dependent): `BOPOP_LIVE_SPOTLIGHT=1 swift test --f
 6. **`NSStackView(views:)` puts everything in the leading gravity area**; equal-priority ties break arbitrarily per cell reuse. Right-pinned views (badge, ↵ keycap) must be added with `addView(_, in: .trailing)`.
 7. **`FileHandle.AsyncBytes` deadlocks on pipes** (macOS 15.7). ScriptRunner drains via `readabilityHandler` instead — don't "modernize" it back.
 8. **Ad-hoc signing**: re-signing resets TCC/notification grants tied to the signature. Stable bundle path + id mitigates; if it bites, switch to a self-signed cert (one Makefile variable).
+9. **`.translationTask(configuration:)` restarts its action task whenever the `configuration` value changes** — that kills a single-consumption `AsyncStream` bridge mid-flight (the drain loop is inside the action closure). `AppleTranslator` pins one immortal hidden host view + session per language pair instead of reconfiguring one shared session when the direction flips, so each stream lives for the process lifetime. Do not "simplify" this back to a single reconfigurable session — it silently drops in-flight requests every time the pair changes.
+10. **`NSDataDetector` resolves relative/partial dates ("today", "tomorrow", missing year) against the real wall clock and `TimeZone.current`** — there is no injection API. `TimeQueryParser` only trusts the detector's time-of-day component and rebases the calendar day itself from an injected `now`, so tests stay on a fixed clock. Don't feed detector output straight through as an absolute date; it will drift when the machine's real clock differs from the test's fixed `now`.
 
 ## Storage & settings surface
 
-- `~/Library/Application Support/Bopop/` — `usage.json`, `clipboard.json`, `Scripts/`, `scripts.log`. Versioned JSON envelopes; corrupt files are renamed `*.corrupt` and skipped, never crash.
-- UserDefaults (`com.oneone.bopop`): hotkey config, clipboard limit, palette position (`palettePositionTopLeftX/Y` — saved only after a user drag, ignored if offscreen at restore).
+- `~/Library/Application Support/Bopop/` — `usage.json`, `clipboard.json`, `rates.json`, `Scripts/`, `scripts.log`. Versioned JSON envelopes; corrupt files are renamed `*.corrupt` and skipped, never crash. `rates.json` (EUR-base ECB rates + fetch timestamp) follows the same pattern: `-rw-------` (0600), versioned envelope, quarantine-on-corrupt like everything else in `Storage`.
+- UserDefaults (`com.oneone.bopop`): hotkey config, clipboard limit, palette position (`palettePositionTopLeftX/Y` — saved only after a user drag, ignored if offscreen at restore), `chineseVariant` (raw `TranslationTarget` string, default `zh-Hans`).
 
 ## Deferred (explicitly out of MVP — don't assume they're missing by accident)
 
@@ -48,6 +64,16 @@ Live Spotlight tests (machine-dependent): `BOPOP_LIVE_SPOTLIGHT=1 swift test --f
 - Clipboard images (plain text only), file-content search, themes, auto-update, plugin SDK.
 - VoiceOver spot-check (labels exist and are wired; never manually audited).
 - SQLite (JSON confirmed sufficient — rejected decision, don't reintroduce; likewise DI containers and storage-protocol layers).
+- Emoji skin tones (v1 catalog is base emoji only, ~1,900 entries, no skin-tone expansion).
+- Translation model download UX is a single informational row ("Download Chinese ⇄ English translation…"); it does not track download progress. The system's own consent/download prompt auto-fires at most once per language pair per app run — Bopop doesn't build a custom download flow around it.
+
+## Known pending manual QA
+
+Agent QA for v2 covered hero cards (calculator/currency/timezone/URL/emoji), the gear menu, and the
+reopen failsafe via `screencapture`, but the screen was locked for part of the session. Not yet
+visually verified by a human: translation-mode hero rendering, the Settings Chinese-variant picker,
+and the footer gear glyph/hover states. Functionally exercised by tests and by the parts of agent QA
+that did run, but worth a real look before calling v2 done.
 
 ## Invariants to preserve
 
@@ -55,4 +81,13 @@ Live Spotlight tests (machine-dependent): `BOPOP_LIVE_SPOTLIGHT=1 swift test --f
 - Scripts run only on explicit Return, via `Process` with direct `executableURL` and empty argv — no shell anywhere.
 - No `NSExpression` in the calculator.
 - File search never indexes, scans, or watches — `NSMetadataQuery` on demand only, cancelled on mode exit.
-- Accessibility permission never requested; no network calls; no third-party dependencies; no bundled fonts.
+- Accessibility permission never requested; no third-party dependencies; no bundled fonts.
+- **Network (amended in v2):** fully local except one narrow case — exchange-rate fetch. A request to
+  `frankfurter.dev` (ECB reference rates) fires only while a currency query is being typed **and**
+  the cached `rates.json` is more than 12 h old; a stale cache still answers instantly and refreshes
+  once in the background (`refreshInFlight` guard in `Currency.swift` dedupes concurrent keystrokes
+  to a single in-flight request); no cache + offline degrades to an "unavailable" row rather than
+  hanging or guessing. No other provider, anywhere, makes a network call. Translation runs on Apple's
+  on-device Translation framework; the only network activity there is macOS's own language-model
+  download consent flow, which Bopop triggers (via `requestDownload`/`prepareTranslation`) at most
+  once per language pair per app run — Bopop never talks to a translation server itself.

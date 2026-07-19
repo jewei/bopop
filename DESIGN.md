@@ -36,8 +36,28 @@ Settings window: system appearance + `.tint(#7c5cff)`. App icon: gradient `#7c5c
 - Header: 76 tall, insets 24; contents: 20×20 radius-6 brand square (gradient `#7c5cff→#a48bff`, 135°) · query field · `esc` keycap (SF Mono 11, textSecondary, border keycapBorder, radius 6, padding 8×3). 1px hairline below.
 - List: insets 8 top / 10 sides / 14 bottom; row height 52; 4pt gap between rows (intercell); row content padding 14 h; selection radius 10.
 - Rows: 32×32 leading icon — real app/file icons raw; symbol results in a radius-8 tile (`tileNeutral`; selected row's tile: gradient `#7c5cff→#5b3ff0`, white symbol). Two-line text block (single line vertically centered when no subtitle). Selected row shows trailing `↵` keycap.
-- Footer: 40 tall, insets 22, hairline above, SF Mono 11 textSecondary. Left: "Bopop" (or mode/status text). Right: `↑↓ navigate` · `⌘C copy` · `↵ select` (⌘K reserved until an actions menu exists).
-- Mode chip (Files/Clipboard): SF Mono 11, accent text on accent 15% pill, radius 10, after the brand square.
+- Footer: 40 tall, insets 22, hairline above, SF Mono 11 textSecondary. Left: "Bopop" (or mode/status text). Right: `↑↓ navigate` · `⌘C copy` · `↵ select` (⌘K reserved until an actions menu exists) · trailing gearshape button (borderless, textSecondary → white 0.8 on hover) opening the Settings/Scripts/Quit menu — replaces the old menu-bar status item.
+- Mode chip (Files/Clipboard/Emoji/Translation): SF Mono 11, accent text on accent 15% pill, radius 10, after the brand square.
+
+## Hero answer card
+
+Shown between the query field and the results list whenever the top-ranked result carries hero
+content (calculator, currency, timezone, URL cleaner, translation); that result's normal row is
+suppressed from the list to avoid duplication.
+
+- Height 96 (`PaletteMetrics.heroHeight`), card background white 0.04, radius 10 (plain layer
+  `cornerRadius` — this sits inside the already-masked panel, so gotcha #5's `maskImage` requirement
+  doesn't apply here, only to the panel's own blur material).
+- Horizontal three-pane split: left pane (input), center column, right pane (answer), separated by
+  1px hairline (white 0.07) verticals.
+- Left/right pane: value 22 pt monospaced medium, white 0.92; optional badge below as a rounded-rect
+  chip, 11 pt, white 0.55 text on white 0.08 fill.
+- Center: → glyph 20 pt white 0.55, with an optional note (e.g. "Updated 2 hours ago") 10 pt white
+  0.35 underneath.
+- Text is non-editable, single line, truncates in the middle (long URLs, long translations).
+- Footer verb reflects the hero's action: "copy" for calculator/currency/timezone/emoji/translation,
+  "open" for the URL cleaner (Return opens the cleaned link in the default browser instead of
+  copying it).
 
 ## Motion
 

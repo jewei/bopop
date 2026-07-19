@@ -10,6 +10,17 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
 - `f <term>` or "Search Files…" for on-demand Spotlight file search (strictly opt-in, see below)
 - "Clipboard History…" for recent plain-text copies — Return re-copies
 - Executables in the Scripts folder become searchable commands — run only on explicit Return
+- Calculator, currency, timezone, and URL-cleaner answers render a hero card above the list — the
+  rich, single-answer view Raycast users expect
+- Currency conversion with cached ECB rates (`123myr to usd`) — instant from cache, refreshes quietly
+  in the background when stale
+- Timezone conversion (`9am eastern`, `time in tokyo`) — weekday and numeric-date phrases are rejected
+  rather than mis-answered
+- Emoji picker (`:fire` or "Emoji Picker…"), CLDR keyword search, frecency-ranked — Return copies
+- URL tracking-parameter cleaner — paste a tracked link, Return opens the cleaned URL in your default
+  browser instead of copying it
+- English ⇄ Chinese translation (`t <text>` or "Translate…"), fully on-device via Apple's Translation
+  framework — Return copies
 - ⌘C copies the selected result's payload (path, value, text); Esc clears → exits mode → closes
 - Drag the palette anywhere — it remembers the position across launches (falls back to center if the saved spot is offscreen)
 
@@ -24,7 +35,10 @@ make run    # build, kill old instance, run inside the bundle (logs in terminal)
 make open   # build and launch via Finder/LaunchServices
 ```
 
-Bopop is a menu-bar agent (no Dock icon). The status item menu has Show, Settings…, Open Scripts Folder, Quit.
+Bopop is a background agent (no Dock icon, no menu-bar item). Settings…, Open Scripts Folder, and Quit
+live behind the gear button in the palette footer. If the hotkey ever stops responding, relaunching
+Bopop (Finder, Spotlight, or `open -a Bopop`) shows the palette — the app is always reachable even
+without a status item.
 
 ⌘Space is owned by Spotlight by default — Bopop detects this and offers a deep link to System Settings → Keyboard Shortcuts to disable Spotlight's binding, or record a different shortcut in Settings.
 
@@ -33,7 +47,7 @@ Bopop is a menu-bar agent (no Dock icon). The status item menu has Show, Setting
 Two targets, one protocol, zero dependencies:
 
 - **`BopopKit`** (library, Foundation + os only — no AppKit): all logic, fully unit-tested.
-- **`Bopop`** (executable): thin AppKit shell — NSPanel palette, Carbon hotkey, status item, SwiftUI settings.
+- **`Bopop`** (executable): thin AppKit shell — NSPanel palette, Carbon hotkey, footer gear menu, SwiftUI settings.
 
 Data flow: keystroke → `QueryParser` (mode + term; `f ` prefix = file mode) → `QueryEngine` (generation counter; cancels the previous search task, debounces file mode 250 ms inside the task, runs the mode's providers concurrently) → results merge incrementally as each provider finishes (slow providers never block fast ones; a throwing provider is logged and isolated) → `Ranker` (match tiers exact > prefix > word-boundary > substring > subsequence, best-of across title + keywords, then provider weight, then frecency) → table → Return → `ActionRunner`.
 
@@ -48,7 +62,16 @@ Deliberate decisions:
 
 ## Security & privacy
 
-- Fully local. No telemetry, no analytics, no network calls.
+- Fully local, with one narrow, amended exception: currency conversion. A network call fires only
+  while a currency query (`123myr to usd`) is being typed **and** the cached `rates.json` is more
+  than 12 h old — a 5 s-timeout GET to `frankfurter.dev` (ECB reference rates, no API key, no
+  tracking). A stale cache still answers instantly from disk; the refresh happens in the background,
+  deduplicated so concurrent keystrokes never queue more than one in-flight request. With no cache
+  and no connection, the row reads "Exchange rates unavailable — check connection" instead of
+  guessing. No other feature makes a network call, ever — including translation, which runs on
+  Apple's on-device Translation framework; the only network activity there is macOS's own
+  language-model download consent flow, which Bopop triggers at most once per language pair per app
+  run and never touches directly.
 - Clipboard privacy has four layers: (1) apps marking `org.nspasteboard.ConcealedType` or `org.nspasteboard.TransientType` are never captured; (2) copies made while Apple Passwords or Keychain Access is frontmost are skipped using a heuristic, though a copy followed by an instant app switch within the 0.5 s poll can evade it; (3) a bare upstream clipboard clear (a zero-type change — Apple Passwords fires one ~90 s after a copy, including from its menu-bar popover, which layer 2 cannot see) retroactively removes the newest captured entry, so the secret does not outlive the clipboard, though it is visible in history during that pre-clear window; (4) "Clear Clipboard History" wipes the stored history on demand. Entries are capped at 100 KB; contents never appear in any log; `clipboard.json` is `-rw-------` inside a `drwx------` directory.
 - Scripts (`~/Library/Application Support/Bopop/Scripts`): run only on explicit Return, never from typed input alone; executed directly via `Process` with an empty argv — no shell, no interpolation; rows carry a visible "Script" badge; output goes to `scripts.log` only. There is deliberately no timeout — a long-running script is legitimate.
 - Permissions: nothing requested up front. Notification auth is requested on first script run; macOS file-access prompts appear only when you open a protected file. Accessibility is never requested.
@@ -56,6 +79,6 @@ Deliberate decisions:
 
 ## Testing
 
-`swift test` — 78 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles), and script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang).
+`swift test` — 150 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search, and translation direction detection/provider flow against a mock translator.
 
 Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
