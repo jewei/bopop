@@ -6,12 +6,29 @@ import Translation
 /// `Translator` backed by Apple's on-device `Translation` framework.
 ///
 /// `TranslationSession` can only be obtained through the SwiftUI
-/// `.translationTask(_:action:)` view modifier, so this class hosts a
-/// hidden 1×1 `NSHostingView` inside a persistent, never-visible offscreen
-/// window (alpha 0, level well below `.normal`) that lives for the app's
-/// entire lifetime. Requests from `translate(_:to:)` are bridged into that
-/// view's long-running task via an `AsyncStream`; the task drains the
-/// stream and fulfills each request with `session.translate(_:)`.
+/// `.translationTask(_:action:)` view modifier, so this class hosts four
+/// hidden 1×1 `NSHostingView`s — one per supported language pair, stacked
+/// inside a single persistent, never-visible offscreen window (alpha 0,
+/// level well below `.normal`) that lives for the app's entire lifetime.
+///
+/// Each host view's `.translationTask` is given a *constant*
+/// `TranslationSession.Configuration` fixed at init and never mutated
+/// afterward. This matters: `.translationTask(configuration:)` cancels and
+/// restarts its `action` task whenever the configuration value changes,
+/// and the `for await item in stream` drain loop inside that task dies
+/// with it — since `AsyncStream` is single-consumption, any later
+/// `translate()` call yielding into a now-abandoned stream would hang
+/// forever (its `CheckedContinuation` never resumed). Pinning one
+/// immortal session per language pair, instead of reconfiguring a single
+/// shared session when the direction flips, guarantees each stream has
+/// exactly one consumer for the app's whole lifetime: no task restarts,
+/// no dropped continuations, no leaks.
+///
+/// Requests from `translate(_:to:)`/`requestDownload(target:)` are routed
+/// by `(source, target)` into the matching pair's `AsyncStream`; the
+/// corresponding host view's long-running task drains its own stream and
+/// fulfills each request with `session.translate(_:)` /
+/// `session.prepareTranslation()`.
 ///
 /// The class is `final` and isolated to the app target's default actor
 /// (`MainActor`, per `Package.swift`'s `.defaultIsolation`), which is what
@@ -27,24 +44,27 @@ final class AppleTranslator: Translator {
         case prepareDownload
     }
 
-    @MainActor
-    private final class HostState: ObservableObject {
-        @Published var configuration: TranslationSession.Configuration?
+    private struct SessionPair: Hashable {
+        let source: TranslationTarget
+        let target: TranslationTarget
     }
 
     /// The drain loop lives directly inside the `.translationTask` closure
     /// (rather than being handed off to a separate `AppleTranslator`
     /// method) so `TranslationSession` — which is not `Sendable` — never
     /// has to cross an isolation boundary; only the `Sendable` `stream`
-    /// and its `Sendable` `QueueItem`s do.
+    /// and its `Sendable` `QueueItem`s do. `configuration` is a plain
+    /// `let`: it is set once when the view is built and never changes, so
+    /// `.translationTask` never sees a new configuration value and never
+    /// restarts this task.
     private struct HostView: View {
-        @ObservedObject var state: HostState
+        let configuration: TranslationSession.Configuration
         let stream: AsyncStream<QueueItem>
 
         var body: some View {
             Color.clear
                 .frame(width: 1, height: 1)
-                .translationTask(state.configuration) { @Sendable session in
+                .translationTask(configuration) { @Sendable session in
                     for await item in stream {
                         switch item {
                         case let .translate(text, continuation):
@@ -62,22 +82,47 @@ final class AppleTranslator: Translator {
         }
     }
 
+    private struct HostsContainerView: View {
+        let hosts: [HostView]
+
+        var body: some View {
+            VStack(spacing: 0) {
+                ForEach(hosts.indices, id: \.self) { index in
+                    hosts[index]
+                }
+            }
+        }
+    }
+
+    /// English⇄Simplified and English⇄Traditional, both directions each —
+    /// the only pairs `TranslationDirection.target(for:chineseVariant:)`
+    /// can ever produce.
+    private static let allPairs: [SessionPair] = [
+        SessionPair(source: .english, target: .chineseSimplified),
+        SessionPair(source: .chineseSimplified, target: .english),
+        SessionPair(source: .english, target: .chineseTraditional),
+        SessionPair(source: .chineseTraditional, target: .english)
+    ]
+
     private let defaults: UserDefaults
-    private let hostState = HostState()
     private let window: NSWindow
-    private let stream: AsyncStream<QueueItem>
-    private let continuation: AsyncStream<QueueItem>.Continuation
-    private var currentPair: (source: TranslationTarget, target: TranslationTarget)?
+    private var continuations: [SessionPair: AsyncStream<QueueItem>.Continuation] = [:]
+    /// Download prompts are deduped per pair per app run here — creating a
+    /// session for an uninstalled pair does NOT itself prompt (only
+    /// `prepareTranslation()`/`translate()` do), so this only needs to
+    /// guard those two call sites, not session construction above.
+    private var downloadRequested: Set<SessionPair> = []
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        var streamContinuation: AsyncStream<QueueItem>.Continuation!
-        stream = AsyncStream { streamContinuation = $0 }
-        continuation = streamContinuation
-
         window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+            contentRect: NSRect(
+                x: -10_000,
+                y: -10_000,
+                width: 1,
+                height: CGFloat(Self.allPairs.count)
+            ),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -90,8 +135,21 @@ final class AppleTranslator: Translator {
         window.isExcludedFromWindowsMenu = true
         window.collectionBehavior = [.transient, .ignoresCycle]
 
-        let hostingView = NSHostingView(rootView: HostView(state: hostState, stream: stream))
-        hostingView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
+        var continuations: [SessionPair: AsyncStream<QueueItem>.Continuation] = [:]
+        let hosts: [HostView] = Self.allPairs.map { pair in
+            var pairContinuation: AsyncStream<QueueItem>.Continuation!
+            let pairStream = AsyncStream<QueueItem> { pairContinuation = $0 }
+            continuations[pair] = pairContinuation
+            let configuration = TranslationSession.Configuration(
+                source: Locale.Language(identifier: pair.source.rawValue),
+                target: Locale.Language(identifier: pair.target.rawValue)
+            )
+            return HostView(configuration: configuration, stream: pairStream)
+        }
+        self.continuations = continuations
+
+        let hostingView = NSHostingView(rootView: HostsContainerView(hosts: hosts))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1, height: CGFloat(hosts.count))
         window.contentView = hostingView
         window.orderFrontRegardless()
     }
@@ -109,6 +167,9 @@ final class AppleTranslator: Translator {
             // Kick off the system download prompt proactively so the
             // "Download…" row the provider shows is informational — the
             // user doesn't need a second action to start the download.
+            // requestDownload dedupes per pair per run, so repeated
+            // keystrokes (TranslationProvider calls availability on every
+            // one) don't re-prompt after the user has already seen it.
             await requestDownload(target: target)
             return .needsDownload
         case .unsupported:
@@ -120,16 +181,23 @@ final class AppleTranslator: Translator {
 
     func translate(_ text: String, to target: TranslationTarget) async throws -> String {
         let source = sourceLanguage(for: target)
-        ensureConfiguration(source: source, target: target)
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation.yield(.translate(text: text, continuation: continuation))
+        let pair = SessionPair(source: source, target: target)
+        guard let continuation = continuations[pair] else {
+            throw TranslatorPairError.unsupportedPair
+        }
+        return try await withCheckedThrowingContinuation { resultContinuation in
+            continuation.yield(.translate(text: text, continuation: resultContinuation))
         }
     }
 
     func requestDownload(target: TranslationTarget) async {
         let source = sourceLanguage(for: target)
-        ensureConfiguration(source: source, target: target)
-        continuation.yield(.prepareDownload)
+        let pair = SessionPair(source: source, target: target)
+        guard !downloadRequested.contains(pair) else {
+            return
+        }
+        downloadRequested.insert(pair)
+        continuations[pair]?.yield(.prepareDownload)
     }
 
     /// Our supported pairing is always {English, the configured Chinese
@@ -137,15 +205,8 @@ final class AppleTranslator: Translator {
     private func sourceLanguage(for target: TranslationTarget) -> TranslationTarget {
         target == .english ? SettingsModel.storedChineseVariant(in: defaults) : .english
     }
+}
 
-    private func ensureConfiguration(source: TranslationTarget, target: TranslationTarget) {
-        if let currentPair, currentPair.source == source, currentPair.target == target {
-            return
-        }
-        currentPair = (source, target)
-        hostState.configuration = TranslationSession.Configuration(
-            source: Locale.Language(identifier: source.rawValue),
-            target: Locale.Language(identifier: target.rawValue)
-        )
-    }
+private enum TranslatorPairError: Error {
+    case unsupportedPair
 }
