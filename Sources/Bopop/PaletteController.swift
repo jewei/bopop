@@ -9,6 +9,9 @@ final class PaletteController: NSObject {
     private let engine: QueryEngine
     private let actionRunner: ActionRunner
     private let onWillShow: () -> Void
+    private let onShowSettings: () -> Void
+    private let onOpenScriptsFolder: () -> Void
+    private let onQuit: () -> Void
     private let panel: PalettePanel
     private let queryField = NSTextField()
     private let brandView = PaletteBrandView()
@@ -39,11 +42,17 @@ final class PaletteController: NSObject {
     init(
         engine: QueryEngine,
         actionRunner: ActionRunner,
-        onWillShow: @escaping () -> Void = {}
+        onWillShow: @escaping () -> Void = {},
+        onShowSettings: @escaping () -> Void = {},
+        onOpenScriptsFolder: @escaping () -> Void = {},
+        onQuit: @escaping () -> Void = {}
     ) {
         self.engine = engine
         self.actionRunner = actionRunner
         self.onWillShow = onWillShow
+        self.onShowSettings = onShowSettings
+        self.onOpenScriptsFolder = onOpenScriptsFolder
+        self.onQuit = onQuit
         panel = PalettePanel(
             contentRect: NSRect(
                 origin: .zero,
@@ -79,7 +88,14 @@ final class PaletteController: NSObject {
         }
     }
 
+    /// Idempotent: shows the palette if hidden; no-op if already visible
+    /// and key. Relied on by `applicationShouldHandleReopen` as a failsafe
+    /// for a broken/unregistered hotkey — relaunching (or reopening) the
+    /// app must always be able to surface the palette.
     func show() {
+        guard !(panel.isVisible && panel.isKeyWindow) else {
+            return
+        }
         onWillShow()
         let height = Self.panelHeight(resultCount: results.count, hasHero: heroResult != nil)
         let frame: NSRect
@@ -165,6 +181,17 @@ final class PaletteController: NSObject {
         }
         actionRunner.hidePalette = { [weak self] in
             self?.hide()
+        }
+        footerView.onShowSettings = { [weak self] in
+            self?.hide()
+            self?.onShowSettings()
+        }
+        footerView.onOpenScriptsFolder = { [weak self] in
+            self?.hide()
+            self?.onOpenScriptsFolder()
+        }
+        footerView.onQuit = { [weak self] in
+            self?.onQuit()
         }
     }
 

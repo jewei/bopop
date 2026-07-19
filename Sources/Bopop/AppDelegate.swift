@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeyManager: HotkeyManager
     private let settingsModel: SettingsModel
     private let settingsWindowController: SettingsWindowController
-    private var statusItem: NSStatusItem?
 
     override init() {
         let defaults = UserDefaults.standard
@@ -91,11 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.clipboardStore = clipboardStore
         self.pasteboardWatcher = pasteboardWatcher
         self.appCatalog = appCatalog
-        paletteController = PaletteController(
-            engine: engine,
-            actionRunner: actionRunner,
-            onWillShow: appCatalog.refreshIfStale
-        )
         self.hotkeyManager = hotkeyManager
         let settingsModel = SettingsModel(
             hotkeyManager: hotkeyManager,
@@ -103,7 +97,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaults: defaults
         )
         self.settingsModel = settingsModel
-        settingsWindowController = SettingsWindowController(model: settingsModel)
+        // settingsWindowController is built here, ahead of paletteController,
+        // so its `show()` can be captured by the closures below — self isn't
+        // usable yet (we're still before super.init()), so PaletteController
+        // must close over these locals directly rather than over self,
+        // mirroring appCatalog.refreshIfStale/emojiFrecencyFor above.
+        let settingsWindowController = SettingsWindowController(model: settingsModel)
+        self.settingsWindowController = settingsWindowController
+        paletteController = PaletteController(
+            engine: engine,
+            actionRunner: actionRunner,
+            onWillShow: appCatalog.refreshIfStale,
+            onShowSettings: { settingsWindowController.show() },
+            onOpenScriptsFolder: { NSWorkspace.shared.open(storage.scriptsDirectory) },
+            onQuit: { NSApp.terminate(nil) }
+        )
         super.init()
     }
 
@@ -111,57 +119,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? storage.ensureDirectories()
         pasteboardWatcher.start()
         appCatalog.refreshIfStale()
-
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            if let image = NSImage(
-                systemSymbolName: "command.square.fill",
-                accessibilityDescription: "Bopop"
-            ) {
-                button.image = image
-                button.imagePosition = .imageOnly
-            } else {
-                button.title = "B"
-            }
-        }
-
-        let menu = NSMenu()
-        let showItem = NSMenuItem(
-            title: "Show Bopop",
-            action: #selector(showBopop),
-            keyEquivalent: ""
-        )
-        showItem.target = self
-        menu.addItem(showItem)
-
-        let settingsItem = NSMenuItem(
-            title: "Settings…",
-            action: #selector(showSettings),
-            keyEquivalent: ""
-        )
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        let scriptsItem = NSMenuItem(
-            title: "Open Scripts Folder",
-            action: #selector(openScriptsFolder),
-            keyEquivalent: ""
-        )
-        scriptsItem.target = self
-        menu.addItem(scriptsItem)
-
-        menu.addItem(.separator())
-
-        let quitItem = NSMenuItem(
-            title: "Quit Bopop",
-            action: #selector(quitBopop),
-            keyEquivalent: "q"
-        )
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        statusItem.menu = menu
-        self.statusItem = statusItem
 
         let hotkeyConfig = settingsModel.hotkey
         hotkeyManager.onHotkey = { [weak self] in
@@ -181,10 +138,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func showBopop() {
-        paletteController.toggle()
+    /// Failsafe for a broken/unregistered hotkey: relaunching Bopop while
+    /// it's already running (`open dist/Bopop.app`, Spotlight, Dock) fires
+    /// this instead of opening a window (the app has none) — surface the
+    /// palette directly. `show()` is idempotent, so this is safe even if
+    /// the palette is already visible. Returning false tells AppKit there
+    /// is no standard window to reveal, since this is an accessory app.
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows: Bool
+    ) -> Bool {
+        paletteController.show()
+        return false
     }
 
+    // Retained as @objc selectors (not currently wired to any live control —
+    // the gear menu closures above duplicate this logic because they must
+    // close over locals rather than self, see the init comment) so a future
+    // Dock-menu or NSMenuItem entry point can target them directly without
+    // re-deriving the bodies.
     @objc private func showSettings() {
         settingsWindowController.show()
     }
