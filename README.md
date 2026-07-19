@@ -11,6 +11,7 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
 - "Clipboard History…" for recent plain-text copies — Return re-copies
 - Executables in the Scripts folder become searchable commands — run only on explicit Return
 - ⌘C copies the selected result's payload (path, value, text); Esc clears → exits mode → closes
+- Drag the palette anywhere — it remembers the position across launches (falls back to center if the saved spot is offscreen)
 
 ## Build & run
 
@@ -55,6 +56,6 @@ Deliberate decisions:
 
 ## Testing
 
-`swift test` — 73 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles), and script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang).
+`swift test` — 78 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles), and script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang).
 
 Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
