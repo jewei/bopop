@@ -33,6 +33,24 @@ func rankerUsesBestKeywordTier() {
 }
 
 @Test
+func tierStrictlyDominatesProviderWeightAndFrecency() {
+    // A lower-tier (subsequence) match with a big provider weight and near-max
+    // frecency must never outrank a higher-tier (substring) match that has
+    // neither — tier is supposed to be the dominant signal.
+    let subsequenceResult = makeResult(id: "subsequence", providerID: .urlClean, title: "a1b2c3")
+    let substringResult = makeResult(id: "substring", providerID: .files, title: "xabcx")
+
+    let ranked = Ranker.rank(
+        [subsequenceResult, substringResult],
+        query: "abc",
+        frecencyFor: { $0 == "subsequence" ? 999 : 0 },
+        providerWeights: [.urlClean: 112, .files: 0]
+    )
+
+    #expect(ranked.map(\.id) == ["substring", "subsequence"])
+}
+
+@Test
 func providerWeightOrdersEqualTierResults() {
     let app = makeResult(id: "app:alpha", providerID: .apps, title: "Alpha")
     let file = makeResult(id: "file:alpine", providerID: .files, title: "Alpine")

@@ -33,7 +33,10 @@ public nonisolated enum Ranker {
     ]
 
     public static func tier(query: String, candidate: String) -> MatchTier {
-        let query = folded(query)
+        tier(foldedQuery: folded(query), candidate: candidate)
+    }
+
+    private static func tier(foldedQuery query: String, candidate: String) -> MatchTier {
         let candidate = folded(candidate)
 
         if query == candidate {
@@ -61,7 +64,7 @@ public nonisolated enum Ranker {
         providerWeight: Double
     ) -> Double {
         let tier = bestTier(for: result, query: query)
-        return Double(tier.rawValue * 1_000) + providerWeight + min(frecency, 999)
+        return Double(tier.rawValue * 10_000) + providerWeight + min(frecency, 999)
     }
 
     public static func rank(
@@ -120,8 +123,9 @@ public nonisolated enum Ranker {
             return .exact
         }
 
+        let foldedQuery = folded(query)
         return ([result.title] + result.keywords)
-            .map { tier(query: query, candidate: $0) }
+            .map { tier(foldedQuery: foldedQuery, candidate: $0) }
             .max() ?? .none
     }
 
