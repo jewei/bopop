@@ -20,7 +20,7 @@ Source: Claude design export `~/Downloads/next-generation-productivity-launcher`
 | Selection | fill `#7c5cff` 14%, border 1px `#7c5cff` 30% | Selected row |
 
 Settings window: system appearance + `.tint(#7c5cff)`, fixed 380×360 (grew from 320 to fit the
-Search-engine picker). App icon: gradient `#7c5cff→#5b3ff0`, white rounded "b", `#a48bff` dot.
+Search-engine picker). App icon: keycap concept — dark glass plate (`#191722`), floating violet keycap (`#a48bff→#7c5cff→#5b3ff0`, top rim light, `#5b3ff0` under-glow), white SF Mono heavy "b". Rendered per-size from `Support/generate-icon.swift` (rim dropped below 64 px); `iconutil` builds the icns.
 
 ## Typography (SF Pro / SF Mono)
 
