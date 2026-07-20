@@ -131,23 +131,42 @@ func queryEngineDebounceCancelsEarlierSleep() async {
 
 @MainActor
 @Test
-func queryEngineRunsProvidersConcurrently() async {
+func queryEngineRunsProvidersConcurrently() async throws {
     // Two providers that are each truly nonisolated (unlike FakeProvider,
-    // which stays MainActor-isolated and hops for every call) sleeping
-    // ~400ms apiece. Before task 8, every provider body ran on the main
-    // actor regardless of the task-group fan-out, so this would have taken
-    // the SUM of both sleeps (800ms+). With real off-actor concurrency it
-    // should complete in close to one sleep's worth of wall time. The
-    // margin here is deliberately generous (700ms cutoff, not ~450ms) —
-    // under `swift test`'s default full-suite parallelism this test's own
-    // wall clock is subject to real scheduling jitter from ~200 other
-    // concurrently-running tests, and a tight cutoff was observed to flake.
+    // which stays MainActor-isolated and hops for every call), each doing
+    // ~150ms of synchronous CPU-bound work (a busy-spin, no `Task.sleep`)
+    // inside `results(for:)`, recording their own [start, end) wall-clock
+    // window as they go. `Task.sleep` merely suspends — it proves nothing
+    // about whether the two providers actually execute concurrently, since
+    // even a naive sequential `await provider.results(...)` loop lets two
+    // sleeps overlap in isolation. A tight busy-spin never suspends, so its
+    // window is real occupied wall time; if QueryEngine's task-group
+    // fan-out were secretly serialized (e.g. one `await` per provider in a
+    // loop rather than a real task group), the two windows could not
+    // overlap at all — B's window would start only after A's had ended.
+    //
+    // This asserts the two windows OVERLAP rather than asserting a fixed
+    // wall-clock cutoff on the total elapsed time. That distinction
+    // mattered in practice: a previous version of this test asserted
+    // `elapsed < 260ms` bracketing a measured ~150ms concurrent /
+    // ~300ms-serialized-baseline split. That was reliable in isolation, but
+    // under `swift test`'s default full-suite parallel execution (~230
+    // other tests contending for this machine's cooperative thread pool),
+    // this test's own two busy-spinning child tasks queue up behind other
+    // work — elapsed time was observed as high as ~660ms for a genuinely
+    // concurrent run, blowing through any fixed cutoff that would still
+    // need to reject a ~300ms serialized run. Asserting overlap of the
+    // recorded windows instead of a total-duration cutoff is insensitive to
+    // that scheduling delay: however long the scheduler makes each spin
+    // wait to start, true concurrent dispatch still gives overlapping
+    // windows, and true serialization still gives disjoint ones.
+    let timeline = SpinTimeline()
     let providerA = NonisolatedFakeProvider(id: .apps) { query in
-        try await Task.sleep(for: .milliseconds(400))
+        timeline.recordSpin(id: "a", duration: .milliseconds(150))
         return [engineResult(id: "a:\(query.term)", title: query.term)]
     }
     let providerB = NonisolatedFakeProvider(id: .files) { query in
-        try await Task.sleep(for: .milliseconds(400))
+        timeline.recordSpin(id: "b", duration: .milliseconds(150))
         return [engineResult(id: "b:\(query.term)", providerID: .files, title: query.term)]
     }
     let engine = QueryEngine(
@@ -157,14 +176,38 @@ func queryEngineRunsProvidersConcurrently() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    let clock = ContinuousClock()
-    let start = clock.now
     engine.update(raw: "go", stickyMode: .general)
     let final = await recorder.waitForUpdate(matching: \.isFinal)
-    let elapsed = clock.now - start
 
     #expect(Set(final?.results.map(\.id) ?? []) == ["a:go", "b:go"])
-    #expect(elapsed < .milliseconds(700))
+    let windowA = try #require(timeline.window(for: "a"))
+    let windowB = try #require(timeline.window(for: "b"))
+    #expect(windowA.start < windowB.end && windowB.start < windowA.end)
+}
+
+/// Records the [start, end) wall-clock window of each named busy-spin so a
+/// test can assert genuine overlap between two concurrently-running spins,
+/// independent of however slow the surrounding system makes each one run.
+private nonisolated final class SpinTimeline: @unchecked Sendable {
+    private let lock = NSLock()
+    private var windows: [String: (start: ContinuousClock.Instant, end: ContinuousClock.Instant)] = [:]
+
+    func recordSpin(id: String, duration: Duration) {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let deadline = start + duration
+        while clock.now < deadline {}
+        let end = clock.now
+        lock.lock()
+        windows[id] = (start, end)
+        lock.unlock()
+    }
+
+    func window(for id: String) -> (start: ContinuousClock.Instant, end: ContinuousClock.Instant)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return windows[id]
+    }
 }
 
 @MainActor

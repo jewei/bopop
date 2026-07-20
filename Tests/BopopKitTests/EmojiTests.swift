@@ -27,7 +27,7 @@ import Testing
 
 @MainActor
 @Test func emojiProviderIgnoresOtherModes() async throws {
-    let provider = EmojiProvider(catalog: EmojiCatalog(), frecencyFor: { _ in 0 })
+    let provider = EmojiProvider(catalog: EmojiCatalog(), frecencyFor: { _ in [:] })
     let results = try await provider.results(for: ParsedQuery(mode: .general, term: "fire"))
     #expect(results.isEmpty)
 }
@@ -35,7 +35,7 @@ import Testing
 @MainActor
 @Test func emojiProviderEmptyTermReturnsFullCatalogInCatalogOrderWhenTied() async throws {
     let catalog = EmojiCatalog()
-    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in [:] })
 
     let results = try await provider.results(for: ParsedQuery(mode: .emoji, term: ""))
 
@@ -49,7 +49,9 @@ import Testing
     let favorite = catalog.entries[600]
     let provider = EmojiProvider(
         catalog: catalog,
-        frecencyFor: { $0 == favorite.char ? 10 : 0 }
+        frecencyFor: { ids in
+            ids.reduce(into: [:]) { $0[$1] = $1 == favorite.char ? 10 : 0 }
+        }
     )
 
     let results = try await provider.results(for: ParsedQuery(mode: .emoji, term: ""))
@@ -58,20 +60,63 @@ import Testing
     #expect(results.first?.id == favorite.char)
 }
 
+// Task 9: a nonempty term now pre-filters entries by Ranker tier
+// (name+keywords) before building a SearchResult for each, rather than
+// mapping the whole ~1900-entry catalog on every keystroke and relying
+// entirely on the caller's later Ranker.rank pass to discard the rest.
 @MainActor
-@Test func emojiProviderNonEmptyTermReturnsAllEntries() async throws {
+@Test func emojiProviderNonEmptyTermPreFiltersByNameOrKeywordTier() async throws {
     let catalog = EmojiCatalog()
-    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in [:] })
 
     let results = try await provider.results(for: ParsedQuery(mode: .emoji, term: "fire"))
 
-    #expect(results.count == catalog.entries.count)
+    #expect(results.count < catalog.entries.count)
+    #expect(results.contains { $0.id == "🔥" })
+}
+
+@MainActor
+@Test func emojiProviderPreFilterIsRankerNoOp() async throws {
+    let catalog = EmojiCatalog()
+    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in [:] })
+    let term = "flame"
+
+    let filtered = try await provider.results(for: ParsedQuery(mode: .emoji, term: term))
+
+    // Reconstruct what the provider would have returned before the
+    // pre-filter (the whole catalog, unfiltered), using the same result
+    // shape EmojiProvider builds, and rank both through Ranker.rank the
+    // way QueryEngine does. The pre-filter is meant to be a pure hot-path
+    // optimization — Ranker discards the same rows either way — so ranking
+    // the (much smaller) filtered set must equal ranking the full catalog.
+    let unfiltered = catalog.entries.enumerated().map { index, entry in
+        SearchResult(
+            id: entry.char,
+            providerID: .emoji,
+            title: "\(entry.char)  \(entry.name)",
+            icon: .none,
+            keywords: [entry.name] + entry.keywords,
+            action: .copyText(entry.char),
+            sortHint: index
+        )
+    }
+
+    let rankedFiltered = Ranker.rank(
+        filtered, query: term, frecencyFor: { _ in 0 }, providerWeights: Ranker.defaultWeights
+    )
+    let rankedUnfiltered = Ranker.rank(
+        unfiltered, query: term, frecencyFor: { _ in 0 }, providerWeights: Ranker.defaultWeights
+    )
+
+    #expect(!rankedFiltered.isEmpty)
+    #expect(rankedFiltered.count < catalog.entries.count)
+    #expect(rankedFiltered.map(\.id) == rankedUnfiltered.map(\.id))
 }
 
 @MainActor
 @Test func emojiProviderResultShapeCopiesChar() async throws {
     let catalog = EmojiCatalog()
-    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in [:] })
 
     let results = try await provider.results(for: ParsedQuery(mode: .emoji, term: "fire"))
     let fire = try #require(results.first { $0.id == "🔥" })
@@ -86,7 +131,7 @@ import Testing
 @MainActor
 @Test func emojiSearchThroughRankerPlacesFireAmongTopResultsForPrefix() async throws {
     let catalog = EmojiCatalog()
-    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in [:] })
     let query = ParsedQuery(mode: .emoji, term: "fir")
 
     let results = try await provider.results(for: query)
@@ -109,7 +154,7 @@ import Testing
 @MainActor
 @Test func emojiSearchThroughRankerRanksUniqueKeywordFirst() async throws {
     let catalog = EmojiCatalog()
-    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in [:] })
     let query = ParsedQuery(mode: .emoji, term: "flame")
 
     let results = try await provider.results(for: query)

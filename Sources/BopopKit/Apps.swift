@@ -221,11 +221,11 @@ public final class AppsProvider: ResultProvider {
     public let id: ProviderID = .apps
 
     private let catalog: AppCatalog
-    private let frecencyFor: @Sendable (String) async -> Double
+    private let frecencyFor: BatchFrecencyLookup
 
     public init(
         catalog: AppCatalog,
-        frecencyFor: @escaping @Sendable (String) async -> Double
+        frecencyFor: @escaping BatchFrecencyLookup
     ) {
         self.catalog = catalog
         self.frecencyFor = frecencyFor
@@ -249,13 +249,16 @@ public final class AppsProvider: ResultProvider {
         }
         let selectedApps: [IndexedApp]
         if query.term.isEmpty {
-            var scoredApps: [ScoredApp] = []
-            for indexedApp in indexedApps {
-                let frecency = await frecencyFor(indexedApp.id)
+            // Scores for the whole catalog are snapshotted in a single
+            // MainActor hop (see BatchFrecencyLookup) instead of one hop
+            // per app.
+            let scores = await frecencyFor(indexedApps.map(\.id))
+            let scoredApps = indexedApps.compactMap { indexedApp -> ScoredApp? in
+                let frecency = scores[indexedApp.id] ?? 0
                 guard frecency > 0 else {
-                    continue
+                    return nil
                 }
-                scoredApps.append(ScoredApp(indexedApp: indexedApp, frecency: frecency))
+                return ScoredApp(indexedApp: indexedApp, frecency: frecency)
             }
             selectedApps = scoredApps.sorted { lhs, rhs in
                 if lhs.frecency != rhs.frecency {
@@ -270,7 +273,13 @@ public final class AppsProvider: ResultProvider {
                 return lhs.indexedApp.id < rhs.indexedApp.id
             }.prefix(6).map(\.indexedApp)
         } else {
-            selectedApps = indexedApps
+            // Pre-filter to entries Ranker would keep anyway (tier != .none
+            // against name+keywords) before mapping — this also means the
+            // tilde-abbreviated subtitle below (an NSString bridge + path
+            // walk) is only computed for survivors, not the whole catalog.
+            selectedApps = indexedApps.filter { indexedApp in
+                matchesTier(term: query.term, app: indexedApp.app)
+            }
         }
 
         return selectedApps.map { indexedApp in
@@ -291,6 +300,10 @@ public final class AppsProvider: ResultProvider {
 
     private nonisolated func resultID(for app: AppInfo) -> String {
         "app:\(app.bundleID ?? app.path)"
+    }
+
+    private nonisolated func matchesTier(term: String, app: AppInfo) -> Bool {
+        ([app.name] + app.keywords).contains { Ranker.tier(query: term, candidate: $0) != .none }
     }
 
     private struct IndexedApp {

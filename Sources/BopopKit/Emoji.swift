@@ -32,9 +32,9 @@ public final class EmojiProvider: ResultProvider {
     public let id: ProviderID = .emoji
 
     private let catalog: EmojiCatalog
-    private let frecencyFor: @Sendable (String) async -> Double
+    private let frecencyFor: BatchFrecencyLookup
 
-    public init(catalog: EmojiCatalog, frecencyFor: @escaping @Sendable (String) async -> Double) {
+    public init(catalog: EmojiCatalog, frecencyFor: @escaping BatchFrecencyLookup) {
         self.catalog = catalog
         self.frecencyFor = frecencyFor
     }
@@ -55,10 +55,12 @@ public final class EmojiProvider: ResultProvider {
             // Grid mode scrolls through the FULL catalog frecency-first
             // (ties broken by catalog order) rather than the old top-24
             // list cutoff — the tile grid has room to browse everything.
-            var scored: [(offset: Int, element: EmojiEntry, score: Double)] = []
-            for indexed in indexedEntries {
-                let score = await frecencyFor(indexed.element.char)
-                scored.append((indexed.offset, indexed.element, score))
+            // Scores for the whole catalog are snapshotted in a single
+            // MainActor hop (see BatchFrecencyLookup) instead of one hop
+            // per entry.
+            let scores = await frecencyFor(indexedEntries.map { $0.element.char })
+            let scored = indexedEntries.map { indexed in
+                (offset: indexed.offset, element: indexed.element, score: scores[indexed.element.char] ?? 0)
             }
             let byFrecency = scored.sorted { lhs, rhs in
                 if lhs.score != rhs.score {
@@ -69,7 +71,18 @@ public final class EmojiProvider: ResultProvider {
             return byFrecency.map { makeResult($0.element, catalogIndex: $0.offset) }
         }
 
-        return indexedEntries.map { makeResult($0.element, catalogIndex: $0.offset) }
+        // Pre-filter to entries Ranker would keep anyway (tier != .none
+        // against name+keywords) before building a SearchResult for each —
+        // building ~1900 unranked SearchResults per keystroke just to have
+        // Ranker discard most of them was the hot-path cost here.
+        let matching = indexedEntries.filter { indexed in
+            matchesTier(term: term, entry: indexed.element)
+        }
+        return matching.map { makeResult($0.element, catalogIndex: $0.offset) }
+    }
+
+    private nonisolated func matchesTier(term: String, entry: EmojiEntry) -> Bool {
+        ([entry.name] + entry.keywords).contains { Ranker.tier(query: term, candidate: $0) != .none }
     }
 
     private nonisolated func makeResult(_ entry: EmojiEntry, catalogIndex: Int) -> SearchResult {

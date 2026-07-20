@@ -153,7 +153,7 @@ public final class ClipboardProvider: ResultProvider {
             SearchResult(
                 id: "clip:\(entry.capturedAt.timeIntervalSince1970)",
                 providerID: .clipboard,
-                title: title(for: entry.text),
+                title: DisplayTruncation.firstLine(entry.text, limit: 60),
                 subtitle: relativeDateFormatter.withLock { formatter in
                     formatter.localizedString(for: entry.capturedAt, relativeTo: Date())
                 },
@@ -178,14 +178,5 @@ public final class ClipboardProvider: ResultProvider {
             )
         )
         return results
-    }
-
-    private nonisolated func title(for text: String) -> String {
-        let firstLine = text.components(separatedBy: .newlines).first ?? ""
-        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 60 else {
-            return trimmed
-        }
-        return String(trimmed.prefix(60)) + "…"
     }
 }

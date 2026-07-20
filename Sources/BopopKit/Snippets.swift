@@ -87,9 +87,7 @@ public final class SnippetsProvider: ResultProvider {
                 id: "snippet:\(snippet.id.uuidString)",
                 providerID: .snippets,
                 title: snippet.name,
-                subtitle: snippet.content
-                    .components(separatedBy: .newlines).first?
-                    .trimmingCharacters(in: .whitespaces),
+                subtitle: DisplayTruncation.firstLine(snippet.content, limit: 60),
                 icon: .symbol("text.quote"),
                 keywords: [snippet.name] + (snippet.keyword.map { [$0] } ?? []),
                 badge: "Snippet",

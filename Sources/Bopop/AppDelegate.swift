@@ -25,25 +25,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pasteboardWatcher = PasteboardWatcher(store: clipboardStore)
         let appCatalog = AppCatalog()
         let hotkeyManager = HotkeyManager()
+        // AppsProvider/EmojiProvider's frecency hook is invoked off the main
+        // actor during concurrent provider ranking; UsageStore itself is
+        // main-actor isolated, so hop explicitly via MainActor.run rather
+        // than the banned assumeIsolated shortcut. Both providers batch
+        // their whole id list through this single hop per results() call
+        // (UsageStore.scores(for:)) instead of one hop per id.
+        let batchFrecencyFor: BatchFrecencyLookup = { ids in
+            await MainActor.run { usageStore.scores(for: ids) }
+        }
         let appsProvider = AppsProvider(
             catalog: appCatalog,
-            frecencyFor: usageStore.score
+            frecencyFor: batchFrecencyFor
         )
         let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
-        // EmojiProvider's frecency hook is invoked off the main actor during
-        // concurrent provider ranking; UsageStore itself is main-actor
-        // isolated, so hop explicitly via MainActor.run rather than the
-        // banned assumeIsolated shortcut.
-        let emojiFrecencyFor: @Sendable (String) async -> Double = { id in
-            await MainActor.run { usageStore.score(id) }
-        }
         // settingsModel is constructed AFTER this engine (it needs
         // hotkeyManager/clipboardStore which are wired up below), so these
         // closures must not capture settingsModel — they read defaults
         // directly via the same static-read pattern as
         // storedClipboardLimit, avoiding the ordering trap. They're invoked
         // off the main actor during concurrent provider ranking (same
-        // reasoning as emojiFrecencyFor above), so hop via MainActor.run
+        // reasoning as batchFrecencyFor above), so hop via MainActor.run
         // rather than the banned assumeIsolated shortcut.
         let chineseVariantFor: @Sendable () async -> TranslationTarget = {
             await MainActor.run { SettingsModel.storedChineseVariant(in: .standard) }
@@ -82,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ],
                 .clipboard: [ClipboardProvider(store: clipboardStore)],
                 .emoji: [
-                    EmojiProvider(catalog: EmojiCatalog(), frecencyFor: emojiFrecencyFor)
+                    EmojiProvider(catalog: EmojiCatalog(), frecencyFor: batchFrecencyFor)
                 ],
                 .translation: [
                     TranslationProvider(

@@ -45,6 +45,21 @@ public final class UsageStore {
         return score(entry, at: now())
     }
 
+    /// Scores every id in one pass, sharing a single `now()` read across the
+    /// whole batch rather than one per id — the MainActor-side half of
+    /// `BatchFrecencyLookup`, so a caller off the main actor only needs a
+    /// single `MainActor.run` hop to score an entire catalog.
+    public func scores(for ids: [String]) -> [String: Double] {
+        let currentDate = now()
+        return ids.reduce(into: [String: Double]()) { result, id in
+            guard let entry = entries[id] else {
+                result[id] = 0
+                return
+            }
+            result[id] = score(entry, at: currentDate)
+        }
+    }
+
     private func evictEntriesIfNeeded(at date: Date) {
         guard entries.count > maxEntries else {
             return

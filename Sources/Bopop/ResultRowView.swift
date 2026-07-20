@@ -196,11 +196,18 @@ private final class ResultIconView: NSView {
         CATransaction.commit()
     }
 
+    // Shared across every row/reuse pass: NSWorkspace.shared.icon(forFile:)
+    // does real disk I/O (icon resource lookup) and was measured to run
+    // once per visible row per keystroke, since the table reloads/redraws
+    // rows on every ranked-results update. Keyed by path since a path is
+    // stable identity for what NSWorkspace hands back for that file.
+    private static let iconCache = NSCache<NSString, NSImage>()
+
     func configure(with icon: BopopKit.IconRef) {
         switch icon {
         case let .appBundle(path), let .file(path):
             showsTile = false
-            imageView.image = NSWorkspace.shared.icon(forFile: path)
+            imageView.image = Self.icon(forFile: path)
             imageView.contentTintColor = nil
             imageView.imageScaling = .scaleProportionallyUpOrDown
         case let .symbol(name):
@@ -214,6 +221,16 @@ private final class ResultIconView: NSView {
     func setSelected(_ isSelected: Bool) {
         selected = isSelected
         updateTileStyle()
+    }
+
+    private static func icon(forFile path: String) -> NSImage {
+        let key = path as NSString
+        if let cached = iconCache.object(forKey: key) {
+            return cached
+        }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        iconCache.setObject(icon, forKey: key)
+        return icon
     }
 
     private func configureView() {

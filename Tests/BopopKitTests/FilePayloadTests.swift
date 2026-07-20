@@ -32,7 +32,7 @@ import Testing
     )
     let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
     await catalog.refreshNow()
-    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in [:] })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "Foo")

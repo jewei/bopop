@@ -126,7 +126,7 @@ func appsProviderReturnsFrecentAppsForEmptyTerm() async throws {
     ]
     let provider = AppsProvider(
         catalog: catalog,
-        frecencyFor: { scores[$0, default: 0] }
+        frecencyFor: { ids in ids.reduce(into: [:]) { $0[$1] = scores[$1, default: 0] } }
     )
 
     let results = try await provider.results(
@@ -138,24 +138,32 @@ func appsProviderReturnsFrecentAppsForEmptyTerm() async throws {
     ])
 }
 
+// Task 9: providers now pre-filter a nonempty term by Ranker tier
+// (name+keywords) before mapping, rather than returning the whole catalog
+// unfiltered and relying entirely on the caller's later Ranker.rank pass.
+// The lettered fixture's bundle names double as their only searchable
+// text (bundleName always equals name, so keywords stay empty), so a term
+// that exactly matches one letter is the clean way to exercise the filter.
+
 @MainActor
 @Test
-func appsProviderReturnsAllAppsForNonemptyTerm() async throws {
+func appsProviderPreFiltersNonemptyTermByTier() async throws {
     let root = try makeAppFixtureDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     try makeLetteredBundles(in: root)
     let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
     await catalog.refreshNow()
-    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in [:] })
 
     let results = try await provider.results(
-        for: ParsedQuery(mode: .general, term: "anything")
+        for: ParsedQuery(mode: .general, term: "b")
     )
 
-    #expect(results.map(\.id) == [
-        "app:a", "app:b", "app:c", "app:d",
-        "app:e", "app:f", "app:g", "app:h"
-    ])
+    #expect(results.map(\.id) == ["app:b"])
+    // "B" is the second app in catalog order (A, B, C, ...) — sortHint
+    // must stay tied to the FULL catalog's index, not the filtered list's.
+    #expect(results.first?.sortHint == 1)
+    #expect(results.first?.subtitle != nil)
 }
 
 @MainActor
@@ -166,16 +174,59 @@ func appsProviderServesAppsMode() async throws {
     try makeLetteredBundles(in: root)
     let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
     await catalog.refreshNow()
-    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in 0 })
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in [:] })
 
     let results = try await provider.results(
-        for: ParsedQuery(mode: .apps, term: "anything")
+        for: ParsedQuery(mode: .apps, term: "g")
     )
 
-    #expect(results.map(\.id) == [
-        "app:a", "app:b", "app:c", "app:d",
-        "app:e", "app:f", "app:g", "app:h"
-    ])
+    #expect(results.map(\.id) == ["app:g"])
+    #expect(results.first?.sortHint == 6)
+}
+
+@MainActor
+@Test
+func appsProviderPreFilterIsRankerNoOp() async throws {
+    let root = try makeAppFixtureDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try makeLetteredBundles(in: root)
+    let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
+    await catalog.refreshNow()
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in [:] })
+    let term = "d"
+
+    let filtered = try await provider.results(for: ParsedQuery(mode: .general, term: term))
+
+    // Reconstruct what the provider would have returned before the
+    // pre-filter (the whole catalog, unfiltered) using the same result
+    // shape AppsProvider builds, and rank both through Ranker.rank the way
+    // QueryEngine does. The pre-filter is meant to be a pure hot-path
+    // optimization — Ranker discards the same rows either way — so ranking
+    // the (much smaller) filtered set must equal ranking the full catalog.
+    let unfiltered = catalog.apps.enumerated().map { index, app in
+        SearchResult(
+            id: "app:\(app.bundleID ?? app.path)",
+            providerID: .apps,
+            title: app.name,
+            subtitle: (app.path as NSString).abbreviatingWithTildeInPath,
+            icon: .appBundle(app.path),
+            keywords: app.keywords,
+            action: .openApp(app.path),
+            secondaryActions: [.copyText(app.path), .revealFile(app.path)],
+            sortHint: index
+        )
+    }
+
+    let rankedFiltered = Ranker.rank(
+        filtered, query: term, frecencyFor: { _ in 0 }, providerWeights: Ranker.defaultWeights
+    )
+    let rankedUnfiltered = Ranker.rank(
+        unfiltered, query: term, frecencyFor: { _ in 0 }, providerWeights: Ranker.defaultWeights
+    )
+
+    #expect(!rankedFiltered.isEmpty)
+    #expect(rankedFiltered.count < catalog.apps.count)
+    #expect(rankedFiltered.map(\.id) == rankedUnfiltered.map(\.id))
 }
 
 private func makeAppFixtureDirectory() throws -> URL {

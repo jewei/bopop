@@ -6,6 +6,14 @@ public protocol ResultProvider: Sendable {
     nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult]
 }
 
+/// A batched frecency lookup: given the full list of ids a provider is about
+/// to score, returns every score in a single call. Callers whose backing
+/// store is MainActor-isolated (e.g. UsageStore) can then take ONE
+/// `MainActor.run` hop per `results(for:)` invocation instead of one hop per
+/// id — the difference between a single actor round-trip and hundreds of
+/// them on an empty-term catalog browse.
+public typealias BatchFrecencyLookup = @Sendable ([String]) async -> [String: Double]
+
 /// Foundation formatters are not thread-safe, and some (e.g.
 /// RelativeDateTimeFormatter) explicitly opt out of Sendable entirely, so a
 /// plain `OSAllocatedUnfairLock<Formatter>` won't compile for them (its usual
