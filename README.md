@@ -1,51 +1,50 @@
 # Bopop
 
-A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing else.
-
 **Press. Type. Go.**
 
-- ⌘Space (configurable) opens a floating palette over any Space or full-screen app
-- A pill tab row (`All · Apps · Files · Clipboard · Emoji · Translate`) sits under the query field —
-  click a tab, or cycle with ⇥/⇧⇥, to enter that mode; prefixes still work and highlight their tab
-- Search and launch installed applications, ranked by match quality + how often you use them
-- Type arithmetic (`2*(3+4)^2`) for an instant result — Return copies it
-- `f <term>` or the Files tab for on-demand Spotlight file search (strictly opt-in, see below); optionally scope it to chosen folders in Settings → File Search — the inverse of Spotlight's Privacy exclusion list (Settings excludes folders from a whole-system index; Bopop narrows which folders an on-demand, never-indexing search looks at)
-- "Clipboard History…" for recent plain-text copies — Return re-copies
-- Executables in the Scripts folder become searchable commands — run only on explicit Return
-- Calculator, currency, timezone, and URL-cleaner answers render a hero card above the list — the
-  rich, single-answer view Raycast users expect
-- Currency conversion with cached ECB rates (`123myr to usd`) — instant from cache, refreshes quietly
-  in the background when stale
-- Timezone conversion (`9am eastern`, `time in tokyo`) — weekday and numeric-date phrases are rejected
-  rather than mis-answered
-- Emoji picker (`:fire` or "Emoji Picker…"), CLDR keyword search, frecency-ranked, rendered as a
-  10-column tile grid (arrow keys move in 2D) — Return or click copies
-- URL tracking-parameter cleaner — paste a tracked link, Return opens the cleaned URL in your default
-  browser instead of copying it
-- Web search fallback — a "Search ⟨Engine⟩ for…" row is always pinned last in All mode for any
-  non-empty query; Return opens it in your default browser. Choose the engine (Google, DuckDuckGo,
-  Bing, Brave, YouTube, GitHub) in Settings; Bopop never fetches the search results itself
-- Each result row carries a category badge (Apps/Files/Clipboard/Emoji/Web, or a provider's own
-  explicit badge like Script) so mixed "All" results stay scannable
-- English ⇄ Chinese translation (`t <text>` or "Translate…"), fully on-device via Apple's Translation
-  framework — Return copies
-- ⌘C copies the selected result's payload (path, value, text); Esc clears → exits mode → closes
-- Drag the palette anywhere — it remembers the position across launches (falls back to center if the saved spot is offscreen)
-- Click a row to run it directly, same as Return — no need to select first
-- Palette header mark is the app icon's keycap by default; replace it with your own image in Settings → Appearance
-- Type `lock`, `sleep`, `restart`, `empty trash`, and more for instant system commands — the
-  destructive ones (log out, restart, shut down) go through macOS's own confirmation dialog
-- Define your own keyword searches in Settings → Search — a name, a keyword, and a `{query}` URL
-  template turns `keyword term` into a search row alongside the built-in web-search fallback
-- "Snippets…" or a name/keyword match right in All mode surfaces your saved snippets — Return copies
-  the text; add, edit, and delete them in Settings → Snippets
-- `define <word>` (or `def <word>`) renders a dictionary hero card, fully on-device via macOS's own
-  Dictionary — Return opens the Dictionary app
-- ⇥ feeds a showing calculator answer back into the query so a chained calculation can continue,
-  instead of cycling tabs
-- ⌘⏎ reveals the selected file result in Finder; ⌘Y opens it in Quick Look
-- ⌘L blows the current selection up into a full-screen Large Type view — press ⌘L again, Esc, or
-  click anywhere to dismiss
+Bopop is a keyboard-first launcher for macOS. Hit a shortcut, type a few characters, press Return — an app opens, an answer appears, or a snippet lands on your clipboard. It floats over anything (any Space, even full-screen apps), stays out of your way, and does almost everything without ever touching the network.
+
+## What it does
+
+### Find and launch
+- **Apps** — type a few letters, ranked by how well they match and how often you use them.
+- **Files** — `f report` or the Files tab searches via Spotlight, strictly on demand: Bopop never builds an index and never watches folders. Want it narrower? Pick exactly which folders it may look in (Settings → File Search).
+- **Scripts** — drop executables into the Scripts folder and they become searchable commands. They run only when you press Return, badged `Script` so you always know.
+- **System commands** — `lock`, `sleep`, `restart`, `empty trash`, and friends. The destructive ones go through macOS's own confirmation dialog, not ours.
+
+### Instant answers
+Answers render as a hero card above the list — the big, single-answer view for when you asked a question, not for a list.
+
+- **Calculator** — `2*(3+4)^2`, Return copies. Press ⇥ to feed the answer back into the query and keep going.
+- **Currency** — `123myr to usd`, using cached ECB rates that refresh quietly in the background.
+- **Time zones** — `9am eastern`, `time in tokyo`. Half-hour zones show their real offset.
+- **Dictionary** — `define serendipity` (or `def`), fully on-device; Return opens the Dictionary app.
+- **Translation** — `t 你好` translates English ⇄ Chinese on-device with Apple's Translation framework.
+- **URL cleaner** — paste a link full of tracking parameters, Return opens the clean version.
+
+### Clipboard, snippets & emoji
+- **Clipboard history** — recent plain-text copies; Return re-copies. Password managers' concealed copies are never captured (more below).
+- **Snippets** — save named text blocks in Settings → Snippets; they match by name or keyword right in All mode, or browse them all via "Snippets…". Return copies.
+- **Emoji** — `:fire` or the Emoji tab opens a 10-column tile grid with keyword search and 2D arrow-key navigation. Return (or a click) copies.
+
+### Search the web, your way
+- A "Search ⟨Engine⟩ for…" row is always pinned last for any query — Return opens your browser. Pick the engine in Settings (Google, DuckDuckGo, Bing, Brave, YouTube, GitHub).
+- Add your own keyword searches: a name, a keyword, and a `{query}` URL template turn `yt cute cats` into a one-keystroke search. Bopop opens the browser; it never fetches results itself.
+
+## The keys
+
+| Key | Does |
+|---|---|
+| ⌘Space (configurable) | Summon the palette |
+| ⇥ / ⇧⇥ | Cycle the tabs (All · Apps · Files · Clipboard · Emoji · Translate) — or continue a calculation when an answer is showing |
+| Return / click | Run the selected result |
+| ⌘C | Copy the result's payload (text, value, path) |
+| ⌘⏎ | Reveal a file result in Finder |
+| ⌘Y | Quick Look a file result |
+| ⌘L | Large Type — fill the screen with the answer; ⌘L, Esc, or a click dismisses |
+| Esc | Clear the query → exit the mode → close, one step at a time |
+
+Small comforts: the palette remembers where you dragged it, rows carry category badges so mixed results stay scannable, and the header keycap can be swapped for your own image (Settings → Appearance).
 
 ## Build & run
 
@@ -58,50 +57,37 @@ make run    # build, kill old instance, run inside the bundle (logs in terminal)
 make open   # build and launch via Finder/LaunchServices
 ```
 
-Bopop is a background agent (no Dock icon, no menu-bar item). Settings…, Open Scripts Folder, and Quit
-live behind the gear button in the palette footer. If the hotkey ever stops responding, relaunching
-Bopop (Finder, Spotlight, or `open -a Bopop`) shows the palette — the app is always reachable even
-without a status item.
+Bopop is a background agent — no Dock icon, no menu-bar item. Settings, the Scripts folder, and Quit live behind the gear button in the palette footer. If the hotkey ever goes quiet, just launch Bopop again (Finder, Spotlight, or `open -a Bopop`) and the palette appears.
 
-⌘Space is owned by Spotlight by default — Bopop detects this and offers a deep link to System Settings → Keyboard Shortcuts to disable Spotlight's binding, or record a different shortcut in Settings.
+One heads-up: ⌘Space belongs to Spotlight out of the box. Bopop notices and offers a direct link to System Settings to free it up — or record any other shortcut you like.
 
-## Architecture
+## Privacy
+
+Local-first is the whole point, so here's the honest inventory:
+
+- **One network call, total.** Currency conversion fetches ECB reference rates from `frankfurter.dev` (no API key, no tracking) — and only while you're typing a currency query *and* the cached rates are older than 12 hours. No connection? You get "Exchange rates unavailable," not a guess. Nothing else ever goes online; translation runs entirely on-device.
+- **Clipboard, four layers deep.** Concealed/transient pasteboard types (password managers) are never captured; copies from Apple Passwords or Keychain Access are skipped; a bare upstream clipboard clear retroactively removes the newest entry so a secret doesn't outlive the clipboard; and "Clear Clipboard History" wipes everything on demand. History lives in a `0600` file inside a `0700` directory and never appears in logs.
+- **Scripts run only on Return** — directly via `Process`, empty argv, no shell, no interpolation. Output goes to a capped log file, nowhere else.
+- **Permissions: almost none.** Nothing is requested up front. Notifications are asked for on first script run; two system commands (Empty Trash, Eject All) script Finder and trigger macOS's one-time Automation consent the first time you use them. Accessibility is never requested.
+
+## Under the hood
 
 Two targets, one protocol, zero dependencies:
 
-- **`BopopKit`** (library, Foundation + os only — no AppKit): all logic, fully unit-tested.
-- **`Bopop`** (executable): thin AppKit shell — NSPanel palette, Carbon hotkey, footer gear menu, SwiftUI settings.
+- **`BopopKit`** — all the logic, Foundation-only, fully unit-tested (236 tests: parsers, ranker, engine, stores, providers).
+- **`Bopop`** — a thin AppKit shell: the palette panel, the Carbon hotkey, SwiftUI settings.
 
-Data flow: keystroke → `QueryParser` (mode + term; `f ` prefix = file mode) → `QueryEngine` (generation counter; cancels the previous search task, debounces file mode 250 ms inside the task, runs the mode's providers concurrently) → results merge incrementally as each provider finishes (slow providers never block fast ones; a throwing provider is logged and isolated) → `Ranker` (match tiers exact > prefix > word-boundary > substring > subsequence, best-of across title + keywords, then provider weight, then frecency) → table/grid → Return or click → `ActionRunner`.
+A keystroke flows `QueryParser → QueryEngine → providers (concurrent, off the main actor — a slow one never blocks the rest) → Ranker → the list`, and Return hands the result to `ActionRunner`. Adding a capability means one provider file and one line of wiring — deliberately a small protocol, not a plugin platform.
 
-Deliberate decisions:
+A few choices worth knowing about:
 
-- **Providers are one small protocol** (`ResultProvider`), not a plugin platform. Adding a provider = one file + one line of wiring.
-- **AppKit palette, not SwiftUI**: a borderless `.nonactivatingPanel` (level `.statusBar`, `.fullScreenAuxiliary`) is the only way to reliably appear over full-screen apps without stealing the frontmost app's menu bar. SwiftUI is used where it's cheap: the Settings form.
-- **Carbon `RegisterEventHotKey`** for the global shortcut: no Accessibility permission, consumes the event. All Carbon is confined to one file.
-- **JSON files, not a database**: usage (≤500 ids) and clipboard history (≤500 entries) are tiny. `Storage` does versioned envelopes, atomic writes, 0600/0700 permissions, and quarantines corrupt files (`*.corrupt`) instead of crashing.
-- **File search never indexes**: no catalog, no folder watching, no background scanning. An `NSMetadataQuery` (home scope, capped at 40 results, stop-after-gather) runs only while you're in file mode with a non-empty term, and is cancelled the moment the query changes or the mode exits.
-- **Calculator is a hand-written recursive-descent parser** — not `NSExpression`, which can invoke arbitrary functions. Closed token set, typed errors, overflow-checked at every fold.
+- The palette is a borderless, non-activating AppKit panel — the only way to float over full-screen apps without stealing the front app's menu bar.
+- The global hotkey uses Carbon's `RegisterEventHotKey`: no Accessibility permission needed.
+- Storage is plain JSON with versioned envelopes, atomic writes, and quarantine-on-corruption — the data is tiny, and a database would be ceremony.
+- The calculator is a hand-written parser with a closed token set — never `NSExpression`, which can call arbitrary functions.
 
-## Security & privacy
+Run the tests with `swift test`; two live Spotlight tests are opt-in via `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
 
-- Fully local, with one narrow, amended exception: currency conversion. A network call fires only
-  while a currency query (`123myr to usd`) is being typed **and** the cached `rates.json` is more
-  than 12 h old — a 5 s-timeout GET to `frankfurter.dev` (ECB reference rates, no API key, no
-  tracking). A stale cache still answers instantly from disk; the refresh happens in the background,
-  deduplicated so concurrent keystrokes never queue more than one in-flight request. With no cache
-  and no connection, the row reads "Exchange rates unavailable — check connection" instead of
-  guessing. No other feature makes a network call, ever — including translation, which runs on
-  Apple's on-device Translation framework; the only network activity there is macOS's own
-  language-model download consent flow, which Bopop triggers at most once per language pair per app
-  run and never touches directly.
-- Clipboard privacy has four layers: (1) apps marking `org.nspasteboard.ConcealedType` or `org.nspasteboard.TransientType` are never captured; (2) copies made while Apple Passwords or Keychain Access is frontmost are skipped using a heuristic, though a copy followed by an instant app switch within the 0.5 s poll can evade it; (3) a bare upstream clipboard clear (a zero-type change — Apple Passwords fires one ~90 s after a copy, including from its menu-bar popover, which layer 2 cannot see) retroactively removes the newest captured entry, so the secret does not outlive the clipboard, though it is visible in history during that pre-clear window; (4) "Clear Clipboard History" wipes the stored history on demand. Entries are capped at 100 KB; contents never appear in any log; `clipboard.json` is `-rw-------` inside a `drwx------` directory.
-- Scripts (`~/Library/Application Support/Bopop/Scripts`): run only on explicit Return, never from typed input alone; executed directly via `Process` with an empty argv — no shell, no interpolation; rows carry a visible "Script" badge; output goes to `scripts.log` only. There is deliberately no timeout — a long-running script is legitimate.
-- Permissions: nothing requested up front. Notification auth is requested on first script run; macOS file-access prompts appear only when you open a protected file. Two system commands — Empty Trash and Eject All — script Finder via AppleScript, which triggers macOS's one-time Automation consent the first time either runs; every other command (lock, sleep, screen saver, log out, restart, shut down) is permissionless, and the network story above is otherwise unchanged. Accessibility is never requested.
-- Logs use `os.Logger` with private interpolation for paths and queries.
+## License
 
-## Testing
-
-`swift test` — 236 tests over the parser, ranker (incl. the web-search pin-last rule), query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles, `.apps` mode), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search (incl. full-catalog frecency-first ordering for the grid) and pure grid row/column math (`GridNavigation`), translation direction detection/provider flow against a mock translator, web-search URL encoding per engine, file-search folder-scope resolution/fallback, the brand-image storage path, system-command keyword/invocation mapping, custom-search keyword matching and URL templating, the snippet store (add/update/remove, persistence), the dictionary `define`/`def` prefix parser and definition excerpting, the tab-key policy (autocomplete vs. cycle), and file-result reveal secondary actions.
-
-Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
+[MIT](LICENSE)
