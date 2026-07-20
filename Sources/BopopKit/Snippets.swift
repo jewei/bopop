@@ -92,7 +92,6 @@ public final class SnippetsProvider: ResultProvider {
                 keywords: [snippet.name] + (snippet.keyword.map { [$0] } ?? []),
                 badge: "Snippet",
                 action: .copyText(snippet.content),
-                secondaryActions: [.copyText(snippet.content)],
                 sortHint: index
             )
         }

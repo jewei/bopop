@@ -46,20 +46,7 @@ final class LargeTypeWindowController: NSObject {
     }
 
     private func configurePanel() {
-        panel.level = .statusBar
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .fullScreenAuxiliary,
-            .transient,
-            .ignoresCycle
-        ]
-        panel.isFloatingPanel = true
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.animationBehavior = .none
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.applyBopopOverlayStyle()
     }
 
     private func configureContent() {
@@ -196,12 +183,7 @@ final class LargeTypePanel: NSPanel {
     /// directly rather than `PalettePanel` — the second ⌘L press that's
     /// supposed to dismiss the overlay has to be caught here instead.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let relevantModifiers = event.modifierFlags.intersection([
-            .command,
-            .shift,
-            .option,
-            .control
-        ])
+        let relevantModifiers = event.relevantModifiers
         if relevantModifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "l" {
             onDismiss?()
             return true
@@ -222,14 +204,8 @@ final class LargeTypePanel: NSPanel {
     /// focus loss and `onFocusLost` tears the whole palette down too.
     override func resignKey() {
         super.resignKey()
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch NSApp.keyWindow {
-            case self, is PalettePanel, is QLPreviewPanel:
-                return
-            default:
-                self.onFocusLost?()
-            }
+        FocusLossCheck.runDeferred(ownPanel: self) { [weak self] in
+            self?.onFocusLost?()
         }
     }
 }

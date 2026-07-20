@@ -161,7 +161,6 @@ public final class ClipboardProvider: ResultProvider {
                 // Cap searchable text so Ranker never folds 100 KB per keystroke.
                 keywords: [String(entry.text.prefix(1_000))],
                 action: .copyText(entry.text),
-                secondaryActions: [.copyText(entry.text)],
                 sortHint: index
             )
         }

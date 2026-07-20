@@ -2,17 +2,9 @@ import Foundation
 import Testing
 @testable import BopopKit
 
-private func makeSnippetStorage() throws -> (root: URL, storage: Storage) {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let storage = Storage(baseDirectory: root)
-    try storage.ensureDirectories()
-    return (root, storage)
-}
-
 @MainActor
 @Test func snippetStorePersistsSortedByName() throws {
-    let fixture = try makeSnippetStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = SnippetStore(storage: fixture.storage)
     store.add(Snippet(id: UUID(), name: "Zeta", keyword: nil, content: "z"))
@@ -25,7 +17,7 @@ private func makeSnippetStorage() throws -> (root: URL, storage: Storage) {
 
 @MainActor
 @Test func snippetStoreUpdatesAndRemoves() throws {
-    let fixture = try makeSnippetStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = SnippetStore(storage: fixture.storage)
     let snippet = Snippet(id: UUID(), name: "Sig", keyword: nil, content: "old")
@@ -38,7 +30,7 @@ private func makeSnippetStorage() throws -> (root: URL, storage: Storage) {
 
 @MainActor
 @Test func snippetStoreQuarantinesCorruptFile() throws {
-    let fixture = try makeSnippetStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     try Data("not json".utf8).write(to: fixture.storage.snippetsFileURL)
     let store = SnippetStore(storage: fixture.storage)
@@ -49,7 +41,7 @@ private func makeSnippetStorage() throws -> (root: URL, storage: Storage) {
 
 @MainActor
 @Test func snippetsProviderServesGeneralAndSnippetsModes() async throws {
-    let fixture = try makeSnippetStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = SnippetStore(storage: fixture.storage)
     store.add(Snippet(id: UUID(), name: "Email", keyword: "em", content: "a@b.c\nsecond line"))

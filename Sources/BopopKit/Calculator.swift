@@ -67,7 +67,6 @@ public final class CalculatorProvider: ResultProvider {
                 // Ranker gives this result an exact tier instead of filtering it out.
                 keywords: [query.term],
                 action: .copyText(formatted),
-                secondaryActions: [.copyText(formatted)],
                 hero: hero,
                 sortHint: 0
             )

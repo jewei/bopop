@@ -111,7 +111,7 @@ func cachedRatesStalenessBoundary() {
 @MainActor
 @Test
 func rateStoreSavesAndLoadsRoundTrip() throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fetchedAt = Date(timeIntervalSince1970: 1_000)
@@ -126,7 +126,7 @@ func rateStoreSavesAndLoadsRoundTrip() throws {
 @MainActor
 @Test
 func rateStoreReturnsNilWhenAbsent() throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
 
@@ -136,7 +136,7 @@ func rateStoreReturnsNilWhenAbsent() throws {
 @MainActor
 @Test
 func rateStoreQuarantinesCorruptFile() throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     try Data("not json".utf8).write(to: fixture.storage.ratesFileURL)
     let store = RateStore(storage: fixture.storage)
@@ -152,7 +152,7 @@ func rateStoreQuarantinesCorruptFile() throws {
 @MainActor
 @Test
 func rateStoreCachesInMemoryAfterFirstLoad() throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fetchedAt = Date(timeIntervalSince1970: 1_000)
@@ -172,7 +172,7 @@ func rateStoreCachesInMemoryAfterFirstLoad() throws {
 @MainActor
 @Test
 func rateStoreInMemoryCacheIsInvalidatedBySave() throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     store.save(rates: ["EUR": 1.0, "USD": 1.08], fetchedAt: Date(timeIntervalSince1970: 1_000))
@@ -191,7 +191,7 @@ func rateStoreInMemoryCacheIsInvalidatedBySave() throws {
 @MainActor
 @Test
 func currencyProviderIgnoresNonMatchingTerms() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fetcher = MockRateFetcher(result: .success(["EUR": 1.0, "USD": 1.08]))
@@ -212,7 +212,7 @@ func currencyProviderIgnoresNonMatchingTerms() async throws {
 @MainActor
 @Test
 func currencyProviderFreshCacheAnswersWithoutFetching() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fixedNow = Date(timeIntervalSince1970: 100_000)
@@ -241,7 +241,7 @@ func currencyProviderFreshCacheAnswersWithoutFetching() async throws {
 @MainActor
 @Test
 func currencyProviderNotesRelativeAgeWhenStaleEnough() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fixedNow = Date(timeIntervalSince1970: 100_000)
@@ -262,7 +262,7 @@ func currencyProviderNotesRelativeAgeWhenStaleEnough() async throws {
 @MainActor
 @Test
 func currencyProviderStaleCacheAnswersImmediatelyThenRefreshesInBackground() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fixedNow = Date(timeIntervalSince1970: 200_000)
@@ -290,7 +290,7 @@ func currencyProviderStaleCacheAnswersImmediatelyThenRefreshesInBackground() asy
 @MainActor
 @Test
 func currencyProviderNoCacheFetchesInlineAndPersists() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fixedNow = Date(timeIntervalSince1970: 300_000)
@@ -313,7 +313,7 @@ func currencyProviderNoCacheFetchesInlineAndPersists() async throws {
 @MainActor
 @Test
 func currencyProviderNoCacheFetchFailureReturnsUnavailableRow() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fetcher = MockRateFetcher(result: .failure(FetchError.offline))
@@ -361,18 +361,10 @@ private actor MockRateFetcher: RateFetcher {
     }
 }
 
-private func makeCurrencyStorage() throws -> (root: URL, storage: Storage) {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let storage = Storage(baseDirectory: root)
-    try storage.ensureDirectories()
-    return (root, storage)
-}
-
 @MainActor
 @Test
 func currencyProviderStaleCacheRefreshesOnlyOnce() async throws {
-    let fixture = try makeCurrencyStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fixedNow = Date(timeIntervalSince1970: 1_000_000)

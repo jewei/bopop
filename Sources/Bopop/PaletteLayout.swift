@@ -207,22 +207,11 @@ enum PaletteLayout {
     }
 
     private static func configurePanel(_ panel: PalettePanel) {
+        panel.applyBopopOverlayStyle()
+        // Intentionally different from LargeTypePanel: only the palette
+        // forces dark aqua and is user-draggable by its background.
         panel.appearance = NSAppearance(named: .darkAqua)
-        panel.level = .statusBar
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .fullScreenAuxiliary,
-            .transient,
-            .ignoresCycle
-        ]
-        panel.isFloatingPanel = true
         panel.isMovableByWindowBackground = true
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.animationBehavior = .none
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
     }
 
     private static func configureQueryField(_ queryField: NSTextField) {

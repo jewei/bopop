@@ -5,7 +5,7 @@ import Testing
 @MainActor
 @Test
 func usageStoreRecordsHits() throws {
-    let fixture = try makeUsageStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let date = Date(timeIntervalSinceReferenceDate: 1_000_000)
     let store = UsageStore(storage: fixture.storage, now: { date })
@@ -19,7 +19,7 @@ func usageStoreRecordsHits() throws {
 @MainActor
 @Test
 func usageStoreDecaysWithFourteenDayHalfLife() throws {
-    let fixture = try makeUsageStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let recordedAt = Date(timeIntervalSinceReferenceDate: 1_000_000)
     var currentDate = recordedAt
@@ -37,7 +37,7 @@ func usageStoreDecaysWithFourteenDayHalfLife() throws {
 @MainActor
 @Test
 func usageStoreReturnsZeroForUnknownID() throws {
-    let fixture = try makeUsageStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = UsageStore(storage: fixture.storage)
 
@@ -47,7 +47,7 @@ func usageStoreReturnsZeroForUnknownID() throws {
 @MainActor
 @Test
 func usageStoreEvictsLowestScoreBeyondBound() throws {
-    let fixture = try makeUsageStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSinceReferenceDate: 1_000_000)
     let store = UsageStore(
@@ -73,7 +73,7 @@ func usageStoreEvictsLowestScoreBeyondBound() throws {
 @MainActor
 @Test
 func usageStorePersistsRecords() throws {
-    let fixture = try makeUsageStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let date = Date(timeIntervalSinceReferenceDate: 1_000_000)
     let firstStore = UsageStore(storage: fixture.storage, now: { date })
@@ -84,10 +84,3 @@ func usageStorePersistsRecords() throws {
     #expect(abs(secondStore.score("app:foo") - 1) < 1e-9)
 }
 
-private func makeUsageStorage() throws -> (root: URL, storage: Storage) {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let storage = Storage(baseDirectory: root)
-    try storage.ensureDirectories()
-    return (root, storage)
-}

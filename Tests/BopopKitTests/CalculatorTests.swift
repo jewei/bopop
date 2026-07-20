@@ -37,7 +37,10 @@ func calculatorProviderReturnsCopyResult() async throws {
     #expect(results.count == 1)
     #expect(results.first?.title == "= 98")
     #expect(results.first?.action == .copyText("98"))
-    #expect(results.first?.secondaryActions == [.copyText("98")])
+    // No secondary copy action: the primary action already is `.copyText`,
+    // and ActionRunner.performCopy falls back to the primary action when
+    // secondaryActions has no copyText entry of its own.
+    #expect(results.first?.secondaryActions == [])
     #expect(results.first?.keywords == [query.term])
 
     let ranked = Ranker.rank(

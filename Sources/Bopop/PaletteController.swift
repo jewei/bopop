@@ -501,14 +501,8 @@ final class PaletteController: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    switch NSApp.keyWindow {
-                    case self.panel, is LargeTypePanel, is QLPreviewPanel:
-                        return
-                    default:
-                        self.hide()
-                    }
+                FocusLossCheck.runDeferred(ownPanel: self.panel) { [weak self] in
+                    self?.hide()
                 }
             }
         }
@@ -521,7 +515,11 @@ final class PaletteController: NSObject {
             largeTypeController.hide()
             return true
         }
-        guard let text = LargeType.text(for: selectedResult() ?? heroResult) else {
+        // `selectedResult()` already returns `heroResult` whenever it's the
+        // active selection (`selectedIndex == -1`), and `apply(_:)` always
+        // forces that whenever `heroResult != nil` — so a fallback to
+        // `heroResult` here can never fire and was dead code.
+        guard let text = LargeType.text(for: selectedResult()) else {
             return false
         }
         largeTypeController.show(text: text, on: panel.screen ?? NSScreen.main!)
@@ -622,12 +620,6 @@ final class PaletteController: NSObject {
 
     private func updateFooter(after update: QueryEngine.Update, query: ParsedQuery) {
         switch query.mode {
-        case .general:
-            footerView.setStatus("Bopop")
-        case .apps:
-            footerView.setStatus("Apps")
-        case .clipboard:
-            footerView.setStatus("Clipboard")
         case .fileSearch:
             if query.term.isEmpty {
                 footerView.setStatus(Self.emptyFileSearchMessage)
@@ -644,34 +636,39 @@ final class PaletteController: NSObject {
             // driven by whether there's a search term narrowing the catalog.
             let noun = query.term.isEmpty ? "emoji" : "matches"
             footerView.setStatus("\(results.count.formatted()) \(noun)")
-        case .translation:
-            footerView.setStatus("Translate")
-        case .snippets:
-            footerView.setStatus("Snippets")
+        default:
+            footerView.setStatus(Self.footerLabel(for: query.mode))
         }
         updateFooterActions()
     }
 
     private func updateFooterStatus(for query: ParsedQuery) {
         switch query.mode {
-        case .general:
-            footerView.setStatus("Bopop")
-        case .apps:
-            footerView.setStatus("Apps")
         case .fileSearch:
             footerView.setStatus(
                 query.term.isEmpty
                     ? Self.emptyFileSearchMessage
                     : Self.searchingMessage
             )
-        case .clipboard:
-            footerView.setStatus("Clipboard")
-        case .emoji:
-            footerView.setStatus("Emoji")
-        case .translation:
-            footerView.setStatus("Translate")
-        case .snippets:
-            footerView.setStatus("Snippets")
+        default:
+            footerView.setStatus(Self.footerLabel(for: query.mode))
+        }
+    }
+
+    /// The static Mode→label mapping shared by `updateFooter` and
+    /// `updateFooterStatus` — both diverge only for `.fileSearch` (progress
+    /// states) and, in `updateFooter`'s case, `.emoji` (live result count),
+    /// which each keep as an explicit case above instead of going through
+    /// this helper.
+    private static func footerLabel(for mode: Mode) -> String {
+        switch mode {
+        case .general: "Bopop"
+        case .apps: "Apps"
+        case .fileSearch: "Files"
+        case .clipboard: "Clipboard"
+        case .emoji: "Emoji"
+        case .translation: "Translate"
+        case .snippets: "Snippets"
         }
     }
 

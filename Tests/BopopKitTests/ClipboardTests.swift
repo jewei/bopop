@@ -5,7 +5,7 @@ import Testing
 @MainActor
 @Test
 func clipboardStoreDeduplicatesOnlyConsecutiveEntries() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
     let store = ClipboardStore(storage: fixture.storage) {
@@ -30,7 +30,7 @@ func clipboardStoreDeduplicatesOnlyConsecutiveEntries() throws {
 @MainActor
 @Test
 func clipboardStoreEvictsOldestEntries() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = ClipboardStore(storage: fixture.storage, limit: 3)
 
@@ -49,7 +49,7 @@ func clipboardStoreEvictsOldestEntries() throws {
 @MainActor
 @Test
 func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
     let store = ClipboardStore(storage: fixture.storage) { currentDate }
@@ -69,7 +69,7 @@ func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
 @MainActor
 @Test
 func clipboardStoreKeepsNewestWhenClearArrivesLate() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
     let store = ClipboardStore(storage: fixture.storage) { currentDate }
@@ -95,7 +95,7 @@ func capturePolicyDetectsUpstreamClear() {
 @MainActor
 @Test
 func clipboardStoreEnforcesUTF8SizeLimit() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = ClipboardStore(storage: fixture.storage)
 
@@ -110,7 +110,7 @@ func clipboardStoreEnforcesUTF8SizeLimit() throws {
 @MainActor
 @Test
 func clipboardStoreSkipsEmptyAndWhitespaceOnlyText() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = ClipboardStore(storage: fixture.storage)
 
@@ -123,7 +123,7 @@ func clipboardStoreSkipsEmptyAndWhitespaceOnlyText() throws {
 @MainActor
 @Test
 func clipboardStorePersistsWithPrivatePermissions() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let capturedAt = Date(timeIntervalSince1970: 1_000)
     let firstStore = ClipboardStore(
@@ -143,7 +143,7 @@ func clipboardStorePersistsWithPrivatePermissions() throws {
 @MainActor
 @Test
 func clipboardStoreSetLimitTrimsAndPersists() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = ClipboardStore(storage: fixture.storage, limit: 5)
     for text in ["A", "B", "C", "D", "E"] {
@@ -160,7 +160,7 @@ func clipboardStoreSetLimitTrimsAndPersists() throws {
 @MainActor
 @Test
 func clipboardStoreClearEmptiesAndPersistsWithPrivatePermissions() throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = ClipboardStore(storage: fixture.storage)
     store.add("private clipboard text")
@@ -177,7 +177,7 @@ func clipboardStoreClearEmptiesAndPersistsWithPrivatePermissions() throws {
 @MainActor
 @Test
 func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
     let store = ClipboardStore(storage: fixture.storage) {
@@ -220,7 +220,7 @@ func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
 @MainActor
 @Test
 func clipboardProviderReturnsNoClearCommandForEmptyStore() async throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let provider = ClipboardProvider(
         store: ClipboardStore(storage: fixture.storage)
@@ -236,7 +236,7 @@ func clipboardProviderReturnsNoClearCommandForEmptyStore() async throws {
 @MainActor
 @Test
 func clipboardProviderBuildsTruncatedFirstLineTitles() async throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = ClipboardStore(storage: fixture.storage)
     store.add(String(repeating: "x", count: 100))
@@ -254,7 +254,7 @@ func clipboardProviderBuildsTruncatedFirstLineTitles() async throws {
 @MainActor
 @Test
 func clipboardProviderCapsSearchKeywordsButCopiesFullText() async throws {
-    let fixture = try makeClipboardStorage()
+    let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let text = String(repeating: "x", count: 2_000)
     let store = ClipboardStore(storage: fixture.storage)
@@ -267,7 +267,10 @@ func clipboardProviderCapsSearchKeywordsButCopiesFullText() async throws {
 
     #expect(results[0].keywords == [String(repeating: "x", count: 1_000)])
     #expect(results[0].action == .copyText(text))
-    #expect(results[0].secondaryActions == [.copyText(text)])
+    // No secondary copy action: the primary action already is `.copyText`,
+    // and ActionRunner.performCopy falls back to the primary action when
+    // secondaryActions has no copyText entry of its own.
+    #expect(results[0].secondaryActions == [])
 }
 
 @Test
@@ -313,14 +316,6 @@ func clipboardCapturePolicyAllowsNormalCopy() {
         frontmostBundleID: "com.apple.TextEdit",
         denied: ["com.apple.Passwords"]
     ))
-}
-
-private func makeClipboardStorage() throws -> (root: URL, storage: Storage) {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let storage = Storage(baseDirectory: root)
-    try storage.ensureDirectories()
-    return (root, storage)
 }
 
 private func clipboardPermissions(at url: URL) throws -> Int {

@@ -38,34 +38,25 @@ final class PalettePanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        // The successor key window isn't known yet during resignKey, so defer
-        // one runloop turn: if one of the app's own overlays (Large Type,
-        // Quick Look) — or this panel itself — took key back, it's not a
-        // genuine focus loss and the palette must stay open.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch NSApp.keyWindow {
-            case self, is LargeTypePanel, is QLPreviewPanel:
-                return
-            default:
-                // An already-hidden palette means this resign was caused by
-                // our own `orderOut` (e.g. from `hide()`'s `panel.orderOut`),
-                // not a genuine focus loss — firing `onResign` here would
-                // re-enter `hide()` every time the palette closes.
-                if self.isVisible {
-                    self.onResign?()
-                }
-            }
+        // See FocusLossCheck: defers one runloop turn so the successor key
+        // window is known, then only treats it as a genuine loss if it
+        // isn't one of the app's own overlays (or this panel itself).
+        //
+        // The `isVisible` condition additionally skips an already-hidden
+        // palette: that resign was caused by our own `orderOut` (e.g. from
+        // `hide()`'s `panel.orderOut`), not a genuine focus loss — firing
+        // `onResign` here would re-enter `hide()` every time the palette
+        // closes.
+        FocusLossCheck.runDeferred(
+            ownPanel: self,
+            condition: { [weak self] in self?.isVisible == true }
+        ) { [weak self] in
+            self?.onResign?()
         }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let relevantModifiers = event.modifierFlags.intersection([
-            .command,
-            .shift,
-            .option,
-            .control
-        ])
+        let relevantModifiers = event.relevantModifiers
         // There is no menu bar, so Edit-menu key equivalents never fire —
         // the standard editing actions must be routed to the field editor
         // by hand or ⌘V/⌘A/⌘X (and text-selection ⌘C) are dead keys.
