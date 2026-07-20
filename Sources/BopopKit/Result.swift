@@ -12,6 +12,7 @@ public nonisolated enum ProviderID: String, Hashable, Sendable {
     case emoji
     case urlClean
     case translation
+    case webSearch
 }
 
 public nonisolated enum IconRef: Equatable, Sendable {

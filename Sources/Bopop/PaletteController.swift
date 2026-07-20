@@ -254,6 +254,11 @@ final class PaletteController: NSObject {
             modeChip.isHidden = true
             layoutConstraints.modeFieldLeading.isActive = false
             layoutConstraints.generalFieldLeading.isActive = true
+        case .apps:
+            modeChip.setTitle("Apps")
+            modeChip.isHidden = false
+            layoutConstraints.generalFieldLeading.isActive = false
+            layoutConstraints.modeFieldLeading.isActive = true
         case .fileSearch:
             modeChip.setTitle("Files")
             modeChip.isHidden = false
@@ -373,6 +378,8 @@ final class PaletteController: NSObject {
         switch query.mode {
         case .general:
             footerView.setStatus("Bopop")
+        case .apps:
+            footerView.setStatus("Apps")
         case .clipboard:
             footerView.setStatus("Clipboard")
         case .fileSearch:
@@ -397,6 +404,8 @@ final class PaletteController: NSObject {
         switch query.mode {
         case .general:
             footerView.setStatus("Bopop")
+        case .apps:
+            footerView.setStatus("Apps")
         case .fileSearch:
             footerView.setStatus(
                 query.term.isEmpty

@@ -2,6 +2,7 @@ import Foundation
 
 public nonisolated enum Mode: String, Hashable, Sendable {
     case general
+    case apps
     case fileSearch
     case clipboard
     case emoji

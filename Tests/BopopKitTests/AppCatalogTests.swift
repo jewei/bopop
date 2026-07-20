@@ -158,6 +158,26 @@ func appsProviderReturnsAllAppsForNonemptyTerm() async throws {
     ])
 }
 
+@MainActor
+@Test
+func appsProviderServesAppsMode() async throws {
+    let root = try makeAppFixtureDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try makeLetteredBundles(in: root)
+    let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
+    await catalog.refreshNow()
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in 0 })
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .apps, term: "anything")
+    )
+
+    #expect(results.map(\.id) == [
+        "app:a", "app:b", "app:c", "app:d",
+        "app:e", "app:f", "app:g", "app:h"
+    ])
+}
+
 private func makeAppFixtureDirectory() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -98,6 +98,59 @@ func emptyQueryKeepsProviderSortOrder() {
     #expect(ranked.map(\.id) == ["app:zulu", "app:alpha"])
 }
 
+@Test
+func webSearchSurvivesQueryItDoesNotTierMatch() {
+    let webSearch = makeResult(
+        id: "websearch",
+        providerID: .webSearch,
+        title: "Search Google for \"xyz\""
+    )
+
+    let ranked = Ranker.rank(
+        [webSearch],
+        query: "totally-different-term",
+        frecencyFor: { _ in 0 },
+        providerWeights: [:]
+    )
+
+    #expect(ranked.map(\.id) == ["websearch"])
+}
+
+@Test
+func webSearchAlwaysSortsAfterHigherScoringResult() {
+    let app = makeResult(id: "app:example", providerID: .apps, title: "example")
+    let webSearch = makeResult(
+        id: "websearch",
+        providerID: .webSearch,
+        title: "irrelevant",
+        keywords: ["example"]
+    )
+
+    let ranked = Ranker.rank(
+        [webSearch, app],
+        query: "example",
+        frecencyFor: { _ in 0 },
+        providerWeights: [.apps: 1, .webSearch: 999]
+    )
+
+    #expect(ranked.map(\.id) == ["app:example", "websearch"])
+}
+
+@Test
+func multipleWebSearchResultsPreserveRelativeOrder() {
+    let first = makeResult(id: "websearch:first", providerID: .webSearch, title: "Zulu")
+    let second = makeResult(id: "websearch:second", providerID: .webSearch, title: "Alpha")
+
+    let ranked = Ranker.rank(
+        [first, second],
+        query: "",
+        frecencyFor: { _ in 0 },
+        providerWeights: [:]
+    )
+
+    #expect(ranked.map(\.id) == ["websearch:first", "websearch:second"])
+}
+
 private nonisolated func makeResult(
     id: String,
     providerID: ProviderID = .apps,
