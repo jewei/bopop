@@ -160,29 +160,54 @@ func queryEngineRunsProvidersConcurrently() async throws {
     // that scheduling delay: however long the scheduler makes each spin
     // wait to start, true concurrent dispatch still gives overlapping
     // windows, and true serialization still gives disjoint ones.
-    let timeline = SpinTimeline()
-    let providerA = NonisolatedFakeProvider(id: .apps) { query in
-        timeline.recordSpin(id: "a", duration: .milliseconds(150))
-        return [engineResult(id: "a:\(query.term)", title: query.term)]
+    //
+    // Retries below: overlap is a one-directional signal. A genuinely
+    // serialized QueryEngine has zero probability of ever producing
+    // overlapping windows, on any attempt, because B's window can only
+    // start after A's has ended — so retrying can never mask a real
+    // serialization regression. It only rescues runs where the full test
+    // suite's cooperative thread pool was momentarily saturated and delayed
+    // one spin's start past the other's end, which is scheduler contention,
+    // not a regression. Up to 3 attempts; pass immediately on first overlap.
+    var lastWindows: (
+        a: (start: ContinuousClock.Instant, end: ContinuousClock.Instant),
+        b: (start: ContinuousClock.Instant, end: ContinuousClock.Instant)
+    )?
+
+    for _ in 1...3 {
+        let timeline = SpinTimeline()
+        let providerA = NonisolatedFakeProvider(id: .apps) { query in
+            timeline.recordSpin(id: "a", duration: .milliseconds(150))
+            return [engineResult(id: "a:\(query.term)", title: query.term)]
+        }
+        let providerB = NonisolatedFakeProvider(id: .files) { query in
+            timeline.recordSpin(id: "b", duration: .milliseconds(150))
+            return [engineResult(id: "b:\(query.term)", providerID: .files, title: query.term)]
+        }
+        let engine = QueryEngine(
+            providers: [.general: [providerA, providerB]],
+            debounce: [:]
+        )
+        let recorder = UpdateRecorder()
+        engine.onUpdate = recorder.record
+
+        engine.update(raw: "go", stickyMode: .general)
+        let final = await recorder.waitForUpdate(matching: \.isFinal)
+
+        #expect(Set(final?.results.map(\.id) ?? []) == ["a:go", "b:go"])
+        let windowA = try #require(timeline.window(for: "a"))
+        let windowB = try #require(timeline.window(for: "b"))
+
+        if windowA.start < windowB.end && windowB.start < windowA.end {
+            return
+        }
+        lastWindows = (windowA, windowB)
     }
-    let providerB = NonisolatedFakeProvider(id: .files) { query in
-        timeline.recordSpin(id: "b", duration: .milliseconds(150))
-        return [engineResult(id: "b:\(query.term)", providerID: .files, title: query.term)]
-    }
-    let engine = QueryEngine(
-        providers: [.general: [providerA, providerB]],
-        debounce: [:]
+
+    let windows = try #require(lastWindows)
+    Issue.record(
+        "providers never overlapped in 3 attempts: a=\(windows.a), b=\(windows.b)"
     )
-    let recorder = UpdateRecorder()
-    engine.onUpdate = recorder.record
-
-    engine.update(raw: "go", stickyMode: .general)
-    let final = await recorder.waitForUpdate(matching: \.isFinal)
-
-    #expect(Set(final?.results.map(\.id) ?? []) == ["a:go", "b:go"])
-    let windowA = try #require(timeline.window(for: "a"))
-    let windowB = try #require(timeline.window(for: "b"))
-    #expect(windowA.start < windowB.end && windowB.start < windowA.end)
 }
 
 /// Records the [start, end) wall-clock window of each named busy-spin so a
