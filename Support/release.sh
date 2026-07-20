@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_NAME="Bopop"
 TEAM_ID="${TEAM_ID:-4L4SS26L9J}"
-KEYCHAIN_PROFILE="notarytool"
+KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-notarytool}"
 GITHUB_REPO="jewei/bopop"
 MIN_MACOS="15.0"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
@@ -108,8 +108,14 @@ hdiutil create \
 
 echo "▶ Signing DMG for Sparkle…"
 SIGN_OUTPUT=$("$SIGN_UPDATE" "$DMG_PATH")
-SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
-LENGTH=$(echo "$SIGN_OUTPUT"    | grep -o 'length="[^"]*"'              | cut -d'"' -f2)
+SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2 || true)
+LENGTH=$(echo "$SIGN_OUTPUT"    | grep -o 'length="[^"]*"'              | cut -d'"' -f2 || true)
+
+if [[ -z "$SIGNATURE" || -z "$LENGTH" ]]; then
+    echo "error: could not parse sign_update output:" >&2
+    echo "$SIGN_OUTPUT" >&2
+    exit 1
+fi
 
 echo "   edSignature: $SIGNATURE"
 echo "   length:      $LENGTH"
