@@ -17,14 +17,31 @@ public nonisolated struct CustomWebSearch: Codable, Equatable, Sendable, Identif
         !name.trimmingCharacters(in: .whitespaces).isEmpty
             && !keyword.isEmpty
             && !keyword.contains(where: \.isWhitespace)
+            && !Self.isReservedKeyword(keyword)
             && urlTemplate.contains("{query}")
     }
 
     public func url(for term: String) -> URL? {
-        guard let encoded = term.addingPercentEncoding(withAllowedCharacters: Self.queryAllowed) else {
+        guard let encoded = term.addingPercentEncoding(withAllowedCharacters: QueryEncoding.allowed) else {
             return nil
         }
         return URL(string: urlTemplate.replacingOccurrences(of: "{query}", with: encoded))
+    }
+
+    /// "f"/"t" are QueryParser's sticky-mode prefixes ("f " → file search,
+    /// "t " → translation) and a leading ":" is the emoji prefix — none of
+    /// these keywords can ever reach CustomSearchProvider in .general mode,
+    /// so a custom search saved under one would be permanently dead.
+    static func isReservedKeyword(_ keyword: String) -> Bool {
+        if keyword.hasPrefix(":") {
+            return true
+        }
+        switch keyword.lowercased() {
+        case "f", "t":
+            return true
+        default:
+            return false
+        }
     }
 
     public static func match(
@@ -42,13 +59,6 @@ public nonisolated struct CustomWebSearch: Codable, Equatable, Sendable, Identif
         }
         return nil
     }
-
-    // Same conservative charset as SearchEngine.searchURL.
-    private static let queryAllowed: CharacterSet = {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+?=#")
-        return allowed
-    }()
 }
 
 public final class CustomSearchProvider: ResultProvider {

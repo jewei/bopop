@@ -1,5 +1,15 @@
 import Foundation
 
+/// Shared with CustomWebSearch.url(for:) — both encode a free-typed query
+/// into a URL the same conservative way.
+internal nonisolated enum QueryEncoding {
+    static let allowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+?=#")
+        return allowed
+    }()
+}
+
 public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
     case google
     case duckDuckGo
@@ -20,7 +30,7 @@ public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
     }
 
     public func searchURL(for term: String) -> URL? {
-        guard let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: Self.queryAllowed) else {
+        guard let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: QueryEncoding.allowed) else {
             return nil
         }
 
@@ -39,12 +49,6 @@ public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
             return URL(string: "https://github.com/search?q=\(encodedTerm)")
         }
     }
-
-    private static let queryAllowed: CharacterSet = {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+?=#")
-        return allowed
-    }()
 }
 
 public final class WebSearchProvider: ResultProvider {

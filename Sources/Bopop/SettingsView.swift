@@ -86,6 +86,9 @@ struct SettingsView: View {
 
                 TextField("Name", text: $newSearchName)
                 TextField("Keyword", text: $newSearchKeyword)
+                Text("\"f\", \"t\", and keywords starting with \":\" are reserved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 TextField("URL with {query}", text: $newSearchTemplate)
                 Button {
                     let added = model.addCustomSearch(

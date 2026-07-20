@@ -29,6 +29,21 @@ private let youtube = CustomWebSearch(
                              urlTemplate: "https://x.com/").isValid) // no {query}
 }
 
+/// "f"/"t" are permanently shadowed by QueryParser's "f "/"t " sticky-mode
+/// prefixes, and a leading ":" is shadowed by the emoji prefix — none of
+/// these keywords could ever reach CustomSearchProvider in .general mode, so
+/// saving them would silently do nothing. Reject them at the validation layer.
+@Test func customSearchRejectsReservedKeywords() {
+    #expect(!CustomWebSearch(id: UUID(), name: "X", keyword: "f",
+                             urlTemplate: "https://x.com/{query}").isValid)
+    #expect(!CustomWebSearch(id: UUID(), name: "X", keyword: "T",
+                             urlTemplate: "https://x.com/{query}").isValid)
+    #expect(!CustomWebSearch(id: UUID(), name: "X", keyword: ":x",
+                             urlTemplate: "https://x.com/{query}").isValid)
+    #expect(CustomWebSearch(id: UUID(), name: "X", keyword: "yt",
+                            urlTemplate: "https://x.com/{query}").isValid)
+}
+
 @Test func customSearchCodableRoundTrip() throws {
     let data = try JSONEncoder().encode([youtube])
     let decoded = try JSONDecoder().decode([CustomWebSearch].self, from: data)
