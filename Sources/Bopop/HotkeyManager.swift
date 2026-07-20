@@ -60,10 +60,19 @@ final class HotkeyManager {
     }
 
     private func installEventHandlerIfNeeded() -> Bool {
+        // Only latch `attemptedEventHandlerInstallation` on SUCCESS. If we
+        // latched it unconditionally (as before), one transient
+        // InstallEventHandler failure (e.g. an app launched before the
+        // window server is fully up) would permanently disable the hotkey
+        // for the rest of the process's lifetime — every later register()
+        // call would short-circuit here and never retry. Leaving the flag
+        // false on failure means the next register() (e.g. the user
+        // reopening Settings and re-saving their hotkey) gets a fresh
+        // attempt, while a successful install is still cached rather than
+        // redone on every register().
         if attemptedEventHandlerInstallation {
             return eventHandlerRef != nil
         }
-        attemptedEventHandlerInstallation = true
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -82,6 +91,7 @@ final class HotkeyManager {
             logger.error("Could not install hotkey event handler; Carbon status: \(status)")
             return false
         }
+        attemptedEventHandlerInstallation = true
         return true
     }
 }

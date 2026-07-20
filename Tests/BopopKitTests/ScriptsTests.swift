@@ -98,6 +98,33 @@ func scriptRunnerDrainsLargeStderrWithoutDeadlock() async throws {
 }
 
 @Test(.timeLimit(.minutes(1)))
+func scriptRunnerReturnsPromptlyWhenDescendantHoldsThePipeOpen() async throws {
+    // `sleep 30 &` backgrounds a grandchild that inherits the script's
+    // stdout/stderr pipe write ends and keeps them open long after the
+    // script itself exits — the readabilityHandler-driven drain would
+    // never see EOF on its own, and run() would hang for the grandchild's
+    // full lifetime without the 2s drain deadline.
+    let fixture = try makeRunnerFixture(body: "echo hi; sleep 30 & exit 0")
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+    let clock = ContinuousClock()
+    let start = clock.now
+    let result = await ScriptRunner.run(
+        scriptAt: fixture.script.path,
+        workingDirectory: fixture.directory
+    )
+    let elapsed = clock.now - start
+
+    #expect(result.exitCode == 0)
+    #expect(result.stdout.contains("hi"))
+    #expect(result.stderr.contains("(output truncated: descendant still holds the pipe)"))
+    #expect(result.launchFailure == nil)
+    // Well under the grandchild's 30s sleep — bounded by the drain's 2s
+    // deadline plus normal process-launch/teardown overhead.
+    #expect(elapsed < .seconds(10))
+}
+
+@Test(.timeLimit(.minutes(1)))
 func scriptRunnerGivesStdinImmediateEOF() async throws {
     let fixture = try makeRunnerFixture(body: "cat")
     defer { try? FileManager.default.removeItem(at: fixture.directory) }

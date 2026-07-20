@@ -127,12 +127,45 @@ public nonisolated struct Storage {
                 [.posixPermissions: 0o600],
                 ofItemAtPath: scriptsLogURL.path
             )
+            try trimScriptLogIfOversized(using: fileManager)
         } catch {
             Self.logger.error(
                 "Could not append script log at \(self.scriptsLogURL.path, privacy: .private)"
             )
         }
     }
+
+    /// scripts.log is appended to forever by every script run; without a
+    /// cap it grows unbounded. Once it crosses 1 MB, rewrite it keeping only
+    /// the last 256 KB, aligned to the next newline so the retained tail
+    /// doesn't start mid-line.
+    private func trimScriptLogIfOversized(using fileManager: FileManager) throws {
+        let attributes = try fileManager.attributesOfItem(atPath: scriptsLogURL.path)
+        guard let size = (attributes[.size] as? NSNumber)?.intValue,
+              size > Self.scriptLogSizeLimit
+        else {
+            return
+        }
+
+        let fullLog = try Data(contentsOf: scriptsLogURL)
+        let tailStart = fullLog.index(
+            fullLog.startIndex,
+            offsetBy: max(0, fullLog.count - Self.scriptLogTrimTarget)
+        )
+        var tail = fullLog[tailStart...]
+        if let newlineIndex = tail.firstIndex(of: UInt8(ascii: "\n")) {
+            tail = tail[tail.index(after: newlineIndex)...]
+        }
+
+        try Data(tail).write(to: scriptsLogURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: scriptsLogURL.path
+        )
+    }
+
+    private static let scriptLogSizeLimit = 1_048_576
+    private static let scriptLogTrimTarget = 262_144
 
     private static let logger = Logger(
         subsystem: "com.oneone.bopop",

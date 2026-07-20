@@ -61,6 +61,9 @@ public nonisolated struct ScriptRunResult: Sendable {
 
 public enum ScriptRunner {
     private nonisolated static let outputLimit = 65_536
+    private nonisolated static let drainDeadline: Duration = .seconds(2)
+    private nonisolated static let truncationMarker =
+        "(output truncated: descendant still holds the pipe)"
 
     public static nonisolated func run(
         scriptAt path: String,
@@ -101,16 +104,60 @@ public enum ScriptRunner {
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
-        async let stdoutData = drain(stdoutHandle)
-        async let stderrData = drain(stderrHandle)
+        let stdoutCapture = ScriptPipeCapture(limit: outputLimit)
+        let stderrCapture = ScriptPipeCapture(limit: outputLimit)
+        // These three all start immediately, concurrently, right after
+        // launch: the drains MUST be attached before (or at worst,
+        // alongside) waiting for termination, or a script that writes
+        // enough output to fill the pipe buffer would block inside its own
+        // write() call — and since it's blocked, it would never reach its
+        // own exit(), so termination.wait() would hang too.
+        async let stdoutData = drain(stdoutHandle, into: stdoutCapture)
+        async let stderrData = drain(stderrHandle, into: stderrCapture)
         async let terminationStatus = termination.wait()
 
-        let (capturedStdout, capturedStderr) = await (stdoutData, stderrData)
         let exitCode = await terminationStatus
+
+        // A descendant process that inherited the pipe's write end (e.g. a
+        // backgrounded `sleep 30 &`) keeps it open even after the script's
+        // own process has exited, so the readabilityHandler-driven drains
+        // above may never see EOF on their own. Race them against a
+        // deadline measured from termination — a well-behaved script has
+        // already produced all its output by the time it exits, so this
+        // costs nothing in the common case — rather than let a lingering
+        // descendant hang `run()` forever. The watchdog is a plain
+        // unstructured Task (not a TaskGroup child), so cancelling it below
+        // doesn't require this function to block on it first: if the
+        // drains finish naturally, `watchdog.cancel()` just turns its sleep
+        // into a no-op; if the deadline wins, it forces both captures to
+        // resume with whatever they've captured so far and clears the
+        // handlers so the OS stops invoking them.
+        let watchdog = Task<Bool, Never> {
+            try? await Task.sleep(for: drainDeadline)
+            guard !Task.isCancelled else {
+                return false
+            }
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            stdoutCapture.finish()
+            stderrCapture.finish()
+            return true
+        }
+
+        let capturedStdout = await stdoutData
+        let capturedStderr = await stderrData
+        watchdog.cancel()
+        let timedOut = await watchdog.value
+
+        var stderrString = String(decoding: capturedStderr, as: UTF8.self)
+        if timedOut {
+            stderrString += stderrString.isEmpty ? truncationMarker : "\n\(truncationMarker)"
+        }
+
         return ScriptRunResult(
             exitCode: exitCode,
             stdout: String(decoding: capturedStdout, as: UTF8.self),
-            stderr: String(decoding: capturedStderr, as: UTF8.self),
+            stderr: stderrString,
             launchFailure: nil
         )
     }
@@ -126,10 +173,12 @@ public enum ScriptRunner {
         return false
     }
 
-    private static nonisolated func drain(_ fileHandle: FileHandle) async -> Data {
+    private static nonisolated func drain(
+        _ fileHandle: FileHandle,
+        into capture: ScriptPipeCapture
+    ) async -> Data {
         // On macOS 15.7, AsyncBytes did not yield live pipe data before EOF.
-        let capture = ScriptPipeCapture(limit: outputLimit)
-        return await withCheckedContinuation { continuation in
+        await withCheckedContinuation { continuation in
             capture.setContinuation(continuation)
             fileHandle.readabilityHandler = { @Sendable handle in
                 let chunk = handle.availableData
