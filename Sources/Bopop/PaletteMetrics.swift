@@ -21,9 +21,7 @@ enum PaletteMetrics {
     static let selectionRadius: CGFloat = 10
     static let iconSize: CGFloat = 32
     static let tileRadius: CGFloat = 8
-    // The icns artwork carries the macOS icon grid's transparent margins
-    // (plate is ~80% of the image), so the view is sized up so the VISIBLE
-    // plate matches the 34pt query font's height.
-    static let brandSquareSize: CGFloat = 44
-    static let brandSquareRadius: CGFloat = 6
+    // Brand keycap (drawn, not the icns — see PaletteBrandView), sized to
+    // balance the 34pt query font.
+    static let brandSquareSize: CGFloat = 36
 }

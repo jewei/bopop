@@ -262,9 +262,13 @@ enum PaletteLayout {
     }
 }
 
+/// The brand keycap from the app icon, drawn natively: the palette header
+/// is already the icon's dark plate, so only the violet keycap renders
+/// here — the full plate+keycap icns is for Dock/Finder, where the dark
+/// plate has contrast to earn its place.
 final class PaletteBrandView: NSView {
-    private let imageView = NSImageView()
     private let gradientLayer = CAGradientLayer()
+    private let glyphLabel = NSTextField(labelWithString: "b")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -280,42 +284,40 @@ final class PaletteBrandView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = bounds
+        layer?.cornerRadius = bounds.height * 0.24
         CATransaction.commit()
     }
 
     private func configureView() {
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        setAccessibilityHidden(true)
-
-        // The bundled app icon replaces the old gradient square. The
-        // gradient stays as the fallback for bare-binary runs (swift run /
-        // debug outside the bundle), where AppIcon.icns isn't resolvable.
-        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-           let icon = NSImage(contentsOf: iconURL) {
-            imageView.image = icon
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(imageView)
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                imageView.topAnchor.constraint(equalTo: topAnchor),
-                imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
-            ])
-            return
-        }
-
-        layer?.cornerRadius = PaletteMetrics.brandSquareRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
+        setAccessibilityHidden(true)
+
+        // Same ramp and angle as Support/generate-icon.swift's keycap.
         gradientLayer.colors = [
+            NSColor.bopopAccentSoft.cgColor,
             NSColor.bopopAccent.cgColor,
-            NSColor.bopopAccentSoft.cgColor
+            NSColor.bopopAccentDeep.cgColor
         ]
-        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        gradientLayer.locations = [0.0, 0.35, 1.0]
+        gradientLayer.startPoint = CGPoint(x: 0.4, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 0.6, y: 1)
         layer?.addSublayer(gradientLayer)
+
+        glyphLabel.font = .monospacedSystemFont(
+            ofSize: PaletteMetrics.brandSquareSize * 0.62,
+            weight: .heavy
+        )
+        glyphLabel.textColor = .white
+        glyphLabel.alignment = .center
+        glyphLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glyphLabel)
+        NSLayoutConstraint.activate([
+            glyphLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            glyphLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
     }
 }
 
