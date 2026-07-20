@@ -4,6 +4,9 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @State private var newSearchName = ""
+    @State private var newSearchKeyword = ""
+    @State private var newSearchTemplate = ""
 
     var body: some View {
         Form {
@@ -61,6 +64,40 @@ struct SettingsView: View {
                         Text(engine.displayName).tag(engine)
                     }
                 }
+
+                ForEach(model.customSearches) { search in
+                    HStack {
+                        Text("\(search.keyword) — \(search.name)")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button {
+                            model.removeCustomSearch(id: search.id)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                TextField("Name", text: $newSearchName)
+                TextField("Keyword", text: $newSearchKeyword)
+                TextField("URL with {query}", text: $newSearchTemplate)
+                Button {
+                    let added = model.addCustomSearch(
+                        name: newSearchName,
+                        keyword: newSearchKeyword,
+                        urlTemplate: newSearchTemplate
+                    )
+                    if added {
+                        newSearchName = ""
+                        newSearchKeyword = ""
+                        newSearchTemplate = ""
+                    }
+                } label: {
+                    Label("Add Search", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderless)
             }
 
             Section("File Search") {

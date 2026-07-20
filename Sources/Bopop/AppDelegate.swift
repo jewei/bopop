@@ -51,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileSearchFoldersFor: @Sendable () -> [String] = {
             MainActor.assumeIsolated { SettingsModel.storedFileSearchFolders(in: .standard) }
         }
+        let customSearchesFor: @Sendable () -> [CustomWebSearch] = {
+            MainActor.assumeIsolated { SettingsModel.storedCustomSearches(in: .standard) }
+        }
         let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(
             providers: [
@@ -62,7 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     TimeProvider(),
                     URLCleanProvider(),
                     WebSearchProvider(engine: searchEngineFor),
-                    SystemCommandsProvider()
+                    SystemCommandsProvider(),
+                    CustomSearchProvider(searches: customSearchesFor)
                 ],
                 .apps: [appsProvider],
                 .fileSearch: [

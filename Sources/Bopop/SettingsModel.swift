@@ -11,6 +11,7 @@ final class SettingsModel: ObservableObject {
     static let chineseVariantKey = "chineseVariant"
     static let searchEngineKey = "searchEngine"
     static let fileSearchFoldersKey = "fileSearchFolders"
+    static let customSearchesKey = "customSearches"
 
     @Published var hotkey: HotkeyConfig {
         didSet {
@@ -69,6 +70,15 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    @Published private(set) var customSearches: [CustomWebSearch] {
+        didSet {
+            guard let data = try? JSONEncoder().encode(customSearches) else {
+                return
+            }
+            defaults.set(data, forKey: Self.customSearchesKey)
+        }
+    }
+
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
 
@@ -101,6 +111,7 @@ final class SettingsModel: ObservableObject {
         chineseVariant = Self.storedChineseVariant(in: defaults)
         searchEngine = Self.storedSearchEngine(in: defaults)
         fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
+        customSearches = Self.storedCustomSearches(in: defaults)
         hasCustomBrandImage = FileManager.default.fileExists(atPath: storage.brandImageURL.path)
     }
 
@@ -131,6 +142,14 @@ final class SettingsModel: ObservableObject {
         defaults.stringArray(forKey: fileSearchFoldersKey) ?? []
     }
 
+    static func storedCustomSearches(in defaults: UserDefaults) -> [CustomWebSearch] {
+        guard let data = defaults.data(forKey: customSearchesKey),
+              let searches = try? JSONDecoder().decode([CustomWebSearch].self, from: data) else {
+            return []
+        }
+        return searches
+    }
+
     func recheckConflict() {
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
         hotkeyManager.register(hotkey)
@@ -155,6 +174,24 @@ final class SettingsModel: ObservableObject {
 
     func removeFileSearchFolder(_ path: String) {
         fileSearchFolders.removeAll { $0 == path }
+    }
+
+    /// Appends a new custom search if it's valid and its keyword isn't
+    /// already taken by an existing one (case-insensitive, matching
+    /// `CustomWebSearch.match`'s lookup). Returns whether it was added.
+    @discardableResult
+    func addCustomSearch(name: String, keyword: String, urlTemplate: String) -> Bool {
+        let search = CustomWebSearch(id: UUID(), name: name, keyword: keyword, urlTemplate: urlTemplate)
+        guard search.isValid,
+              !customSearches.contains(where: { $0.keyword.caseInsensitiveCompare(search.keyword) == .orderedSame }) else {
+            return false
+        }
+        customSearches.append(search)
+        return true
+    }
+
+    func removeCustomSearch(id: UUID) {
+        customSearches.removeAll { $0.id == id }
     }
 
     /// Opens an NSOpenPanel (single image file) and imports the chosen
