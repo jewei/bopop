@@ -45,19 +45,25 @@ public nonisolated struct HeroContent: Equatable, Sendable {
     public let right: String
     public let rightBadge: String?
     public let note: String?
+    /// The plain-text answer ⇥ should feed back into the query field, e.g.
+    /// the calculator's ungrouped result. `nil` (the default) means ⇥
+    /// should cycle tabs as usual instead — see `TabKeyPolicy`.
+    public let autocompleteText: String?
 
     public init(
         left: String,
         leftBadge: String? = nil,
         right: String,
         rightBadge: String? = nil,
-        note: String? = nil
+        note: String? = nil,
+        autocompleteText: String? = nil
     ) {
         self.left = left
         self.leftBadge = leftBadge
         self.right = right
         self.rightBadge = rightBadge
         self.note = note
+        self.autocompleteText = autocompleteText
     }
 }
 
@@ -73,6 +79,11 @@ public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
     public let secondaryActions: [ResultAction]
     public let hero: HeroContent?
     public let sortHint: Int
+    /// Marks a result as a fallback row that never competes on match score —
+    /// it's retained even when the query doesn't tier-match it, and always
+    /// sorts after every non-fallback result, in stable input order. See
+    /// `Ranker.rank`. `WebSearchProvider` is the only current producer.
+    public let isFallback: Bool
 
     public init(
         id: String,
@@ -85,7 +96,8 @@ public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
         action: ResultAction,
         secondaryActions: [ResultAction] = [],
         hero: HeroContent? = nil,
-        sortHint: Int
+        sortHint: Int,
+        isFallback: Bool = false
     ) {
         self.id = id
         self.providerID = providerID
@@ -98,5 +110,6 @@ public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
         self.secondaryActions = secondaryActions
         self.hero = hero
         self.sortHint = sortHint
+        self.isFallback = isFallback
     }
 }

@@ -163,6 +163,7 @@ func fileSearchProviderMapsItems() async throws {
         "~/Desktop · File"
     ])
     #expect(results.map(\.icon) == [.file(firstPath), .file(secondPath)])
+    #expect(results.map(\.badge) == ["Files", "Files"])
     #expect(results.map(\.keywords) == [[], []])
     #expect(results.map(\.action) == [.openFile(firstPath), .openFile(secondPath)])
     #expect(results.map(\.secondaryActions) == [

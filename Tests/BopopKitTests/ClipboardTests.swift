@@ -211,6 +211,7 @@ func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
     ])
     #expect(secondResults.map(\.id) == firstResults.map(\.id))
     #expect(firstResults.map(\.sortHint) == [0, 1, 2])
+    #expect(firstResults.map(\.badge) == ["Clipboard", "Clipboard", "Clipboard"])
     #expect(firstResults.last?.icon == .symbol("trash"))
     #expect(firstResults.last?.keywords == ["clear", "delete"])
     #expect(firstResults.last?.action == .clearClipboardHistory)

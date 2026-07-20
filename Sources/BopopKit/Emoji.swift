@@ -92,6 +92,7 @@ public final class EmojiProvider: ResultProvider {
             title: "\(entry.char)  \(entry.name)",
             icon: .none,
             keywords: [entry.name] + entry.keywords,
+            badge: "Emoji",
             action: .copyText(entry.char),
             sortHint: catalogIndex
         )

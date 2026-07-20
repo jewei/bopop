@@ -21,6 +21,16 @@ public nonisolated struct ParsedQuery: Equatable, Sendable {
 }
 
 public nonisolated enum QueryParser {
+    /// Two-character mode prefixes (`"f "`, `"t "`, …), each followed by a
+    /// space, checked case-insensitively against `raw`'s first two
+    /// characters. The `:` emoji prefix stays a separate branch below — it's
+    /// a different shape (one character, no trailing space, minimum-length
+    /// rule of its own) rather than another row in this table.
+    private static let prefixModes: [(prefix: String, mode: Mode)] = [
+        ("f ", .fileSearch),
+        ("t ", .translation)
+    ]
+
     public static func parse(raw: String, stickyMode: Mode) -> ParsedQuery {
         guard stickyMode == .general else {
             return ParsedQuery(mode: stickyMode, term: raw)
@@ -42,15 +52,10 @@ public nonisolated enum QueryParser {
 
         let prefixEnd = raw.index(raw.startIndex, offsetBy: 2)
         let prefix = raw[..<prefixEnd]
-        if prefix.caseInsensitiveCompare("f ") == .orderedSame {
+        for entry in prefixModes
+        where prefix.caseInsensitiveCompare(entry.prefix) == .orderedSame {
             return ParsedQuery(
-                mode: .fileSearch,
-                term: raw[prefixEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        if prefix.caseInsensitiveCompare("t ") == .orderedSame {
-            return ParsedQuery(
-                mode: .translation,
+                mode: entry.mode,
                 term: raw[prefixEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }

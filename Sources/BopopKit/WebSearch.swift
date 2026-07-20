@@ -84,7 +84,8 @@ public final class WebSearchProvider: ResultProvider {
                 keywords: [query.term],
                 badge: "Web",
                 action: .openURL(url.absoluteString),
-                sortHint: 0
+                sortHint: 0,
+                isFallback: true
             )
         ]
     }

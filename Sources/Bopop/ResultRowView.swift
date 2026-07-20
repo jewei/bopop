@@ -80,9 +80,8 @@ final class ResultRowView: NSTableCellView {
         titleLabel.stringValue = result.title
         detailLabel.stringValue = result.subtitle ?? ""
         detailLabel.isHidden = result.subtitle == nil
-        let badgeText = CategoryBadge.text(for: result)
-        badgeView.setText(badgeText ?? "")
-        badgeView.isHidden = badgeText == nil
+        badgeView.setText(result.badge ?? "")
+        badgeView.isHidden = result.badge == nil
         applySelectionStyle()
 
         let accessibilityText = [result.title, result.subtitle]

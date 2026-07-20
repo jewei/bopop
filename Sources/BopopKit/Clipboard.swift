@@ -160,6 +160,7 @@ public final class ClipboardProvider: ResultProvider {
                 icon: .symbol("doc.on.clipboard"),
                 // Cap searchable text so Ranker never folds 100 KB per keystroke.
                 keywords: [String(entry.text.prefix(1_000))],
+                badge: "Clipboard",
                 action: .copyText(entry.text),
                 sortHint: index
             )
@@ -171,6 +172,7 @@ public final class ClipboardProvider: ResultProvider {
                 title: "Clear Clipboard History",
                 icon: .symbol("trash"),
                 keywords: ["clear", "delete"],
+                badge: "Clipboard",
                 action: .clearClipboardHistory,
                 secondaryActions: [],
                 sortHint: entries.count

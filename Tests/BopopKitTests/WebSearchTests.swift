@@ -52,6 +52,7 @@ func webSearchProviderReturnsRowForGeneralModeNonEmptyTerm() async throws {
     #expect(result.title == "Search Google for \"apple\"")
     #expect(result.icon == .symbol("magnifyingglass"))
     #expect(result.badge == "Web")
+    #expect(result.isFallback)
     #expect(result.keywords == ["apple"])
     #expect(result.sortHint == 0)
     guard case let .openURL(urlString) = result.action else {
@@ -77,32 +78,6 @@ func webSearchProviderWrongModeReturnsNoResults(mode: Mode) async throws {
     let provider = WebSearchProvider(engine: { .google })
     let results = try await provider.results(for: ParsedQuery(mode: mode, term: "apple"))
     #expect(results.isEmpty)
-}
-
-@Test(arguments: [
-    (ProviderID.apps, nil as String?, "Apps" as String?),
-    (ProviderID.files, nil, "Files"),
-    (ProviderID.clipboard, nil, "Clipboard"),
-    (ProviderID.emoji, nil, "Emoji"),
-    (ProviderID.webSearch, nil, "Web"),
-    (ProviderID.calculator, nil, nil),
-    (ProviderID.scripts, "Script", "Script"),
-    (ProviderID.apps, "Custom", "Custom")
-])
-func categoryBadgeText(
-    providerID: ProviderID,
-    explicitBadge: String?,
-    expected: String?
-) {
-    let result = SearchResult(
-        id: "x",
-        providerID: providerID,
-        title: "t",
-        badge: explicitBadge,
-        action: .copyText("v"),
-        sortHint: 0
-    )
-    #expect(CategoryBadge.text(for: result) == expected)
 }
 
 @Test func searchEngineYouTubeAndGitHubURLs() {

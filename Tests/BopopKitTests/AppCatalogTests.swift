@@ -164,6 +164,7 @@ func appsProviderPreFiltersNonemptyTermByTier() async throws {
     // must stay tied to the FULL catalog's index, not the filtered list's.
     #expect(results.first?.sortHint == 1)
     #expect(results.first?.subtitle != nil)
+    #expect(results.first?.badge == "Apps")
 }
 
 @MainActor

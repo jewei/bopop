@@ -41,6 +41,7 @@ func calculatorProviderReturnsCopyResult() async throws {
     // and ActionRunner.performCopy falls back to the primary action when
     // secondaryActions has no copyText entry of its own.
     #expect(results.first?.secondaryActions == [])
+    #expect(results.first?.hero?.autocompleteText == "98")
     #expect(results.first?.keywords == [query.term])
 
     let ranked = Ranker.rank(

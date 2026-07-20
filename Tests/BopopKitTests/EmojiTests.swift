@@ -123,6 +123,7 @@ import Testing
 
     #expect(fire.title == "🔥  fire")
     #expect(fire.icon == .none)
+    #expect(fire.badge == "Emoji")
     #expect(fire.action == .copyText("🔥"))
     #expect(fire.keywords.first == "fire")
     #expect(fire.keywords.contains("flame"))

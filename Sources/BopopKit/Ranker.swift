@@ -75,7 +75,7 @@ public nonisolated enum Ranker {
     ) -> [SearchResult] {
         let ranked = results.compactMap { result -> RankedResult? in
             let tier = bestTier(for: result, query: query)
-            guard query.isEmpty || tier != .none || result.providerID == .webSearch else {
+            guard query.isEmpty || tier != .none || result.isFallback else {
                 return nil
             }
             return RankedResult(
@@ -90,14 +90,14 @@ public nonisolated enum Ranker {
         }
 
         return ranked.sorted { lhs, rhs in
-            // Web search is always a fallback row: it never competes on score,
-            // it just trails every other result, in stable input order.
-            let lhsIsWebSearch = lhs.result.providerID == .webSearch
-            let rhsIsWebSearch = rhs.result.providerID == .webSearch
-            if lhsIsWebSearch != rhsIsWebSearch {
-                return rhsIsWebSearch
+            // A fallback result never competes on score — it just trails
+            // every other result, in stable input order.
+            let lhsIsFallback = lhs.result.isFallback
+            let rhsIsFallback = rhs.result.isFallback
+            if lhsIsFallback != rhsIsFallback {
+                return rhsIsFallback
             }
-            if lhsIsWebSearch {
+            if lhsIsFallback {
                 return false
             }
             if lhs.score != rhs.score {

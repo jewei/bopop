@@ -291,6 +291,7 @@ public final class AppsProvider: ResultProvider {
                 subtitle: (app.path as NSString).abbreviatingWithTildeInPath,
                 icon: .appBundle(app.path),
                 keywords: app.keywords,
+                badge: "Apps",
                 action: .openApp(app.path),
                 secondaryActions: [.copyText(app.path), .revealFile(app.path)],
                 sortHint: indexedApp.sortHint

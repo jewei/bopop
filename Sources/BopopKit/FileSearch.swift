@@ -236,6 +236,7 @@ public final class FileSearchProvider: ResultProvider {
                 subtitle: "\(abbreviatedParent) · \(kind)",
                 icon: .file(item.path),
                 keywords: [],
+                badge: "Files",
                 action: .openFile(item.path),
                 secondaryActions: [.copyText(item.path), .revealFile(item.path)],
                 sortHint: index

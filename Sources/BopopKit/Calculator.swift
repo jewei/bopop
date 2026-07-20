@@ -55,7 +55,8 @@ public final class CalculatorProvider: ResultProvider {
             left: heroLeft,
             leftBadge: Self.operationBadge(heroLeft),
             right: CalculatorFormatter.grouped(from: value),
-            rightBadge: Self.spellOutBadge(value)
+            rightBadge: Self.spellOutBadge(value),
+            autocompleteText: formatted
         )
         return [
             SearchResult(

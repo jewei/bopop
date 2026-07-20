@@ -121,7 +121,8 @@ func webSearchSurvivesQueryItDoesNotTierMatch() {
     let webSearch = makeResult(
         id: "websearch",
         providerID: .webSearch,
-        title: "Search Google for \"xyz\""
+        title: "Search Google for \"xyz\"",
+        isFallback: true
     )
 
     let ranked = Ranker.rank(
@@ -141,7 +142,8 @@ func webSearchAlwaysSortsAfterHigherScoringResult() {
         id: "websearch",
         providerID: .webSearch,
         title: "irrelevant",
-        keywords: ["example"]
+        keywords: ["example"],
+        isFallback: true
     )
 
     let ranked = Ranker.rank(
@@ -156,8 +158,8 @@ func webSearchAlwaysSortsAfterHigherScoringResult() {
 
 @Test
 func multipleWebSearchResultsPreserveRelativeOrder() {
-    let first = makeResult(id: "websearch:first", providerID: .webSearch, title: "Zulu")
-    let second = makeResult(id: "websearch:second", providerID: .webSearch, title: "Alpha")
+    let first = makeResult(id: "websearch:first", providerID: .webSearch, title: "Zulu", isFallback: true)
+    let second = makeResult(id: "websearch:second", providerID: .webSearch, title: "Alpha", isFallback: true)
 
     let ranked = Ranker.rank(
         [first, second],
@@ -169,12 +171,57 @@ func multipleWebSearchResultsPreserveRelativeOrder() {
     #expect(ranked.map(\.id) == ["websearch:first", "websearch:second"])
 }
 
+// Task 12: retention/ordering key off `isFallback`, not `providerID ==
+// .webSearch` — any provider can opt in. These two mirror the webSearch
+// tests above but with a non-webSearch providerID, proving the flag (not
+// the ID) is what drives the behavior.
+@Test
+func fallbackFlagNotProviderIDGatesRetention() {
+    let fallback = makeResult(
+        id: "fallback",
+        providerID: .customSearch,
+        title: "irrelevant",
+        isFallback: true
+    )
+
+    let ranked = Ranker.rank(
+        [fallback],
+        query: "totally-different-term",
+        frecencyFor: { _ in 0 },
+        providerWeights: [:]
+    )
+
+    #expect(ranked.map(\.id) == ["fallback"])
+}
+
+@Test
+func fallbackFlagNotProviderIDGatesOrdering() {
+    let app = makeResult(id: "app:example", providerID: .apps, title: "example")
+    let fallback = makeResult(
+        id: "fallback",
+        providerID: .customSearch,
+        title: "irrelevant",
+        keywords: ["example"],
+        isFallback: true
+    )
+
+    let ranked = Ranker.rank(
+        [fallback, app],
+        query: "example",
+        frecencyFor: { _ in 0 },
+        providerWeights: [.apps: 1, .customSearch: 999]
+    )
+
+    #expect(ranked.map(\.id) == ["app:example", "fallback"])
+}
+
 private nonisolated func makeResult(
     id: String,
     providerID: ProviderID = .apps,
     title: String,
     keywords: [String] = [],
-    sortHint: Int = 0
+    sortHint: Int = 0,
+    isFallback: Bool = false
 ) -> SearchResult {
     SearchResult(
         id: id,
@@ -182,6 +229,7 @@ private nonisolated func makeResult(
         title: title,
         keywords: keywords,
         action: .copyText(title),
-        sortHint: sortHint
+        sortHint: sortHint,
+        isFallback: isFallback
     )
 }

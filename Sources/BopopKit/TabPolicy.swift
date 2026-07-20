@@ -5,12 +5,13 @@ public nonisolated enum TabKeyAction: Equatable, Sendable {
     case cycleTab
 }
 
-/// ⇥ cycles the tab row — except while the calculator hero is showing, where
-/// it feeds the answer back into the query so calculation can continue.
+/// ⇥ cycles the tab row — except while a hero that opts in via
+/// `HeroContent.autocompleteText` is showing (currently just the
+/// calculator's), where it feeds that text back into the query so
+/// calculation can continue.
 public nonisolated enum TabKeyPolicy {
     public static func action(hero: SearchResult?) -> TabKeyAction {
-        guard let hero, hero.providerID == .calculator,
-              case .copyText(let answer) = hero.action else {
+        guard let answer = hero?.hero?.autocompleteText else {
             return .cycleTab
         }
         return .autocomplete(answer)
