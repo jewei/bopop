@@ -15,11 +15,16 @@ public nonisolated enum MatchTier: Int, Comparable, Sendable {
 
 public nonisolated enum Ranker {
     public static let defaultWeights: [ProviderID: Double] = [
+        .urlClean: 112,
+        .currency: 110,
+        .translation: 110,
+        .time: 108,
         .calculator: 100,
         .commands: 60,
         .apps: 50,
         .scripts: 40,
         .clipboard: 30,
+        .emoji: 45,
         .files: 20
     ]
 
@@ -63,7 +68,7 @@ public nonisolated enum Ranker {
     ) -> [SearchResult] {
         let ranked = results.compactMap { result -> RankedResult? in
             let tier = bestTier(for: result, query: query)
-            guard query.isEmpty || tier != .none else {
+            guard query.isEmpty || tier != .none || result.providerID == .webSearch else {
                 return nil
             }
             return RankedResult(
@@ -78,6 +83,16 @@ public nonisolated enum Ranker {
         }
 
         return ranked.sorted { lhs, rhs in
+            // Web search is always a fallback row: it never competes on score,
+            // it just trails every other result, in stable input order.
+            let lhsIsWebSearch = lhs.result.providerID == .webSearch
+            let rhsIsWebSearch = rhs.result.providerID == .webSearch
+            if lhsIsWebSearch != rhsIsWebSearch {
+                return rhsIsWebSearch
+            }
+            if lhsIsWebSearch {
+                return false
+            }
             if lhs.score != rhs.score {
                 return lhs.score > rhs.score
             }

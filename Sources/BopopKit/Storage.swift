@@ -33,6 +33,10 @@ public nonisolated struct Storage {
         baseDirectory.appendingPathComponent("scripts.log")
     }
 
+    public var ratesFileURL: URL {
+        baseDirectory.appendingPathComponent("rates.json")
+    }
+
     public func ensureDirectories() throws {
         let fileManager = FileManager.default
         let directoryAttributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]

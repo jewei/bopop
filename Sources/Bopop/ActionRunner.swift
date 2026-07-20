@@ -10,6 +10,7 @@ final class ActionRunner {
     var onModeChange: ((Mode) -> Void)?
     var onExecuted: ((SearchResult) -> Void)?
     var hidePalette: (() -> Void)?
+    var onDownloadTranslation: (() -> Void)?
 
     init(
         storage: Storage,
@@ -77,6 +78,14 @@ final class ActionRunner {
             }
         case .enterMode:
             break
+        case let .openURL(string):
+            guard let url = URL(string: string),
+                  url.scheme == "http" || url.scheme == "https" else {
+                return
+            }
+            NSWorkspace.shared.open(url)
+        case .downloadTranslation:
+            onDownloadTranslation?()
         }
     }
 }

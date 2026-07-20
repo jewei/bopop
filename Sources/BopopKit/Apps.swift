@@ -232,7 +232,7 @@ public final class AppsProvider: ResultProvider {
     }
 
     public func results(for query: ParsedQuery) async throws -> [SearchResult] {
-        guard query.mode == .general else {
+        guard query.mode == .general || query.mode == .apps else {
             return []
         }
 

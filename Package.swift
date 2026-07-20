@@ -14,6 +14,7 @@ let package = Package(
     targets: [
         .target(
             name: "BopopKit",
+            resources: [.copy("Resources/emoji.json")],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .executableTarget(

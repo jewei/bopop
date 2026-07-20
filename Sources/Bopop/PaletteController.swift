@@ -9,10 +9,13 @@ final class PaletteController: NSObject {
     private let engine: QueryEngine
     private let actionRunner: ActionRunner
     private let onWillShow: () -> Void
+    private let onShowSettings: () -> Void
+    private let onOpenScriptsFolder: () -> Void
+    private let onQuit: () -> Void
     private let panel: PalettePanel
     private let queryField = NSTextField()
     private let brandView = PaletteBrandView()
-    private let modeChip = PaletteModeChipView()
+    private let tabsView = PaletteTabsView()
     private let escapeKeycap = PaletteKeycapView(
         text: "esc",
         fontSize: 11,
@@ -20,13 +23,22 @@ final class PaletteController: NSObject {
         horizontalPadding: 8,
         verticalPadding: 3
     )
+    private let heroView = PaletteHeroView()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let footerView = PaletteFooterView()
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
     private var stickyMode: Mode = .general
+    /// The mode currently reflected by `tabsView`, tracking the EFFECTIVE
+    /// mode from the latest engine update — this includes prefix-typed
+    /// modes (`f `/`:`/`t `), which drive providers without changing
+    /// `stickyMode`. See `apply(_:)`.
+    private var lastParsedMode: Mode = .general
     private var results: [SearchResult] = []
+    private var heroResult: SearchResult?
+    /// -1 means the hero card owns the selection (Return/⌘C act on it); a
+    /// valid `results` index means a table row is selected.
     private var selectedIndex = 0
     private var isHiding = false
     private var isProgrammaticFrameChange = false
@@ -35,17 +47,23 @@ final class PaletteController: NSObject {
     init(
         engine: QueryEngine,
         actionRunner: ActionRunner,
-        onWillShow: @escaping () -> Void = {}
+        onWillShow: @escaping () -> Void = {},
+        onShowSettings: @escaping () -> Void = {},
+        onOpenScriptsFolder: @escaping () -> Void = {},
+        onQuit: @escaping () -> Void = {}
     ) {
         self.engine = engine
         self.actionRunner = actionRunner
         self.onWillShow = onWillShow
+        self.onShowSettings = onShowSettings
+        self.onOpenScriptsFolder = onOpenScriptsFolder
+        self.onQuit = onQuit
         panel = PalettePanel(
             contentRect: NSRect(
                 origin: .zero,
                 size: NSSize(
                     width: PaletteMetrics.width,
-                    height: Self.panelHeight(resultCount: 0)
+                    height: Self.panelHeight(resultCount: 0, hasHero: false)
                 )
             ),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -56,8 +74,9 @@ final class PaletteController: NSObject {
             in: panel,
             queryField: queryField,
             brandView: brandView,
-            modeChip: modeChip,
             escapeKeycap: escapeKeycap,
+            tabsView: tabsView,
+            heroView: heroView,
             scrollView: scrollView,
             tableView: tableView,
             footerView: footerView
@@ -74,9 +93,16 @@ final class PaletteController: NSObject {
         }
     }
 
+    /// Idempotent: shows the palette if hidden; no-op if already visible
+    /// and key. Relied on by `applicationShouldHandleReopen` as a failsafe
+    /// for a broken/unregistered hotkey — relaunching (or reopening) the
+    /// app must always be able to surface the palette.
     func show() {
+        guard !(panel.isVisible && panel.isKeyWindow) else {
+            return
+        }
         onWillShow()
-        let height = Self.panelHeight(resultCount: results.count)
+        let height = Self.panelHeight(resultCount: results.count, hasHero: heroResult != nil)
         let frame: NSRect
         if let topLeft = savedTopLeft(), Self.isOnAnyScreen(topLeft) {
             frame = NSRect(
@@ -120,12 +146,15 @@ final class PaletteController: NSObject {
         stickyMode = .general
         queryField.stringValue = ""
         results = []
+        heroResult = nil
         selectedIndex = 0
         tableView.reloadData()
         scrollView.isHidden = true
+        updateHeroPresentation()
         footerView.setStatus("Bopop")
         footerView.setActions(primary: nil, hasCopy: false)
-        updateModeChip()
+        lastParsedMode = .general
+        tabsView.setActive(.general)
         resizePanel()
     }
 
@@ -159,60 +188,107 @@ final class PaletteController: NSObject {
         actionRunner.hidePalette = { [weak self] in
             self?.hide()
         }
+        tabsView.onSelect = { [weak self] mode in
+            self?.enterMode(mode)
+        }
+        footerView.onShowSettings = { [weak self] in
+            self?.hide()
+            self?.onShowSettings()
+        }
+        footerView.onOpenScriptsFolder = { [weak self] in
+            self?.hide()
+            self?.onOpenScriptsFolder()
+        }
+        footerView.onQuit = { [weak self] in
+            self?.onQuit()
+        }
     }
 
     private func apply(_ update: QueryEngine.Update) {
-        results = update.results
-        selectedIndex = 0
+        let split = HeroPresentation.split(update.results)
+        heroResult = split.hero
+        results = split.rows
+        updateHeroPresentation()
         tableView.reloadData()
         scrollView.isHidden = results.isEmpty
 
-        if results.isEmpty {
+        if heroResult != nil {
+            // The hero card owns the default selection; the table starts
+            // deselected so Return/⌘C activate the hero until the user
+            // explicitly arrows down into the row list.
+            selectedIndex = -1
+            tableView.deselectAll(nil)
+        } else if results.isEmpty {
+            selectedIndex = 0
             tableView.deselectAll(nil)
         } else {
+            selectedIndex = 0
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
             tableView.scrollRowToVisible(0)
         }
-        updateFooter(after: update)
+
+        let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
+        lastParsedMode = query.mode
+        tabsView.setActive(query.mode)
+        updateFooter(after: update, query: query)
         resizePanel()
+    }
+
+    private func updateHeroPresentation() {
+        let hasHero = heroResult != nil
+        heroView.isHidden = !hasHero
+        layoutConstraints.scrollTopToHero.isActive = hasHero
+        layoutConstraints.scrollTopToSeparator.isActive = !hasHero
+        if let hero = heroResult?.hero {
+            heroView.configure(with: hero)
+        }
+    }
+
+    private func selectedResult() -> SearchResult? {
+        if selectedIndex == -1 {
+            return heroResult
+        }
+        guard results.indices.contains(selectedIndex) else {
+            return nil
+        }
+        return results[selectedIndex]
     }
 
     private func enterMode(_ mode: Mode) {
         stickyMode = mode
         queryField.stringValue = ""
-        updateModeChip()
+        lastParsedMode = mode
+        tabsView.setActive(mode)
         updateQuery()
     }
 
-    private func updateModeChip() {
-        switch stickyMode {
-        case .general:
-            modeChip.isHidden = true
-            layoutConstraints.modeFieldLeading.isActive = false
-            layoutConstraints.generalFieldLeading.isActive = true
-        case .fileSearch:
-            modeChip.setTitle("Files")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        case .clipboard:
-            modeChip.setTitle("Clipboard")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        }
+    /// ⇥ / ⇧⇥ cycles through the ordered tab list from the current
+    /// EFFECTIVE mode (not just `stickyMode`, so cycling while a prefix
+    /// mode is active continues from that mode).
+    private func cycleTab(by offset: Int) {
+        let modes = PaletteTabsView.orderedTabs.map(\.0)
+        let currentIndex = modes.firstIndex(of: lastParsedMode) ?? 0
+        let count = modes.count
+        let nextIndex = ((currentIndex + offset) % count + count) % count
+        enterMode(modes[nextIndex])
     }
 
     private func moveSelection(by offset: Int) {
-        guard !results.isEmpty else {
+        let lowerBound = heroResult != nil ? -1 : 0
+        let upperBound = results.count - 1
+        guard upperBound >= lowerBound else {
             return
         }
-        selectedIndex = min(max(selectedIndex + offset, 0), results.count - 1)
-        tableView.selectRowIndexes(
-            IndexSet(integer: selectedIndex),
-            byExtendingSelection: false
-        )
-        tableView.scrollRowToVisible(selectedIndex)
+        selectedIndex = min(max(selectedIndex + offset, lowerBound), upperBound)
+        if selectedIndex == -1 {
+            tableView.deselectAll(nil)
+        } else {
+            tableView.selectRowIndexes(
+                IndexSet(integer: selectedIndex),
+                byExtendingSelection: false
+            )
+            tableView.scrollRowToVisible(selectedIndex)
+        }
         updateFooterActions()
     }
 
@@ -221,11 +297,7 @@ final class PaletteController: NSObject {
            editor.selectedRange().length > 0 {
             return false
         }
-        guard results.indices.contains(selectedIndex) else {
-            return false
-        }
-        let result = results[selectedIndex]
-        guard Self.hasCopyAction(result) else {
+        guard let result = selectedResult(), Self.hasCopyAction(result) else {
             return false
         }
         actionRunner.performCopy(result)
@@ -233,7 +305,7 @@ final class PaletteController: NSObject {
     }
 
     private func resizePanel() {
-        let newHeight = Self.panelHeight(resultCount: results.count)
+        let newHeight = Self.panelHeight(resultCount: results.count, hasHero: heroResult != nil)
         var frame = panel.frame
         let top = frame.maxY
         frame.origin.y = top - newHeight
@@ -289,14 +361,12 @@ final class PaletteController: NSObject {
         engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
     }
 
-    private func updateFooter(after update: QueryEngine.Update) {
-        let query = QueryParser.parse(
-            raw: queryField.stringValue,
-            stickyMode: stickyMode
-        )
+    private func updateFooter(after update: QueryEngine.Update, query: ParsedQuery) {
         switch query.mode {
         case .general:
             footerView.setStatus("Bopop")
+        case .apps:
+            footerView.setStatus("Apps")
         case .clipboard:
             footerView.setStatus("Clipboard")
         case .fileSearch:
@@ -309,6 +379,10 @@ final class PaletteController: NSObject {
             } else {
                 footerView.setStatus("Files")
             }
+        case .emoji:
+            footerView.setStatus("Emoji")
+        case .translation:
+            footerView.setStatus("Translate")
         }
         updateFooterActions()
     }
@@ -317,6 +391,8 @@ final class PaletteController: NSObject {
         switch query.mode {
         case .general:
             footerView.setStatus("Bopop")
+        case .apps:
+            footerView.setStatus("Apps")
         case .fileSearch:
             footerView.setStatus(
                 query.term.isEmpty
@@ -325,16 +401,19 @@ final class PaletteController: NSObject {
             )
         case .clipboard:
             footerView.setStatus("Clipboard")
+        case .emoji:
+            footerView.setStatus("Emoji")
+        case .translation:
+            footerView.setStatus("Translate")
         }
     }
 
     private func updateFooterActions() {
-        guard results.indices.contains(selectedIndex) else {
+        guard let result = selectedResult() else {
             footerView.setActions(primary: nil, hasCopy: false)
             return
         }
 
-        let result = results[selectedIndex]
         footerView.setActions(
             primary: Self.actionTitle(for: result.action),
             hasCopy: Self.hasCopyAction(result)
@@ -343,7 +422,7 @@ final class PaletteController: NSObject {
 
     private static func actionTitle(for action: ResultAction) -> String {
         switch action {
-        case .openApp, .openFile:
+        case .openApp, .openFile, .openURL:
             "open"
         case .copyText:
             "copy"
@@ -353,6 +432,8 @@ final class PaletteController: NSObject {
             "run"
         case .enterMode:
             "select"
+        case .downloadTranslation:
+            "download"
         }
     }
 
@@ -368,7 +449,7 @@ final class PaletteController: NSObject {
         return false
     }
 
-    private static func panelHeight(resultCount: Int) -> CGFloat {
+    private static func panelHeight(resultCount: Int, hasHero: Bool) -> CGFloat {
         let visibleRows = min(resultCount, PaletteMetrics.maxVisibleRows)
         let listHeight: CGFloat
         if visibleRows == 0 {
@@ -379,8 +460,13 @@ final class PaletteController: NSObject {
                 + PaletteMetrics.listTopInset
                 + PaletteMetrics.listBottomInset
         }
+        let heroHeight: CGFloat = hasHero
+            ? PaletteMetrics.heroHeight + PaletteMetrics.listTopInset + PaletteMetrics.listBottomInset
+            : 0
         return PaletteMetrics.fieldHeight
             + PaletteMetrics.separatorHeight
+            + PaletteMetrics.tabsHeight
+            + heroHeight
             + listHeight
             + PaletteMetrics.footerHeight
     }
@@ -401,9 +487,13 @@ extension PaletteController: NSTextFieldDelegate {
             moveSelection(by: -1)
         case #selector(NSResponder.moveDown(_:)):
             moveSelection(by: 1)
+        case #selector(NSResponder.insertTab(_:)):
+            cycleTab(by: 1)
+        case #selector(NSResponder.insertBacktab(_:)):
+            cycleTab(by: -1)
         case #selector(NSResponder.insertNewline(_:)):
-            if results.indices.contains(selectedIndex) {
-                actionRunner.perform(results[selectedIndex])
+            if let result = selectedResult() {
+                actionRunner.perform(result)
             }
         case #selector(NSResponder.cancelOperation(_:)):
             switch EscapePolicy.action(
@@ -415,7 +505,8 @@ extension PaletteController: NSTextFieldDelegate {
                 updateQuery()
             case .exitMode:
                 stickyMode = .general
-                updateModeChip()
+                lastParsedMode = .general
+                tabsView.setActive(.general)
                 updateQuery()
             case .closePanel:
                 hide()
@@ -449,6 +540,8 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {
         if results.indices.contains(tableView.selectedRow) {
             selectedIndex = tableView.selectedRow
+        } else if tableView.selectedRow == -1, heroResult != nil {
+            selectedIndex = -1
         }
         updateFooterActions()
     }

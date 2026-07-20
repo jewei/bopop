@@ -47,4 +47,7 @@ func escapePolicyFollowsClearExitCloseChain() {
     #expect(
         EscapePolicy.action(textIsEmpty: true, stickyMode: .general) == .closePanel
     )
+    #expect(
+        EscapePolicy.action(textIsEmpty: true, stickyMode: .apps) == .exitMode
+    )
 }

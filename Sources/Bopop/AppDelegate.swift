@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeyManager: HotkeyManager
     private let settingsModel: SettingsModel
     private let settingsWindowController: SettingsWindowController
-    private var statusItem: NSStatusItem?
 
     override init() {
         let defaults = UserDefaults.standard
@@ -28,18 +27,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frecencyFor: usageStore.score
         )
         let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
+        // EmojiProvider's frecency hook must be a plain @Sendable closure
+        // (it's invoked off the main actor during concurrent provider
+        // ranking); UsageStore itself is main-actor isolated, so bridge
+        // through assumeIsolated rather than relaxing UsageStore's isolation.
+        let emojiFrecencyFor: @Sendable (String) -> Double = { id in
+            MainActor.assumeIsolated { usageStore.score(id) }
+        }
+        // settingsModel is constructed AFTER this engine (it needs
+        // hotkeyManager/clipboardStore which are wired up below), so this
+        // closure must not capture settingsModel — it reads defaults
+        // directly via the same static-read pattern as
+        // storedClipboardLimit, avoiding the ordering trap. It's invoked
+        // off the main actor during concurrent provider ranking (same
+        // reasoning as emojiFrecencyFor above), so bridge through
+        // assumeIsolated rather than relaxing SettingsModel's isolation.
+        let chineseVariantFor: @Sendable () -> TranslationTarget = {
+            MainActor.assumeIsolated { SettingsModel.storedChineseVariant(in: .standard) }
+        }
+        let searchEngineFor: @Sendable () -> SearchEngine = {
+            MainActor.assumeIsolated { SettingsModel.storedSearchEngine(in: .standard) }
+        }
+        let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(
             providers: [
                 .general: [
-                    CommandsProvider(),
                     appsProvider,
                     CalculatorProvider(),
-                    ScriptsProvider(catalog: scriptCatalog)
+                    ScriptsProvider(catalog: scriptCatalog),
+                    CurrencyProvider(store: RateStore(storage: storage), fetcher: LiveRateFetcher()),
+                    TimeProvider(),
+                    URLCleanProvider(),
+                    WebSearchProvider(engine: searchEngineFor)
                 ],
+                .apps: [appsProvider],
                 .fileSearch: [
                     FileSearchProvider(searcher: FileSearcher())
                 ],
-                .clipboard: [ClipboardProvider(store: clipboardStore)]
+                .clipboard: [ClipboardProvider(store: clipboardStore)],
+                .emoji: [
+                    EmojiProvider(catalog: EmojiCatalog(), frecencyFor: emojiFrecencyFor)
+                ],
+                .translation: [
+                    TranslationProvider(
+                        translator: appleTranslator,
+                        chineseVariant: chineseVariantFor
+                    )
+                ]
             ],
             frecencyFor: usageStore.score
         )
@@ -55,16 +89,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             usageStore.record(result.id)
         }
+        actionRunner.onDownloadTranslation = { appleTranslator.presentDownloadFlow() }
         self.storage = storage
         self.usageStore = usageStore
         self.clipboardStore = clipboardStore
         self.pasteboardWatcher = pasteboardWatcher
         self.appCatalog = appCatalog
-        paletteController = PaletteController(
-            engine: engine,
-            actionRunner: actionRunner,
-            onWillShow: appCatalog.refreshIfStale
-        )
         self.hotkeyManager = hotkeyManager
         let settingsModel = SettingsModel(
             hotkeyManager: hotkeyManager,
@@ -72,7 +102,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaults: defaults
         )
         self.settingsModel = settingsModel
-        settingsWindowController = SettingsWindowController(model: settingsModel)
+        // settingsWindowController is built here, ahead of paletteController,
+        // so its `show()` can be captured by the closures below — self isn't
+        // usable yet (we're still before super.init()), so PaletteController
+        // must close over these locals directly rather than over self,
+        // mirroring appCatalog.refreshIfStale/emojiFrecencyFor above.
+        let settingsWindowController = SettingsWindowController(model: settingsModel)
+        self.settingsWindowController = settingsWindowController
+        paletteController = PaletteController(
+            engine: engine,
+            actionRunner: actionRunner,
+            onWillShow: appCatalog.refreshIfStale,
+            onShowSettings: { settingsWindowController.show() },
+            onOpenScriptsFolder: { NSWorkspace.shared.open(storage.scriptsDirectory) },
+            onQuit: { NSApp.terminate(nil) }
+        )
         super.init()
     }
 
@@ -80,57 +124,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? storage.ensureDirectories()
         pasteboardWatcher.start()
         appCatalog.refreshIfStale()
-
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            if let image = NSImage(
-                systemSymbolName: "command.square.fill",
-                accessibilityDescription: "Bopop"
-            ) {
-                button.image = image
-                button.imagePosition = .imageOnly
-            } else {
-                button.title = "B"
-            }
-        }
-
-        let menu = NSMenu()
-        let showItem = NSMenuItem(
-            title: "Show Bopop",
-            action: #selector(showBopop),
-            keyEquivalent: ""
-        )
-        showItem.target = self
-        menu.addItem(showItem)
-
-        let settingsItem = NSMenuItem(
-            title: "Settings…",
-            action: #selector(showSettings),
-            keyEquivalent: ""
-        )
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        let scriptsItem = NSMenuItem(
-            title: "Open Scripts Folder",
-            action: #selector(openScriptsFolder),
-            keyEquivalent: ""
-        )
-        scriptsItem.target = self
-        menu.addItem(scriptsItem)
-
-        menu.addItem(.separator())
-
-        let quitItem = NSMenuItem(
-            title: "Quit Bopop",
-            action: #selector(quitBopop),
-            keyEquivalent: "q"
-        )
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        statusItem.menu = menu
-        self.statusItem = statusItem
 
         let hotkeyConfig = settingsModel.hotkey
         hotkeyManager.onHotkey = { [weak self] in
@@ -150,19 +143,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func showBopop() {
-        paletteController.toggle()
+    /// Failsafe for a broken/unregistered hotkey: relaunching Bopop while
+    /// it's already running (`open dist/Bopop.app`, Spotlight, Dock) fires
+    /// this instead of opening a window (the app has none) — surface the
+    /// palette directly. `show()` is idempotent, so this is safe even if
+    /// the palette is already visible. Returning false tells AppKit there
+    /// is no standard window to reveal, since this is an accessory app.
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows: Bool
+    ) -> Bool {
+        paletteController.show()
+        return false
     }
 
-    @objc private func showSettings() {
-        settingsWindowController.show()
-    }
-
-    @objc private func openScriptsFolder() {
-        NSWorkspace.shared.open(storage.scriptsDirectory)
-    }
-
-    @objc private func quitBopop() {
-        NSApp.terminate(nil)
-    }
 }
