@@ -414,10 +414,7 @@ final class PaletteController: NSObject {
     /// mode is active continues from that mode).
     private func cycleTab(by offset: Int) {
         let modes = PaletteTabsView.orderedTabs.map(\.0)
-        let currentIndex = modes.firstIndex(of: lastParsedMode) ?? 0
-        let count = modes.count
-        let nextIndex = ((currentIndex + offset) % count + count) % count
-        enterMode(modes[nextIndex])
+        enterMode(TabCycling.next(from: lastParsedMode, offset: offset, orderedModes: modes))
     }
 
     private func moveSelection(by offset: Int) {
@@ -535,6 +532,15 @@ final class PaletteController: NSObject {
         guard QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible else {
             return
         }
+        // A selection change that lands on a result with no file path (e.g.
+        // arrowing onto a clipboard-text row) has nothing for Quick Look to
+        // show — `reloadData` would just leave the previous preview's
+        // content stuck on screen. Close the panel instead of showing stale
+        // (or blank) content for an item that was never previewable.
+        guard FilePayload.path(for: selectedResult()) != nil else {
+            QLPreviewPanel.shared().orderOut(nil)
+            return
+        }
         QLPreviewPanel.shared().reloadData()
     }
 
@@ -548,6 +554,13 @@ final class PaletteController: NSObject {
         let top = frame.maxY
         frame.origin.y = top - newHeight
         frame.size.height = newHeight
+        // A bottom-saved/dragged position plus a tall result set can grow the
+        // frame below the screen's visible area (under the Dock or off the
+        // bottom entirely). Shift the whole frame up to fit — never resize
+        // the content — rather than let it clip.
+        if let visibleFrame = panel.screen?.visibleFrame {
+            frame.origin.y = max(frame.origin.y, visibleFrame.minY)
+        }
         setFrameProgrammatically(frame)
     }
 
@@ -594,6 +607,14 @@ final class PaletteController: NSObject {
             raw: queryField.stringValue,
             stickyMode: stickyMode
         )
+        // Assigned synchronously from the same parse the footer already
+        // uses, rather than waiting for `apply(_:)`'s async engine update —
+        // otherwise `isGridMode` (and the `resizePanel()` call right below,
+        // which reads it) is one keystroke stale right after typing a mode
+        // prefix like `:`. `apply(_:)` keeps its own assignment: a
+        // still-in-flight update can resolve after the query has moved on,
+        // and `apply` only runs for the current generation.
+        lastParsedMode = query.mode
         updateFooterStatus(for: query)
         resizePanel()
         engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
@@ -827,6 +848,9 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
         viewFor tableColumn: NSTableColumn?,
         row: Int
     ) -> NSView? {
+        guard results.indices.contains(row) else {
+            return nil
+        }
         let rowView = tableView.makeView(
             withIdentifier: ResultRowView.reuseIdentifier,
             owner: self

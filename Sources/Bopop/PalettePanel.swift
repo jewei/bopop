@@ -48,7 +48,13 @@ final class PalettePanel: NSPanel {
             case self, is LargeTypePanel, is QLPreviewPanel:
                 return
             default:
-                self.onResign?()
+                // An already-hidden palette means this resign was caused by
+                // our own `orderOut` (e.g. from `hide()`'s `panel.orderOut`),
+                // not a genuine focus loss — firing `onResign` here would
+                // re-enter `hide()` every time the palette closes.
+                if self.isVisible {
+                    self.onResign?()
+                }
             }
         }
     }
