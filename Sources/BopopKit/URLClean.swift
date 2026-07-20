@@ -9,10 +9,13 @@ public nonisolated struct CleanedURL: Equatable, Sendable {
 public nonisolated enum URLCleaner {
     private static let globalPrefixes = ["utm_", "vero_", "oly_", "pd_rd_", "pf_rd_"]
 
+    // Bare "ref" is overwhelmingly a referral tracker on shared links
+    // (raycast.com?ref=product_sidebar, producthunt, medium); the rare
+    // functional use (some git-hosting deep links) loses this trade-off.
     private static let globalExact: Set<String> = [
         "fbclid", "gclid", "gclsrc", "dclid", "msclkid", "igshid", "igsh",
         "mc_eid", "mc_cid", "spm", "_hsenc", "_hsmi", "wickedid", "yclid",
-        "twclid", "ttclid", "s_kwcid", "ref_src", "ref_url"
+        "twclid", "ttclid", "s_kwcid", "ref", "ref_src", "ref_url"
     ]
 
     private static let amazonExact: Set<String> = ["ref", "tag", "psc", "th", "linkCode", "linkId"]

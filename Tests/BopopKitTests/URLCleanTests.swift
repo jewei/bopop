@@ -150,3 +150,10 @@ import Testing
     // Cleaned value itself is untruncated; provider does the truncation for hero display.
     #expect(cleaned?.cleaned == "https://example.com/\(longPath)")
 }
+
+@Test func urlCleanerStripsBareRefGlobally() throws {
+    let cleaned = try #require(URLCleaner.clean(
+        "https://www.raycast.com/thomas/raycast?ref=product_sidebar"))
+    #expect(cleaned.cleaned == "https://www.raycast.com/thomas/raycast")
+    #expect(cleaned.removedCount == 1)
+}

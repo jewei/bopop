@@ -126,8 +126,11 @@ final class PaletteHeroView: NSView {
         label.font = .monospacedSystemFont(ofSize: 22, weight: .medium)
         label.textColor = NSColor.white.withAlphaComponent(0.92)
         label.alignment = alignment
-        label.lineBreakMode = .byTruncatingMiddle
-        label.maximumNumberOfLines = 1
+        // Long values (timezone descriptions) wrap to a second line instead
+        // of truncating; anything longer than two lines truncates at the tail.
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+        label.cell?.truncatesLastVisibleLine = true
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
