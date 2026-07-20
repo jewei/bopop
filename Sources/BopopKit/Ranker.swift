@@ -28,7 +28,8 @@ public nonisolated enum Ranker {
         .files: 20,
         .system: 55,
         .customSearch: 105,
-        .snippets: 35
+        .snippets: 35,
+        .dictionary: 111
     ]
 
     public static func tier(query: String, candidate: String) -> MatchTier {

@@ -81,7 +81,7 @@ final class ActionRunner {
             break
         case let .openURL(string):
             guard let url = URL(string: string),
-                  url.scheme == "http" || url.scheme == "https" else {
+                  url.scheme == "http" || url.scheme == "https" || url.scheme == "dict" else {
                 return
             }
             NSWorkspace.shared.open(url)

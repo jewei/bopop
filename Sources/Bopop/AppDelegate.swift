@@ -70,7 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     SystemCommandsProvider(),
                     CustomSearchProvider(searches: customSearchesFor),
                     SnippetsProvider(store: snippetStore),
-                    CommandsProvider()
+                    CommandsProvider(),
+                    DictionaryProvider(lookup: { DictionaryLookup.definition(for: $0) })
                 ],
                 .apps: [appsProvider],
                 .fileSearch: [
