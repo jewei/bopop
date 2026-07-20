@@ -263,6 +263,7 @@ enum PaletteLayout {
 }
 
 final class PaletteBrandView: NSView {
+    private let imageView = NSImageView()
     private let gradientLayer = CAGradientLayer()
 
     override init(frame frameRect: NSRect) {
@@ -285,10 +286,29 @@ final class PaletteBrandView: NSView {
     private func configureView() {
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
+        setAccessibilityHidden(true)
+
+        // The bundled app icon replaces the old gradient square. The
+        // gradient stays as the fallback for bare-binary runs (swift run /
+        // debug outside the bundle), where AppIcon.icns isn't resolvable.
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            imageView.image = icon
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(imageView)
+            NSLayoutConstraint.activate([
+                imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                imageView.topAnchor.constraint(equalTo: topAnchor),
+                imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            return
+        }
+
         layer?.cornerRadius = PaletteMetrics.brandSquareRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-
         gradientLayer.colors = [
             NSColor.bopopAccent.cgColor,
             NSColor.bopopAccentSoft.cgColor
@@ -296,7 +316,6 @@ final class PaletteBrandView: NSView {
         gradientLayer.startPoint = CGPoint(x: 0, y: 0)
         gradientLayer.endPoint = CGPoint(x: 1, y: 1)
         layer?.addSublayer(gradientLayer)
-        setAccessibilityHidden(true)
     }
 }
 
