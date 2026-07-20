@@ -234,6 +234,17 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                LabeledContent("Version", value: model.appVersion)
+                HStack {
+                    Button("Check for Updates…") {
+                        model.checkForUpdates?()
+                    }
+                    if model.updateAvailable {
+                        Text("Update available")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .tint(Color(nsColor: .bopopAccent))

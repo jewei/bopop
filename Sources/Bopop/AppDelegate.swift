@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeyManager: HotkeyManager
     private let settingsModel: SettingsModel
     private let settingsWindowController: SettingsWindowController
+    private let appUpdater: AppUpdater
 
     override init() {
         let defaults = UserDefaults.standard
@@ -128,6 +129,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // mirroring appCatalog.refreshIfStale/emojiFrecencyFor above.
         let settingsWindowController = SettingsWindowController(model: settingsModel)
         self.settingsWindowController = settingsWindowController
+        let appUpdater = AppUpdater()
+        appUpdater.settingsModel = settingsModel
+        settingsModel.checkForUpdates = { appUpdater.checkForUpdates() }
+        self.appUpdater = appUpdater
         paletteController = PaletteController(
             engine: engine,
             actionRunner: actionRunner,

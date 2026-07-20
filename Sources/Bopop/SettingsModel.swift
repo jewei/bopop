@@ -89,6 +89,15 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var hasCustomBrandImage: Bool
     @Published private(set) var brandImageImportError: String?
 
+    @Published var updateAvailable = false
+    /// Wired by AppDelegate to AppUpdater.checkForUpdates(); optional so
+    /// SettingsModel stays constructible without Sparkle in previews/tests.
+    var checkForUpdates: (() -> Void)?
+
+    var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
     private let hotkeyManager: HotkeyManager
     private let clipboardStore: ClipboardStore
     private let snippetStore: SnippetStore
