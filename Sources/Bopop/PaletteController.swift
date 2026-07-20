@@ -4,7 +4,7 @@ import BopopKit
 final class PaletteController: NSObject {
     private static let emptyFileSearchMessage = "Type to search files in your home folder"
     private static let searchingMessage = "Searching…"
-    private static let noFileMatchesMessage = "No matches — some locations may require permissions (System Settings → Privacy & Security → Files and Folders / Full Disk Access), or Spotlight indexing may be off"
+    private static let noFileMatchesMessage = "No matches — some locations may require permissions (System Settings → Privacy & Security → Files and Folders / Full Disk Access), or Spotlight indexing may be off, or adjust File Search folders in Settings"
 
     private let engine: QueryEngine
     private let actionRunner: ActionRunner

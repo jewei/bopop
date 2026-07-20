@@ -34,18 +34,35 @@ public final class FileSearcher {
     }
 
     internal private(set) var didBuildQuery = false
+    internal private(set) var lastSearchScopes: [Any] = []
 
     private let maxResults: Int
-    private let scopes: [String]
+    private let scopeProvider: @Sendable () -> [String]
     private var active: ActiveSearch?
     private var nextSearchID = 0
 
     public init(
         maxResults: Int = 40,
-        scopes: [String] = [NSMetadataQueryUserHomeScope]
+        scopeProvider: @escaping @Sendable () -> [String] = { [] }
     ) {
         self.maxResults = max(0, maxResults)
-        self.scopes = scopes
+        self.scopeProvider = scopeProvider
+    }
+
+    /// Resolves user-chosen folder paths into NSMetadataQuery scope entries.
+    /// Paths that no longer exist are skipped (not auto-pruned from
+    /// storage — the drive may be temporarily unmounted). An empty list, or
+    /// a list where every path is missing, falls back to the whole-home
+    /// scope, matching the empty-list default.
+    internal static func resolveScopes(
+        paths: [String],
+        fileManager: FileManager = .default
+    ) -> [Any] {
+        let existingPaths = paths.filter { fileManager.fileExists(atPath: $0) }
+        guard !existingPaths.isEmpty else {
+            return [NSMetadataQueryUserHomeScope]
+        }
+        return existingPaths.map { URL(fileURLWithPath: $0) }
     }
 
     public func search(term: String) async -> [Item] {
@@ -63,6 +80,8 @@ public final class FileSearcher {
                     }
 
                     didBuildQuery = true
+                    let scopes = Self.resolveScopes(paths: scopeProvider())
+                    lastSearchScopes = scopes
                     let query = NSMetadataQuery()
                     query.predicate = NSPredicate(
                         format: "%K CONTAINS[cd] %@",

@@ -24,6 +24,70 @@ func fileSearchProviderDoesNotBuildQueriesOutsideActiveSearch() async throws {
 
 @MainActor
 @Test
+func resolveScopesFallsBackToHomeWhenPathsEmpty() {
+    let scopes = FileSearcher.resolveScopes(paths: [], fileManager: .default)
+
+    #expect(scopes as? [String] == [NSMetadataQueryUserHomeScope])
+}
+
+@MainActor
+@Test
+func resolveScopesFallsBackToHomeWhenAllPathsMissing() {
+    let missing = "/nonexistent-\(UUID().uuidString)"
+
+    let scopes = FileSearcher.resolveScopes(paths: [missing], fileManager: .default)
+
+    #expect(scopes as? [String] == [NSMetadataQueryUserHomeScope])
+}
+
+@MainActor
+@Test
+func resolveScopesUsesChosenExistingFolders() {
+    let existing = FileManager.default.temporaryDirectory.path
+
+    let scopes = FileSearcher.resolveScopes(paths: [existing], fileManager: .default)
+
+    #expect(scopes as? [URL] == [URL(fileURLWithPath: existing)])
+}
+
+@MainActor
+@Test
+func resolveScopesSkipsMissingPathsAtBuildTimeButKeepsExisting() {
+    let existing = FileManager.default.temporaryDirectory.path
+    let missing = "/nonexistent-\(UUID().uuidString)"
+
+    let scopes = FileSearcher.resolveScopes(
+        paths: [missing, existing],
+        fileManager: .default
+    )
+
+    #expect(scopes as? [URL] == [URL(fileURLWithPath: existing)])
+}
+
+@MainActor
+@Test
+func fileSearcherReadsScopeProviderPerSearchAndSkipsMissingPaths() async {
+    let existing = FileManager.default.temporaryDirectory.path
+    let missing = "/nonexistent-\(UUID().uuidString)"
+    let searcher = FileSearcher(scopeProvider: { [missing, existing] })
+
+    let task = Task { await searcher.search(term: "test") }
+    // The scope-resolution/query-build step runs synchronously as soon as
+    // the child task gets scheduled, before it suspends waiting on the
+    // NSMetadataQuery gathering notification — yielding lets that happen
+    // without waiting for a real (possibly slow/unavailable) gather.
+    await Task.yield()
+    await Task.yield()
+
+    #expect(searcher.didBuildQuery)
+    #expect(searcher.lastSearchScopes as? [URL] == [URL(fileURLWithPath: existing)])
+
+    task.cancel()
+    _ = await task.value
+}
+
+@MainActor
+@Test
 func singleResumeCanOnlyBeClaimedOnce() {
     let resumeGuard = SingleResume()
 

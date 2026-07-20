@@ -48,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let searchEngineFor: @Sendable () -> SearchEngine = {
             MainActor.assumeIsolated { SettingsModel.storedSearchEngine(in: .standard) }
         }
+        let fileSearchFoldersFor: @Sendable () -> [String] = {
+            MainActor.assumeIsolated { SettingsModel.storedFileSearchFolders(in: .standard) }
+        }
         let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(
             providers: [
@@ -62,7 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ],
                 .apps: [appsProvider],
                 .fileSearch: [
-                    FileSearchProvider(searcher: FileSearcher())
+                    FileSearchProvider(
+                        searcher: FileSearcher(scopeProvider: fileSearchFoldersFor)
+                    )
                 ],
                 .clipboard: [ClipboardProvider(store: clipboardStore)],
                 .emoji: [

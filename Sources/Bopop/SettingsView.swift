@@ -63,6 +63,35 @@ struct SettingsView: View {
                 }
             }
 
+            Section("File Search") {
+                if model.fileSearchFolders.isEmpty {
+                    Text("Searches your whole home folder.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.fileSearchFolders, id: \.self) { folder in
+                        HStack {
+                            Text((folder as NSString).abbreviatingWithTildeInPath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                model.removeFileSearchFolder(folder)
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                Button {
+                    model.presentFileSearchFolderPicker()
+                } label: {
+                    Label("Add Folder…", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderless)
+            }
+
             Section("General") {
                 Toggle("Launch Bopop at login", isOn: $model.launchAtLogin)
                 if let error = model.launchAtLoginError {
@@ -75,6 +104,6 @@ struct SettingsView: View {
         .tint(Color(nsColor: .bopopAccent))
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 380, height: 360)
+        .frame(width: 380, height: 460)
     }
 }

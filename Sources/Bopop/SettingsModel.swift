@@ -1,3 +1,4 @@
+import AppKit
 import BopopKit
 import Combine
 import Foundation
@@ -8,6 +9,7 @@ final class SettingsModel: ObservableObject {
     static let clipboardLimitKey = "clipboardLimit"
     static let chineseVariantKey = "chineseVariant"
     static let searchEngineKey = "searchEngine"
+    static let fileSearchFoldersKey = "fileSearchFolders"
 
     @Published var hotkey: HotkeyConfig {
         didSet {
@@ -60,6 +62,12 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    @Published private(set) var fileSearchFolders: [String] {
+        didSet {
+            defaults.set(fileSearchFolders, forKey: Self.fileSearchFoldersKey)
+        }
+    }
+
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
 
@@ -83,6 +91,7 @@ final class SettingsModel: ObservableObject {
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
         chineseVariant = Self.storedChineseVariant(in: defaults)
         searchEngine = Self.storedSearchEngine(in: defaults)
+        fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
     }
 
     static func storedClipboardLimit(in defaults: UserDefaults) -> Int {
@@ -108,9 +117,42 @@ final class SettingsModel: ObservableObject {
         return engine
     }
 
+    static func storedFileSearchFolders(in defaults: UserDefaults) -> [String] {
+        defaults.stringArray(forKey: fileSearchFoldersKey) ?? []
+    }
+
     func recheckConflict() {
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
         hotkeyManager.register(hotkey)
+    }
+
+    /// Opens an NSOpenPanel (folders only, multi-select) and appends any
+    /// newly chosen folders. Duplicates are ignored; a subfolder of an
+    /// already-chosen folder is allowed (harmless overlap — see design
+    /// doc). Runs modally on the main actor, matching AppKit convention.
+    func presentFileSearchFolderPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        panel.message = "Choose folders to search"
+        guard panel.runModal() == .OK else {
+            return
+        }
+        addFileSearchFolders(panel.urls.map(\.path))
+    }
+
+    func removeFileSearchFolder(_ path: String) {
+        fileSearchFolders.removeAll { $0 == path }
+    }
+
+    private func addFileSearchFolders(_ paths: [String]) {
+        var updated = fileSearchFolders
+        for path in paths where !updated.contains(path) {
+            updated.append(path)
+        }
+        fileSearchFolders = updated
     }
 
     private static func clampClipboardLimit(_ value: Int) -> Int {
