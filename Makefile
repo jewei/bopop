@@ -3,7 +3,7 @@ BIN := .build/release/$(APP)
 DIST := dist/$(APP).app
 SPARKLE_FMWK := .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
 
-.PHONY: build test app run open clean
+.PHONY: build test app run open clean release
 
 build:
 	swift build -c release
@@ -32,3 +32,6 @@ open: app
 
 clean:
 	rm -rf .build dist
+
+release:
+	Support/release.sh
