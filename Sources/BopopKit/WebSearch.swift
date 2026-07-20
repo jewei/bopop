@@ -5,6 +5,8 @@ public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
     case duckDuckGo
     case bing
     case brave
+    case youTube
+    case gitHub
 
     public var displayName: String {
         switch self {
@@ -12,6 +14,8 @@ public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
         case .duckDuckGo: return "DuckDuckGo"
         case .bing: return "Bing"
         case .brave: return "Brave"
+        case .youTube: return "YouTube"
+        case .gitHub: return "GitHub"
         }
     }
 
@@ -29,6 +33,10 @@ public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
             return URL(string: "https://www.bing.com/search?q=\(encodedTerm)")
         case .brave:
             return URL(string: "https://search.brave.com/search?q=\(encodedTerm)")
+        case .youTube:
+            return URL(string: "https://www.youtube.com/results?search_query=\(encodedTerm)")
+        case .gitHub:
+            return URL(string: "https://github.com/search?q=\(encodedTerm)")
         }
     }
 

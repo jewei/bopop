@@ -104,3 +104,10 @@ func categoryBadgeText(
     )
     #expect(CategoryBadge.text(for: result) == expected)
 }
+
+@Test func searchEngineYouTubeAndGitHubURLs() {
+    #expect(SearchEngine.youTube.searchURL(for: "swift concurrency")?.absoluteString
+        == "https://www.youtube.com/results?search_query=swift%20concurrency")
+    #expect(SearchEngine.gitHub.searchURL(for: "bopop")?.absoluteString
+        == "https://github.com/search?q=bopop")
+}
