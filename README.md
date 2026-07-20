@@ -9,7 +9,7 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
   click a tab, or cycle with ⇥/⇧⇥, to enter that mode; prefixes still work and highlight their tab
 - Search and launch installed applications, ranked by match quality + how often you use them
 - Type arithmetic (`2*(3+4)^2`) for an instant result — Return copies it
-- `f <term>` or "Search Files…" for on-demand Spotlight file search (strictly opt-in, see below)
+- `f <term>` or the Files tab for on-demand Spotlight file search (strictly opt-in, see below); optionally scope it to chosen folders in Settings — the inverse of Spotlight's Privacy exclusion list
 - "Clipboard History…" for recent plain-text copies — Return re-copies
 - Executables in the Scripts folder become searchable commands — run only on explicit Return
 - Calculator, currency, timezone, and URL-cleaner answers render a hero card above the list — the

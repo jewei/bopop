@@ -63,7 +63,7 @@ Live Spotlight tests (machine-dependent): `BOPOP_LIVE_SPOTLIGHT=1 swift test --f
 ## Storage & settings surface
 
 - `~/Library/Application Support/Bopop/` — `usage.json`, `clipboard.json`, `rates.json`, `Scripts/`, `scripts.log`. Versioned JSON envelopes; corrupt files are renamed `*.corrupt` and skipped, never crash. `rates.json` (EUR-base ECB rates + fetch timestamp) follows the same pattern: `-rw-------` (0600), versioned envelope, quarantine-on-corrupt like everything else in `Storage`.
-- UserDefaults (`com.oneone.bopop`): hotkey config, clipboard limit, palette position (`palettePositionTopLeftX/Y` — saved only after a user drag, ignored if offscreen at restore), `chineseVariant` (raw `TranslationTarget` string, default `zh-Hans`), `searchEngine` (raw `SearchEngine` string, default `google`; picker in Settings, 380×360 now that the search-engine row added height).
+- UserDefaults (`com.oneone.bopop`): hotkey config, clipboard limit, palette position (`palettePositionTopLeftX/Y` — saved only after a user drag, ignored if offscreen at restore), `chineseVariant` (raw `TranslationTarget` string, default `zh-Hans`), `searchEngine` (raw `SearchEngine` string, default `google`), `fileSearchFolders` ([String] of absolute paths, default empty = whole home folder; missing paths skipped at query time, not pruned — drives unmount). Settings form is 380×460 after the search-engine and File Search sections.
 
 ## Deferred (explicitly out of MVP — don't assume they're missing by accident)
 
