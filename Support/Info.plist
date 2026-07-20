@@ -26,5 +26,11 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/jewei/bopop/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>Ns9aeDpiL/p7DCVX4TRw4OnqkmZs0y6+7afPO+i1vPM=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>
