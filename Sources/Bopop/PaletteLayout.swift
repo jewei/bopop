@@ -11,8 +11,10 @@ enum PaletteLayout {
         let scrollTopToHero: NSLayoutConstraint
     }
 
-    private static let queryFont = NSFont.systemFont(ofSize: 34, weight: .heavy)
-    private static let queryKern = -0.68
+    // SF Mono to match the tabs/footer/keycap grammar — the query line is
+    // a terminal prompt, not a billboard. Kern 0: mono spacing is the point.
+    private static let queryFont = NSFont.monospacedSystemFont(ofSize: 22, weight: .semibold)
+    private static let queryKern = 0.0
 
     private static var queryTextAttributes: [NSAttributedString.Key: Any] {
         [
@@ -159,7 +161,8 @@ enum PaletteLayout {
         // Block cursor in the result-title tone (white 85%) — violet was
         // right for a hairline, but a filled block of accent overwhelms.
         editor.insertionPointColor = NSColor.white.withAlphaComponent(0.85)
-        (editor as? BlockCursorTextView)?.blockCursorWidth = queryFont.pointSize * 0.55
+        // SF Mono advance is ~0.6em, so the empty-caret block matches glyphs.
+        (editor as? BlockCursorTextView)?.blockCursorWidth = queryFont.pointSize * 0.6
         editor.typingAttributes.merge(queryTextAttributes) { _, newValue in
             newValue
         }

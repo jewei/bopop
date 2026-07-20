@@ -26,7 +26,7 @@ Search-engine picker). App icon: keycap concept — dark glass plate (`#191722`)
 
 | Element | Spec |
 |---|---|
-| Query field | 34 heavy (`.heavy`), tracking −0.02em, white; placeholder white 35% |
+| Query field | SF Mono 22 semibold, white; placeholder same spec at white 35% ("Bopop. Everything starts here"); terminal block cursor (white 85%) covers the glyph at the caret and redraws it panel-dark |
 | Row title | 14.5 semibold (selected) / 14 medium, textStrong |
 | Row subtitle | 11.5 / 11 regular, textSecondary, 2pt below title |
 | Footer + keycaps + tab pills + row badge | SF Mono medium 11 (keycap ↵ 10) |
