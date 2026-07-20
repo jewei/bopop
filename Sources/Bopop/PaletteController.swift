@@ -553,6 +553,8 @@ final class PaletteController: NSObject {
             "select"
         case .downloadTranslation:
             "download"
+        case .systemCommand:
+            "run"
         }
     }
 

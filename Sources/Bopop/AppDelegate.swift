@@ -61,7 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     CurrencyProvider(store: RateStore(storage: storage), fetcher: LiveRateFetcher()),
                     TimeProvider(),
                     URLCleanProvider(),
-                    WebSearchProvider(engine: searchEngineFor)
+                    WebSearchProvider(engine: searchEngineFor),
+                    SystemCommandsProvider()
                 ],
                 .apps: [appsProvider],
                 .fileSearch: [

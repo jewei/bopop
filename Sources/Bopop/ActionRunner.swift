@@ -1,5 +1,6 @@
 import AppKit
 import BopopKit
+import Carbon
 
 @MainActor
 final class ActionRunner {
@@ -86,6 +87,44 @@ final class ActionRunner {
             NSWorkspace.shared.open(url)
         case .downloadTranslation:
             onDownloadTranslation?()
+        case .systemCommand(let command):
+            run(command.invocation)
         }
+    }
+
+    private func run(_ invocation: SystemCommandInvocation) {
+        switch invocation {
+        case .process(let executable, let arguments):
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            try? process.run()
+        case .loginwindowAppleEvent(let code):
+            sendLoginwindowEvent(fourCharCode(code))
+        case .finderScript(let source):
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", source]
+            try? process.run()
+        }
+    }
+
+    private func fourCharCode(_ code: String) -> AEEventID {
+        code.utf8.reduce(0) { ($0 << 8) + AEEventID($1) }
+    }
+
+    private func sendLoginwindowEvent(_ eventID: AEEventID) {
+        var psn = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: UInt32(kSystemProcess))
+        var target = AEAddressDesc()
+        guard AECreateDesc(typeProcessSerialNumber, &psn,
+                           MemoryLayout.size(ofValue: psn), &target) == noErr else { return }
+        defer { AEDisposeDesc(&target) }
+        var event = AppleEvent()
+        guard AECreateAppleEvent(kCoreEventClass, eventID, &target,
+                                 AEReturnID(kAutoGenerateReturnID),
+                                 AETransactionID(kAnyTransactionID), &event) == noErr else { return }
+        defer { AEDisposeDesc(&event) }
+        var reply = AppleEvent()
+        AESendMessage(&event, &reply, AESendMode(kAENoReply), kAEDefaultTimeout)
     }
 }

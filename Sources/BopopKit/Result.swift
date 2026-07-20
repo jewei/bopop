@@ -13,6 +13,7 @@ public nonisolated enum ProviderID: String, Hashable, Sendable {
     case urlClean
     case translation
     case webSearch
+    case system
 }
 
 public nonisolated enum IconRef: Equatable, Sendable {
@@ -31,6 +32,7 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case enterMode(Mode)
     case openURL(String)
     case downloadTranslation
+    case systemCommand(SystemCommand)
 }
 
 public nonisolated struct HeroContent: Equatable, Sendable {
