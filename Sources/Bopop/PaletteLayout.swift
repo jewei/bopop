@@ -210,17 +210,19 @@ enum PaletteLayout {
         queryField.textColor = .white
         queryField.allowsEditingTextAttributes = true
         queryField.lineBreakMode = .byTruncatingTail
+        // Tagline placeholder renders smaller than the 34pt typed query —
+        // it's an invitation, not input; the moment you type, full size.
         queryField.placeholderAttributedString = NSAttributedString(
-            string: "Search Bopop…",
+            string: "Bopop. Everything starts here",
             attributes: [
-                .font: queryFont,
+                .font: NSFont.systemFont(ofSize: 22, weight: .semibold),
                 .foregroundColor: NSColor.white.withAlphaComponent(0.35),
-                .kern: queryKern
+                .kern: -0.22
             ]
         )
         queryField.translatesAutoresizingMaskIntoConstraints = false
         queryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        queryField.setAccessibilityLabel("Search Bopop")
+        queryField.setAccessibilityLabel("Bopop. Everything starts here")
     }
 
     private static func configureResults(
