@@ -19,7 +19,8 @@ Source: Claude design export `~/Downloads/next-generation-productivity-launcher`
 | `keycapBorder` | `white 15%` | Keycap outlines |
 | Selection | fill `#7c5cff` 14%, border 1px `#7c5cff` 30% | Selected row |
 
-Settings window: system appearance + `.tint(#7c5cff)`. App icon: gradient `#7c5cff→#5b3ff0`, white rounded "b", `#a48bff` dot.
+Settings window: system appearance + `.tint(#7c5cff)`, fixed 380×360 (grew from 320 to fit the
+Search-engine picker). App icon: gradient `#7c5cff→#5b3ff0`, white rounded "b", `#a48bff` dot.
 
 ## Typography (SF Pro / SF Mono)
 
@@ -28,16 +29,36 @@ Settings window: system appearance + `.tint(#7c5cff)`. App icon: gradient `#7c5c
 | Query field | 34 heavy (`.heavy`), tracking −0.02em, white; placeholder white 35% |
 | Row title | 14.5 semibold (selected) / 14 medium, textStrong |
 | Row subtitle | 11.5 / 11 regular, textSecondary, 2pt below title |
-| Footer + keycaps + chip | SF Mono medium 11 (keycap ↵ 10) |
+| Footer + keycaps + tab pills + row badge | SF Mono medium 11 (keycap ↵ 10) |
 
 ## Layout & metrics
 
 - Panel: width 620, radius 20 continuous, `NSVisualEffectView` (dark appearance forced) + `panelTint` overlay, 1px `panelBorder`, heavy shadow.
 - Header: 76 tall, insets 24; contents: 20×20 radius-6 brand square (gradient `#7c5cff→#a48bff`, 135°) · query field · `esc` keycap (SF Mono 11, textSecondary, border keycapBorder, radius 6, padding 8×3). 1px hairline below.
+- Tab row (`PaletteTabsView`): 34 pt tall (`PaletteMetrics.tabsHeight`), always visible directly
+  under the header hairline — hero/list anchor off its bottom edge. Leading-aligned capsule pills
+  (radius = height/2 via `cornerRadius`, `.continuous` curve), inset by `footerInset` (22), 6 pt
+  spacing, SF Mono medium 11. One pill per mode, in order: `All · Apps · Files · Clipboard · Emoji ·
+  Translate` (`All` = `Mode.general`, the rest map 1:1 to the other `Mode` cases incl. the new
+  `.apps`, which restricts search to installed apps with no dedicated prefix). Active pill: accent
+  fill at 25% alpha, text white 92%; inactive: clear fill, text white 45%, hover white 70% (tracking
+  area, same pattern as the footer gear button). A click enters that mode exactly like a command row
+  (`enterMode`); ⇥ / ⇧⇥ cycles the list from the current effective mode (prefix-typed modes included,
+  not just the sticky one) — this spends the key previously reserved for a secondary-actions menu,
+  which now lives on ⌘K alone. The tab row is a pure function of the mode; there is no independent
+  chip state to keep in sync, and the old in-field mode chip (accent-on-pill, next to the brand
+  square) is removed — the active tab is the single mode indicator.
 - List: insets 8 top / 10 sides / 14 bottom; row height 52; 4pt gap between rows (intercell); row content padding 14 h; selection radius 10.
-- Rows: 32×32 leading icon — real app/file icons raw; symbol results in a radius-8 tile (`tileNeutral`; selected row's tile: gradient `#7c5cff→#5b3ff0`, white symbol). Two-line text block (single line vertically centered when no subtitle). Selected row shows trailing `↵` keycap.
-- Footer: 40 tall, insets 22, hairline above, SF Mono 11 textSecondary. Left: "Bopop" (or mode/status text). Right: `↑↓ navigate` · `⌘C copy` · `↵ select` (⌘K reserved until an actions menu exists) · trailing gearshape button (borderless, textSecondary → white 0.8 on hover) opening the Settings/Scripts/Quit menu — replaces the old menu-bar status item.
-- Mode chip (Files/Clipboard/Emoji/Translation): SF Mono 11, accent text on accent 15% pill, radius 10, after the brand square.
+- Rows: 32×32 leading icon — real app/file icons raw; symbol results in a radius-8 tile (`tileNeutral`; selected row's tile: gradient `#7c5cff→#5b3ff0`, white symbol). Two-line text block (single line vertically centered when no subtitle). Selected row shows trailing `↵` keycap. Trailing category
+  badge (rounded-rect chip, same styling as the hero pane badges — 11 pt, white 0.55 text on white
+  0.08 fill, monochrome, no per-category colors) sits in front of the `↵` keycap in the row's
+  trailing gravity area; text comes from `CategoryBadge.text(for:)` — the provider's own explicit
+  badge if set (e.g. Script), else a derived label (Apps/Files/Clipboard/Emoji/Web), else no badge
+  at all for hero-backed or self-evident rows (calculator, currency, commands, …). A web-search row
+  (`Search ⟨Engine⟩ for "…"`, `magnifyingglass` symbol tile) is always the last row in All mode for
+  any non-empty query, carrying the "Web" badge; Return opens the engine's search URL in the default
+  browser rather than acting locally.
+- Footer: 40 tall, insets 22, hairline above, SF Mono 11 textSecondary. Left: "Bopop" (or mode/status text). Right: `↑↓ navigate` · `⌘C copy` · `↵ select` (⌘K reserved for a future secondary-actions menu — ⇥/⇧⇥ is spent on tab cycling, not available for this) · trailing gearshape button (borderless, textSecondary → white 0.8 on hover) opening the Settings/Scripts/Quit menu — replaces the old menu-bar status item.
 
 ## Hero answer card
 

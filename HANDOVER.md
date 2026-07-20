@@ -1,17 +1,25 @@
 # Handover
 
-State of the project as of 2026-07-20, v2 feature branch (`feature/v2-answers`) merged. 150 tests green.
+State of the project as of 2026-07-20, v2 feature branch (`feature/v2-answers`) merged, plus the
+tabs/badges/web-search follow-on. 162 tests green.
 
 ## Where things stand
 
 - v2 added five new answer providers (currency, timezone, emoji, URL cleaner, translation), a shared
   hero answer card, and removed the menu-bar status item in favor of a footer gear menu. See
   `git log --oneline 6cd8638..HEAD` for the 13-commit sequence (Conventional Commits throughout).
-- Ten providers live: apps, calculator, opt-in file search, clipboard history, user scripts,
-  currency, timezone, emoji, URL cleaner, translation — each still one file + one line of wiring,
-  no plugin layer.
-- Design v2 "Minimal Mono" applied (see DESIGN.md), extended with the hero-card spec; custom app icon
-  in `Resources/AppIcon.icns`.
+- A follow-on unified the in-field mode chip with a visible pill tab row (`All · Apps · Files ·
+  Clipboard · Emoji · Translate`), added per-row category badges, and added a configurable
+  web-search fallback row. See `git log --oneline c610e98..HEAD` (5 commits) and
+  `docs/superpowers/specs/2026-07-20-tabs-badges-websearch-design.md`. The old in-field mode chip
+  (`PaletteModeChipView`) is gone — the tab row is now the single mode indicator. ⇥/⇧⇥ is spent
+  cycling tabs; the "Tab/⌘K secondary-actions menu" idea in the deferred list below is now ⌘K only.
+- Eleven providers live: apps, calculator, opt-in file search, clipboard history, user scripts,
+  currency, timezone, emoji, URL cleaner, translation, web search — each still one file + one line
+  of wiring, no plugin layer. `Mode.apps` (tab-only, no prefix) restricts search to the apps
+  provider; `AppsProvider` serves both `.general` and `.apps` identically.
+- Design v2 "Minimal Mono" applied (see DESIGN.md), extended with the hero-card spec and the tab-row
+  spec; custom app icon in `Resources/AppIcon.icns`.
 - Manual QA (v1 MVP) passed end-to-end: hotkey over full-screen, `fs_usage` audit (zero mds traffic
   outside file mode), clipboard privacy including the Apple Passwords menu-bar popover case, Esc
   chain, Settings hotkey recorder, drag-position persistence across relaunch.
@@ -55,13 +63,15 @@ Live Spotlight tests (machine-dependent): `BOPOP_LIVE_SPOTLIGHT=1 swift test --f
 ## Storage & settings surface
 
 - `~/Library/Application Support/Bopop/` — `usage.json`, `clipboard.json`, `rates.json`, `Scripts/`, `scripts.log`. Versioned JSON envelopes; corrupt files are renamed `*.corrupt` and skipped, never crash. `rates.json` (EUR-base ECB rates + fetch timestamp) follows the same pattern: `-rw-------` (0600), versioned envelope, quarantine-on-corrupt like everything else in `Storage`.
-- UserDefaults (`com.oneone.bopop`): hotkey config, clipboard limit, palette position (`palettePositionTopLeftX/Y` — saved only after a user drag, ignored if offscreen at restore), `chineseVariant` (raw `TranslationTarget` string, default `zh-Hans`).
+- UserDefaults (`com.oneone.bopop`): hotkey config, clipboard limit, palette position (`palettePositionTopLeftX/Y` — saved only after a user drag, ignored if offscreen at restore), `chineseVariant` (raw `TranslationTarget` string, default `zh-Hans`), `searchEngine` (raw `SearchEngine` string, default `google`; picker in Settings, 380×360 now that the search-engine row added height).
 
 ## Deferred (explicitly out of MVP — don't assume they're missing by accident)
 
 - Script arguments (argv is deliberately empty — security posture).
-- Tab/⌘K secondary-actions menu (`Result.secondaryActions` field exists; only ⌘C wired; footer reserves ⌘K).
+- ⌘K secondary-actions menu (`Result.secondaryActions` field exists; only ⌘C wired; footer reserves
+  ⌘K). ⇥/⇧⇥ is no longer available for this — it now cycles the tab row.
 - Clipboard images (plain text only), file-content search, themes, auto-update, plugin SDK.
+- Per-tab result counts, tab reordering, custom search engines.
 - VoiceOver spot-check (labels exist and are wired; never manually audited).
 - SQLite (JSON confirmed sufficient — rejected decision, don't reintroduce; likewise DI containers and storage-protocol layers).
 - Emoji skin tones (v1 catalog is base emoji only, ~1,900 entries, no skin-tone expansion).
@@ -74,6 +84,12 @@ reopen failsafe via `screencapture`, but the screen was locked for part of the s
 visually verified by a human: translation-mode hero rendering, the Settings Chinese-variant picker,
 and the footer gear glyph/hover states. Functionally exercised by tests and by the parts of agent QA
 that did run, but worth a real look before calling v2 done.
+
+Tabs/badges/web-search follow-on: agent QA live-verified the tab row itself (click, prefix highlight,
+⇥ cycling, Esc) via `BOPOP_DEBUG_AUTOSHOW`. The per-row category badges, the "Search ⟨Engine⟩ for…"
+row rendering last with a "Web" badge, opening it in the browser, and the Settings search-engine
+picker (including the new 360 pt form height) were only build+test verified, not visually confirmed
+live — worth a real look alongside the still-pending v2 items above.
 
 ## Invariants to preserve
 
@@ -90,4 +106,7 @@ that did run, but worth a real look before calling v2 done.
   hanging or guessing. No other provider, anywhere, makes a network call. Translation runs on Apple's
   on-device Translation framework; the only network activity there is macOS's own language-model
   download consent flow, which Bopop triggers (via `requestDownload`/`prepareTranslation`) at most
-  once per language pair per app run — Bopop never talks to a translation server itself.
+  once per language pair per app run — Bopop never talks to a translation server itself. The
+  web-search row (`WebSearchProvider`) doesn't change this invariant: Bopop only builds the search
+  URL and hands it to `NSWorkspace.open` on Return — it never fetches the URL or the engine's results
+  itself.

@@ -10,7 +10,7 @@ One keyboard-first macOS power user (and people like them). Mid-task when they s
 
 ## Product Purpose
 
-The fastest possible local launcher: press a shortcut, type, open or execute. Success = sub-perceptible latency, near-zero background footprint, and being invisible until summoned. Not a Raycast clone — a small, strong feature set (apps, calculator, currency and timezone conversion, emoji picker, URL tracking-param cleaner, English⇄Chinese translation, opt-in file search, clipboard history, user scripts) done precisely.
+The fastest possible local launcher: press a shortcut, type, open or execute. Success = sub-perceptible latency, near-zero background footprint, and being invisible until summoned. Not a Raycast clone — a small, strong feature set (apps, calculator, currency and timezone conversion, emoji picker, URL tracking-param cleaner, English⇄Chinese translation, opt-in file search, clipboard history, user scripts, a configurable web-search fallback) done precisely.
 
 ## Brand Personality
 

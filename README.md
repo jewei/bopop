@@ -5,6 +5,8 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
 **Press. Type. Go.**
 
 - ⌘Space (configurable) opens a floating palette over any Space or full-screen app
+- A pill tab row (`All · Apps · Files · Clipboard · Emoji · Translate`) sits under the query field —
+  click a tab, or cycle with ⇥/⇧⇥, to enter that mode; prefixes still work and highlight their tab
 - Search and launch installed applications, ranked by match quality + how often you use them
 - Type arithmetic (`2*(3+4)^2`) for an instant result — Return copies it
 - `f <term>` or "Search Files…" for on-demand Spotlight file search (strictly opt-in, see below)
@@ -19,6 +21,11 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
 - Emoji picker (`:fire` or "Emoji Picker…"), CLDR keyword search, frecency-ranked — Return copies
 - URL tracking-parameter cleaner — paste a tracked link, Return opens the cleaned URL in your default
   browser instead of copying it
+- Web search fallback — a "Search ⟨Engine⟩ for…" row is always pinned last in All mode for any
+  non-empty query; Return opens it in your default browser. Choose the engine (Google, DuckDuckGo,
+  Bing, Brave, YouTube, GitHub) in Settings; Bopop never fetches the search results itself
+- Each result row carries a category badge (Apps/Files/Clipboard/Emoji/Web, or a provider's own
+  explicit badge like Script) so mixed "All" results stay scannable
 - English ⇄ Chinese translation (`t <text>` or "Translate…"), fully on-device via Apple's Translation
   framework — Return copies
 - ⌘C copies the selected result's payload (path, value, text); Esc clears → exits mode → closes
@@ -79,6 +86,6 @@ Deliberate decisions:
 
 ## Testing
 
-`swift test` — 150 tests over the parser, ranker, query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search, and translation direction detection/provider flow against a mock translator.
+`swift test` — 162 tests over the parser, ranker (incl. the web-search pin-last rule), query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles, `.apps` mode), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search, translation direction detection/provider flow against a mock translator, web-search URL encoding per engine, and category-badge derivation.
 
 Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
