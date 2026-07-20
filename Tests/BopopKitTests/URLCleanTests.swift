@@ -21,6 +21,18 @@ import Testing
     #expect(cleaned?.removedCount == 2)
 }
 
+@Test func urlCleanerKeepsTagOnFakeAmazonHost() {
+    let cleaned = URLCleaner.clean("https://amazon.evil.com/dp/B0X?tag=x")
+    #expect(cleaned?.cleaned == "https://amazon.evil.com/dp/B0X?tag=x")
+    #expect(cleaned?.removedCount == 0)
+}
+
+@Test func urlCleanerStripsAmazonTagOnRealCcTLD() {
+    let cleaned = URLCleaner.clean("https://www.amazon.co.uk/dp/B0X?tag=x")
+    #expect(cleaned?.cleaned == "https://www.amazon.co.uk/dp/B0X")
+    #expect(cleaned?.removedCount == 1)
+}
+
 @Test func urlCleanerRemovesYouTubeSiKeepsV() {
     let cleaned = URLCleaner.clean("https://www.youtube.com/watch?v=abc&si=xyz")
     #expect(cleaned?.cleaned == "https://www.youtube.com/watch?v=abc")

@@ -100,10 +100,19 @@ public nonisolated enum URLCleaner {
         return segments.joined(separator: "/")
     }
 
-    /// Amazon spans many ccTLDs (amazon.com, amazon.co.uk, amazon.de, ...), so match by
-    /// label rather than a fixed suffix list.
+    /// Amazon spans many ccTLDs, so match each real Amazon domain as an exact
+    /// host or a proper subdomain suffix — the same approach used for
+    /// YouTube/Spotify — rather than any host containing an "amazon" label
+    /// (which would also match e.g. amazon.evil.com).
+    private static let amazonDomains = [
+        "amazon.com", "amazon.co.uk", "amazon.de", "amazon.fr", "amazon.co.jp",
+        "amazon.ca", "amazon.com.au", "amazon.in", "amazon.es", "amazon.it",
+        "amazon.com.mx", "amazon.nl", "amazon.se", "amazon.sg", "amazon.ae",
+        "amazon.com.br"
+    ]
+
     private static func isAmazonHost(_ host: String) -> Bool {
-        host.lowercased().split(separator: ".").contains("amazon")
+        amazonDomains.contains { hostSuffixMatches(host, $0) }
     }
 
     private static func isYouTubeHost(_ host: String) -> Bool {
