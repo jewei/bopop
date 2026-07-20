@@ -227,7 +227,7 @@ enum PaletteLayout {
         // parks ON its first character, terminal-style (see
         // BlockCursorTextView, which draws that character inverted).
         queryField.placeholderAttributedString = NSAttributedString(
-            string: "Bopop. Everything starts here",
+            string: "Bopop. Everything starts here…",
             attributes: [
                 .font: queryFont,
                 .foregroundColor: NSColor.white.withAlphaComponent(0.35),
@@ -236,7 +236,7 @@ enum PaletteLayout {
         )
         queryField.translatesAutoresizingMaskIntoConstraints = false
         queryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        queryField.setAccessibilityLabel("Bopop. Everything starts here")
+        queryField.setAccessibilityLabel("Bopop. Everything starts here…")
     }
 
     private static func configureResults(
