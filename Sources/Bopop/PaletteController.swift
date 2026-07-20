@@ -46,6 +46,12 @@ final class PaletteController: NSObject {
     private var isHiding = false
     private var isProgrammaticFrameChange = false
     private var userAdjustedPosition = false
+    /// Registered once, lazily, the first time Quick Look is shown.
+    /// `QLPreviewPanel` is a system singleton we can't subclass, so unlike
+    /// `PalettePanel`/`LargeTypePanel` there's no `resignKey` override to
+    /// hook — `NSWindow.didResignKeyNotification` is the equivalent signal.
+    /// See `observeQuickLookResign`.
+    private var quickLookResignObserver: NSObjectProtocol?
     private let brandImageURL: URL
     /// Modification date of `brandImageURL` as of the last successful stat,
     /// used to avoid re-decoding the image on every `show()` — only a
@@ -225,7 +231,17 @@ final class PaletteController: NSObject {
         panel.quickLookDataSource = self
         panel.quickLookDelegate = self
         largeTypeController.onDismiss = { [weak self] in
-            self?.largeTypeController.hide()
+            guard let self else { return }
+            largeTypeController.hide()
+            // Explicitly hand key back to the palette rather than relying on
+            // AppKit to pick a successor window on its own — this is what
+            // lets LargeTypePanel.resignKey's deferred keyWindow check tell
+            // "overlay dismissed, palette regains key" apart from "user
+            // switched to another app" (see onFocusLost below).
+            panel.makeKeyAndOrderFront(nil)
+        }
+        largeTypeController.onFocusLost = { [weak self] in
+            self?.hide()
         }
         engine.onUpdate = { [weak self] update in
             self?.apply(update)
@@ -450,13 +466,55 @@ final class PaletteController: NSObject {
     private func toggleQuickLook() -> Bool {
         if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
             QLPreviewPanel.shared().orderOut(nil)
+            // See largeTypeController.onDismiss above: explicitly re-key the
+            // palette rather than relying on AppKit's successor-window
+            // choice, so the deferred check in observeQuickLookResign can
+            // tell this apart from a genuine app switch.
+            panel.makeKeyAndOrderFront(nil)
             return true
         }
         guard FilePayload.path(for: selectedResult()) != nil else {
             return false
         }
-        QLPreviewPanel.shared().makeKeyAndOrderFront(nil)
+        let qlPanel = QLPreviewPanel.shared()!
+        observeQuickLookResign(qlPanel)
+        qlPanel.makeKeyAndOrderFront(nil)
         return true
+    }
+
+    /// `QLPreviewPanel` is a private AppKit subclass handed out by
+    /// `.shared()` — it can't be subclassed to override `resignKey` the way
+    /// `PalettePanel`/`LargeTypePanel` do, so `NSWindow.didResignKeyNotification`
+    /// is the equivalent hook. The singleton outlives any single preview
+    /// session, so the observer is registered once and left in place.
+    ///
+    /// Mirrors the same deferred one-runloop-turn keyWindow check as
+    /// `PalettePanel.resignKey`/`LargeTypePanel.resignKey`: the successor
+    /// key window isn't settled yet at notification time, so wait a turn,
+    /// then only treat it as a genuine focus loss (hide the whole palette)
+    /// if that successor isn't one of the app's own panels.
+    private func observeQuickLookResign(_ qlPanel: QLPreviewPanel) {
+        guard quickLookResignObserver == nil else {
+            return
+        }
+        quickLookResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: qlPanel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    switch NSApp.keyWindow {
+                    case self.panel, is LargeTypePanel, is QLPreviewPanel:
+                        return
+                    default:
+                        self.hide()
+                    }
+                }
+            }
+        }
     }
 
     /// No-op (returns `false`) when the selection has no large-type text

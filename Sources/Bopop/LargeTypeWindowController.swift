@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// Full-screen "yell it" overlay toggled by ⌘L: shows the palette's current
 /// selection (per `LargeType.text(for:)`) in a huge centered label on a
@@ -17,6 +18,12 @@ final class LargeTypeWindowController: NSObject {
     private let textField = NSTextField(labelWithString: "")
 
     var onDismiss: (() -> Void)?
+    /// Fires when key status moves away from this panel to something that
+    /// isn't the palette or another Bopop overlay — i.e. the user switched
+    /// to a different app while the overlay was up. Unlike `onDismiss`
+    /// (user closed the overlay explicitly, palette stays open), this means
+    /// the whole palette should hide too. See `LargeTypePanel.resignKey`.
+    var onFocusLost: (() -> Void)?
 
     var isVisible: Bool { panel.isVisible }
 
@@ -32,6 +39,9 @@ final class LargeTypeWindowController: NSObject {
         configureContent()
         panel.onDismiss = { [weak self] in
             self?.onDismiss?()
+        }
+        panel.onFocusLost = { [weak self] in
+            self?.onFocusLost?()
         }
     }
 
@@ -173,6 +183,7 @@ final class LargeTypeWindowController: NSObject {
 /// through (unlike `PalettePanel`).
 final class LargeTypePanel: NSPanel {
     var onDismiss: (() -> Void)?
+    var onFocusLost: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -198,10 +209,27 @@ final class LargeTypePanel: NSPanel {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Switching to another app takes key away from this panel too; treat
-    /// that the same as Esc/click so the overlay doesn't linger unseen.
+    /// Fires whenever this panel loses key status — both when the user
+    /// explicitly dismisses the overlay (click/Esc/⌘L call `onDismiss`,
+    /// which hides the panel via `orderOut`, which resigns key as a side
+    /// effect) and when the user switches to a different app entirely. The
+    /// successor key window isn't known yet during `resignKey` itself, so
+    /// — mirroring `PalettePanel.resignKey` — defer one runloop turn and
+    /// inspect it then: if the palette (or Quick Look) took key back, this
+    /// was the former case and nothing else needs to happen (the explicit
+    /// dismiss path already re-keys the palette; see
+    /// `PaletteController.connectCallbacks`). Otherwise it's a genuine
+    /// focus loss and `onFocusLost` tears the whole palette down too.
     override func resignKey() {
         super.resignKey()
-        onDismiss?()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch NSApp.keyWindow {
+            case self, is PalettePanel, is QLPreviewPanel:
+                return
+            default:
+                self.onFocusLost?()
+            }
+        }
     }
 }
