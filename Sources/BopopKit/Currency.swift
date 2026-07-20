@@ -25,7 +25,7 @@ public nonisolated enum CurrencyParser {
     private static let symbolTable: [(symbol: String, code: String)] = [
         ("$", "USD"), ("€", "EUR"), ("£", "GBP"), ("¥", "JPY"), ("₩", "KRW"),
         ("₹", "INR"), ("RM", "MYR"), ("S$", "SGD"), ("HK$", "HKD"),
-        ("NT$", "TWD"), ("฿", "THB"), ("₫", "VND"), ("Rp", "IDR"), ("₱", "PHP")
+        ("฿", "THB"), ("Rp", "IDR"), ("₱", "PHP")
     ]
 
     public static func parse(_ term: String) -> CurrencyQuery? {
@@ -123,8 +123,11 @@ public nonisolated enum CurrencyParser {
         guard !token.isEmpty else {
             return nil
         }
+        // Symbols still have to clear the same supportedCodes gate as bare
+        // codes — a symbol whose code we can never price (no ECB rate) must
+        // be rejected here, not surface as a silent empty result downstream.
         for entry in symbolTable where token.caseInsensitiveCompare(entry.symbol) == .orderedSame {
-            return entry.code
+            return supportedCodes.contains(entry.code) ? entry.code : nil
         }
         let upper = token.uppercased()
         guard supportedCodes.contains(upper) else {
@@ -190,25 +193,39 @@ public final class RateStore {
     private static let version = 1
 
     private let storage: Storage
+    // Populated on first load and kept fresh by save() — CurrencyProvider
+    // calls cached() once per keystroke, so without this every character
+    // typed re-reads and re-decodes rates.json from disk.
+    private var memoryCache: CachedRates?
+    private var hasLoaded = false
 
     public init(storage: Storage) {
         self.storage = storage
     }
 
     public func cached() -> CachedRates? {
-        storage.load(
+        if hasLoaded {
+            return memoryCache
+        }
+        let loaded = storage.load(
             CachedRates.self,
             expectedVersion: Self.version,
             from: storage.ratesFileURL
         )
+        memoryCache = loaded
+        hasLoaded = true
+        return loaded
     }
 
     public func save(rates: [String: Double], fetchedAt: Date) {
+        let cachedRates = CachedRates(rates: rates, fetchedAt: fetchedAt)
         try? storage.save(
-            CachedRates(rates: rates, fetchedAt: fetchedAt),
+            cachedRates,
             version: Self.version,
             to: storage.ratesFileURL
         )
+        memoryCache = cachedRates
+        hasLoaded = true
     }
 }
 
@@ -340,24 +357,35 @@ public final class CurrencyProvider: ResultProvider {
         )
     }
 
-    private static func formattedAmount(_ value: Double) -> String {
+    // Built once instead of per call — CurrencyProvider.results(for:) runs on
+    // every keystroke of a matching query, and NumberFormatter construction is
+    // expensive enough to notice at that rate.
+    private static let amountFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: value)) ?? String(value)
-    }
+        return formatter
+    }()
 
-    private static func formattedTargetAmount(_ value: Double) -> String {
+    private static let targetAmountFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+        return formatter
+    }()
+
+    private static func formattedAmount(_ value: Double) -> String {
+        amountFormatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    private static func formattedTargetAmount(_ value: Double) -> String {
+        targetAmountFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
     }
 
     private static func currencyDisplayName(_ code: String) -> String? {

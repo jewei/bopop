@@ -35,6 +35,44 @@ func currencyParserRejectsInvalidExpressions() {
     #expect(CurrencyParser.parse("   ") == nil)
 }
 
+/// NT$ (Taiwan dollar) and ₫ (Vietnamese dong) have no rate in the ECB-backed
+/// `supportedCodes` set, so a symbol path that bypasses that gate would parse
+/// successfully and then silently produce an empty result at the provider
+/// layer. Both symbols must fail to parse just like any other unknown code.
+@Test
+func currencyParserRejectsSymbolsForUnsupportedCodes() {
+    #expect(CurrencyParser.parse("100 NT$ to usd") == nil)
+    #expect(CurrencyParser.parse("100 usd to NT$") == nil)
+    #expect(CurrencyParser.parse("100 ₫ to usd") == nil)
+    #expect(CurrencyParser.parse("100 usd to ₫") == nil)
+}
+
+@Test
+func currencyParserStillAcceptsSupportedSymbols() {
+    #expect(CurrencyParser.parse("€45 to myr")
+        == CurrencyQuery(amount: 45, from: "EUR", to: "MYR"))
+    #expect(CurrencyParser.parse("$1,200 to sgd")
+        == CurrencyQuery(amount: 1_200, from: "USD", to: "SGD"))
+    #expect(CurrencyParser.parse("100 usd to ¥")
+        == CurrencyQuery(amount: 100, from: "USD", to: "JPY"))
+    #expect(CurrencyParser.parse("100 usd to ₩")
+        == CurrencyQuery(amount: 100, from: "USD", to: "KRW"))
+    #expect(CurrencyParser.parse("100 usd to ₹")
+        == CurrencyQuery(amount: 100, from: "USD", to: "INR"))
+    #expect(CurrencyParser.parse("100 usd to RM")
+        == CurrencyQuery(amount: 100, from: "USD", to: "MYR"))
+    #expect(CurrencyParser.parse("100 usd to S$")
+        == CurrencyQuery(amount: 100, from: "USD", to: "SGD"))
+    #expect(CurrencyParser.parse("100 usd to HK$")
+        == CurrencyQuery(amount: 100, from: "USD", to: "HKD"))
+    #expect(CurrencyParser.parse("100 usd to ฿")
+        == CurrencyQuery(amount: 100, from: "USD", to: "THB"))
+    #expect(CurrencyParser.parse("100 usd to Rp")
+        == CurrencyQuery(amount: 100, from: "USD", to: "IDR"))
+    #expect(CurrencyParser.parse("100 usd to ₱")
+        == CurrencyQuery(amount: 100, from: "USD", to: "PHP"))
+}
+
 // MARK: - CachedRates
 
 @Test
@@ -109,6 +147,43 @@ func rateStoreQuarantinesCorruptFile() throws {
     #expect(loaded == nil)
     #expect(!FileManager.default.fileExists(atPath: fixture.storage.ratesFileURL.path))
     #expect(FileManager.default.fileExists(atPath: corruptURL.path))
+}
+
+@MainActor
+@Test
+func rateStoreCachesInMemoryAfterFirstLoad() throws {
+    let fixture = try makeCurrencyStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = RateStore(storage: fixture.storage)
+    let fetchedAt = Date(timeIntervalSince1970: 1_000)
+    store.save(rates: ["EUR": 1.0, "USD": 1.08], fetchedAt: fetchedAt)
+
+    let first = try #require(store.cached())
+    #expect(first.rates == ["EUR": 1.0, "USD": 1.08])
+
+    // Delete the backing file after the first read — a second call that still
+    // hits disk would now return nil. The in-memory cache must answer instead.
+    try FileManager.default.removeItem(at: fixture.storage.ratesFileURL)
+
+    let second = try #require(store.cached())
+    #expect(second == first)
+}
+
+@MainActor
+@Test
+func rateStoreInMemoryCacheIsInvalidatedBySave() throws {
+    let fixture = try makeCurrencyStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = RateStore(storage: fixture.storage)
+    store.save(rates: ["EUR": 1.0, "USD": 1.08], fetchedAt: Date(timeIntervalSince1970: 1_000))
+    _ = store.cached() // populate in-memory cache
+
+    let secondFetchedAt = Date(timeIntervalSince1970: 2_000)
+    store.save(rates: ["EUR": 1.0, "USD": 1.20], fetchedAt: secondFetchedAt)
+
+    let loaded = try #require(store.cached())
+    #expect(loaded.rates == ["EUR": 1.0, "USD": 1.20])
+    #expect(loaded.fetchedAt == secondFetchedAt)
 }
 
 // MARK: - CurrencyProvider
