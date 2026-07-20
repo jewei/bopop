@@ -156,7 +156,10 @@ enum PaletteLayout {
     static func configureFieldEditor(_ editor: NSTextView) {
         editor.font = queryFont
         editor.textColor = .white
-        editor.insertionPointColor = .bopopAccent
+        // Block cursor in the result-title tone (white 85%) — violet was
+        // right for a hairline, but a filled block of accent overwhelms.
+        editor.insertionPointColor = NSColor.white.withAlphaComponent(0.85)
+        (editor as? BlockCursorTextView)?.blockCursorWidth = queryFont.pointSize * 0.55
         editor.typingAttributes.merge(queryTextAttributes) { _, newValue in
             newValue
         }
@@ -216,7 +219,8 @@ enum PaletteLayout {
         // the smaller text needs a baseline drop to sit visually centered,
         // and a head indent so it doesn't touch the insertion point.
         let placeholderStyle = NSMutableParagraphStyle()
-        placeholderStyle.firstLineHeadIndent = 8
+        // Clear the block cursor (queryFont.pointSize * 0.55 ≈ 19pt) plus a gap.
+        placeholderStyle.firstLineHeadIndent = 26
         queryField.placeholderAttributedString = NSAttributedString(
             string: "Bopop. Everything starts here",
             attributes: [
