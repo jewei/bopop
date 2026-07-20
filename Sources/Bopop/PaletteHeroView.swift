@@ -8,9 +8,7 @@ import BopopKit
 final class PaletteHeroView: NSView {
     private static let horizontalInset: CGFloat = 20
     private static let paneGap: CGFloat = 16
-    private static let paneWidth: CGFloat = 200
-    private static let dividerInset: CGFloat = 16
-    private static let dividerWidth: CGFloat = 1
+    private static let noteMaxWidth: CGFloat = 140
 
     private let leftValueLabel = NSTextField(labelWithString: "")
     private let rightValueLabel = NSTextField(labelWithString: "")
@@ -18,8 +16,6 @@ final class PaletteHeroView: NSView {
     private let rightBadge = PaletteHeroBadgeView()
     private let arrowLabel = NSTextField(labelWithString: "→")
     private let noteLabel = NSTextField(labelWithString: "")
-    private let leadingDivider = PaletteHeroDividerView()
-    private let trailingDivider = PaletteHeroDividerView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -73,12 +69,9 @@ final class PaletteHeroView: NSView {
         noteLabel.maximumNumberOfLines = 1
         noteLabel.isHidden = true
         noteLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        // Badges have no width constraint of their own (they hug their text),
-        // so a long one (e.g. the calculator's spelled-out number) must be
-        // capped at the pane width or it silently overflows the card.
-        leftBadge.widthAnchor.constraint(lessThanOrEqualToConstant: Self.paneWidth).isActive = true
-        rightBadge.widthAnchor.constraint(lessThanOrEqualToConstant: Self.paneWidth).isActive = true
+        noteLabel.widthAnchor.constraint(
+            lessThanOrEqualToConstant: Self.noteMaxWidth
+        ).isActive = true
 
         let leftStack = NSStackView(views: [leftValueLabel, leftBadge])
         leftStack.orientation = .vertical
@@ -97,44 +90,34 @@ final class PaletteHeroView: NSView {
         centerStack.alignment = .centerX
         centerStack.spacing = 4
         centerStack.translatesAutoresizingMaskIntoConstraints = false
+        centerStack.setContentHuggingPriority(.required, for: .horizontal)
+        centerStack.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        leadingDivider.translatesAutoresizingMaskIntoConstraints = false
-        trailingDivider.translatesAutoresizingMaskIntoConstraints = false
-
-        for subview in [leftStack, rightStack, centerStack, leadingDivider, trailingDivider] {
+        for subview in [leftStack, rightStack, centerStack] {
             addSubview(subview)
         }
 
-        // The center column's width is reserved (not content-driven) so the
-        // card stays visually symmetric whether or not a note is present —
-        // otherwise a hero with no note (e.g. the calculator) would leave the
-        // right pane floating short of the card's trailing edge.
-        let heroCardWidth = PaletteMetrics.width - 2 * PaletteMetrics.listSideInset
-        let reservedWidth = 2 * Self.horizontalInset
-            + 2 * Self.paneWidth
-            + 4 * Self.paneGap
-            + 2 * Self.dividerWidth
-        let centerWidth = max(heroCardWidth - reservedWidth, 0)
+        // No dividers, no reserved center column: the arrow hugs its content
+        // at the card's center and each pane flexes to fill everything on its
+        // side, so long values (timezone descriptions) get maximum width.
+        // Badges cap at their pane's width so they truncate, never overflow.
+        leftBadge.widthAnchor.constraint(
+            lessThanOrEqualTo: leftStack.widthAnchor
+        ).isActive = true
+        rightBadge.widthAnchor.constraint(
+            lessThanOrEqualTo: rightStack.widthAnchor
+        ).isActive = true
 
         NSLayoutConstraint.activate([
             leftStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.horizontalInset),
+            leftStack.trailingAnchor.constraint(equalTo: centerStack.leadingAnchor, constant: -Self.paneGap),
             leftStack.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            leadingDivider.leadingAnchor.constraint(equalTo: leftStack.trailingAnchor, constant: Self.paneGap),
-            leadingDivider.widthAnchor.constraint(equalToConstant: Self.dividerWidth),
-            leadingDivider.topAnchor.constraint(equalTo: topAnchor, constant: Self.dividerInset),
-            leadingDivider.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.dividerInset),
-
-            centerStack.leadingAnchor.constraint(equalTo: leadingDivider.trailingAnchor, constant: Self.paneGap),
-            centerStack.widthAnchor.constraint(equalToConstant: centerWidth),
+            centerStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             centerStack.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            trailingDivider.leadingAnchor.constraint(equalTo: centerStack.trailingAnchor, constant: Self.paneGap),
-            trailingDivider.widthAnchor.constraint(equalToConstant: Self.dividerWidth),
-            trailingDivider.topAnchor.constraint(equalTo: topAnchor, constant: Self.dividerInset),
-            trailingDivider.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.dividerInset),
-
-            rightStack.leadingAnchor.constraint(equalTo: trailingDivider.trailingAnchor, constant: Self.paneGap),
+            rightStack.leadingAnchor.constraint(equalTo: centerStack.trailingAnchor, constant: Self.paneGap),
+            rightStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.horizontalInset),
             rightStack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }
@@ -147,7 +130,6 @@ final class PaletteHeroView: NSView {
         label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        label.widthAnchor.constraint(equalToConstant: Self.paneWidth).isActive = true
     }
 }
 
@@ -194,17 +176,5 @@ private final class PaletteHeroBadgeView: NSView {
             label.topAnchor.constraint(equalTo: topAnchor, constant: 3),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3)
         ])
-    }
-}
-
-private final class PaletteHeroDividerView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.07).cgColor
-    }
-
-    required init?(coder: NSCoder) {
-        nil
     }
 }

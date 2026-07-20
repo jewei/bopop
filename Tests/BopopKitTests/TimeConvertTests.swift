@@ -95,7 +95,8 @@ private let localZone = TimeZone(identifier: "Asia/Kuala_Lumpur")!
     #expect(result.sortHint == 0)
 
     let hero = try #require(result.hero)
-    #expect(hero.left == "Thursday, 9 October, 9:00 AM, GMT-4")
+    // The GMT offset lives only in the badge; the value text drops it.
+    #expect(hero.left == "Thursday, 9 October, 9:00 AM")
     #expect(hero.leftBadge == "GMT-4")
     #expect(hero.right == "October 9, 2025 at 21:00")
     #expect(hero.rightBadge == "Your Time")

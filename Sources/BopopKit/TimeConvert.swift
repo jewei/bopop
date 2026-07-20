@@ -338,9 +338,12 @@ public final class TimeProvider: ResultProvider {
             return []
         }
 
+        // The GMT offset lives in the badge; repeating it in the value text
+        // wastes pane width and reads twice.
+        let split = Self.splitGMTSuffix(conversion.sourceDescription)
         let hero = HeroContent(
-            left: conversion.sourceDescription,
-            leftBadge: Self.gmtBadge(from: conversion.sourceDescription),
+            left: split.text,
+            leftBadge: split.badge,
             right: conversion.localDescription,
             rightBadge: "Your Time"
         )
@@ -360,11 +363,16 @@ public final class TimeProvider: ResultProvider {
         ]
     }
 
-    private nonisolated static func gmtBadge(from sourceDescription: String) -> String? {
+    private nonisolated static func splitGMTSuffix(
+        _ sourceDescription: String
+    ) -> (text: String, badge: String?) {
         guard let range = sourceDescription.range(of: ", GMT", options: .backwards) else {
-            return nil
+            return (sourceDescription, nil)
         }
         let start = sourceDescription.index(range.lowerBound, offsetBy: 2)
-        return String(sourceDescription[start...])
+        return (
+            String(sourceDescription[..<range.lowerBound]),
+            String(sourceDescription[start...])
+        )
     }
 }
