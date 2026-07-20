@@ -24,4 +24,21 @@ enum PaletteMetrics {
     // Brand keycap (drawn, not the icns — see PaletteBrandView), sized to
     // balance the 34pt query font.
     static let brandSquareSize: CGFloat = 36
+
+    // Emoji tile grid (EmojiGridView) — a view swap on the same
+    // scroll-area real estate the table occupies, so it reuses
+    // listSideInset/listTopInset/listBottomInset for its contentInsets.
+    static let gridColumns = 10
+    static let gridVisibleRows = 5
+    static let gridTileSize: CGFloat = 52
+    static let gridTileRadius: CGFloat = 10
+    static let gridGlyphSize: CGFloat = 28
+    // Interitem/line spacing computed so exactly `gridColumns` tiles fill
+    // the panel's content width edge-to-edge (no leftover partial column,
+    // no asymmetric trailing gap) rather than hand-picking a magic number.
+    static let gridSpacing: CGFloat = {
+        let contentWidth = width - listSideInset * 2
+        let columns = CGFloat(gridColumns)
+        return (contentWidth - columns * gridTileSize) / (columns - 1)
+    }()
 }

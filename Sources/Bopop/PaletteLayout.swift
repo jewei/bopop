@@ -40,6 +40,7 @@ enum PaletteLayout {
         heroView: PaletteHeroView,
         scrollView: NSScrollView,
         tableView: NSTableView,
+        gridView: EmojiGridView,
         footerView: PaletteFooterView
     ) -> InstalledConstraints {
         configurePanel(panel)
@@ -73,6 +74,7 @@ enum PaletteLayout {
         heroView.isHidden = true
         contentView.addSubview(heroView)
         contentView.addSubview(scrollView)
+        contentView.addSubview(gridView)
         contentView.addSubview(footerView)
 
         NSLayoutConstraint.activate([
@@ -138,6 +140,15 @@ enum PaletteLayout {
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor),
+
+            // The grid never shows a hero (emoji mode has none per the
+            // design doc), so unlike scrollView its top is always pinned
+            // directly under the tabs row — no toggle-able constraint pair
+            // needed here.
+            gridView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            gridView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            gridView.topAnchor.constraint(equalTo: tabsView.bottomAnchor),
+            gridView.bottomAnchor.constraint(equalTo: footerView.topAnchor),
 
             footerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             footerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),

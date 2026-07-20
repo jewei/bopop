@@ -33,14 +33,14 @@ import Testing
 }
 
 @MainActor
-@Test func emojiProviderEmptyTermReturnsTopTwentyFourInCatalogOrderWhenTied() async throws {
+@Test func emojiProviderEmptyTermReturnsFullCatalogInCatalogOrderWhenTied() async throws {
     let catalog = EmojiCatalog()
     let provider = EmojiProvider(catalog: catalog, frecencyFor: { _ in 0 })
 
     let results = try await provider.results(for: ParsedQuery(mode: .emoji, term: ""))
 
-    #expect(results.count == 24)
-    #expect(results.map(\.id) == catalog.entries.prefix(24).map(\.char))
+    #expect(results.count == catalog.entries.count)
+    #expect(results.map(\.id) == catalog.entries.map(\.char))
 }
 
 @MainActor
@@ -54,7 +54,7 @@ import Testing
 
     let results = try await provider.results(for: ParsedQuery(mode: .emoji, term: ""))
 
-    #expect(results.count == 24)
+    #expect(results.count == catalog.entries.count)
     #expect(results.first?.id == favorite.char)
 }
 

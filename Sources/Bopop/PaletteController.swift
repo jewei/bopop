@@ -26,6 +26,7 @@ final class PaletteController: NSObject {
     private let heroView = PaletteHeroView()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
+    private let gridView = EmojiGridView()
     private let footerView = PaletteFooterView()
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
@@ -71,7 +72,7 @@ final class PaletteController: NSObject {
                 origin: .zero,
                 size: NSSize(
                     width: PaletteMetrics.width,
-                    height: Self.panelHeight(resultCount: 0, hasHero: false)
+                    height: Self.panelHeight(resultCount: 0, hasHero: false, isGrid: false)
                 )
             ),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -87,6 +88,7 @@ final class PaletteController: NSObject {
             heroView: heroView,
             scrollView: scrollView,
             tableView: tableView,
+            gridView: gridView,
             footerView: footerView
         )
         super.init()
@@ -111,7 +113,11 @@ final class PaletteController: NSObject {
         }
         onWillShow()
         refreshBrandImage()
-        let height = Self.panelHeight(resultCount: results.count, hasHero: heroResult != nil)
+        let height = Self.panelHeight(
+            resultCount: results.count,
+            hasHero: heroResult != nil,
+            isGrid: isGridMode
+        )
         let frame: NSRect
         if let topLeft = savedTopLeft(), Self.isOnAnyScreen(topLeft) {
             frame = NSRect(
@@ -158,7 +164,9 @@ final class PaletteController: NSObject {
         heroResult = nil
         selectedIndex = 0
         tableView.reloadData()
+        gridView.collectionView.reloadData()
         scrollView.isHidden = true
+        gridView.isHidden = true
         updateHeroPresentation()
         footerView.setStatus("Bopop")
         footerView.setActions(primary: nil, hasCopy: false)
@@ -192,6 +200,8 @@ final class PaletteController: NSObject {
         tableView.delegate = self
         tableView.target = self
         tableView.action = #selector(rowClicked(_:))
+        gridView.collectionView.dataSource = self
+        gridView.collectionView.delegate = self
 
         panel.onResign = { [weak self] in self?.hide() }
         panel.onCommandCopy = { [weak self] in
@@ -239,8 +249,20 @@ final class PaletteController: NSObject {
         heroResult = split.hero
         results = split.rows
         updateHeroPresentation()
+
+        let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
+        lastParsedMode = query.mode
+        tabsView.setActive(query.mode)
+
+        // View swap on the same `results`/`selectedIndex` model: the grid
+        // and table never show simultaneously (hero rule untouched — emoji
+        // mode never produces one, so `heroResult` is always nil here when
+        // `isGridMode` is true).
+        let isGrid = isGridMode
         tableView.reloadData()
-        scrollView.isHidden = results.isEmpty
+        gridView.collectionView.reloadData()
+        scrollView.isHidden = isGrid || results.isEmpty
+        gridView.isHidden = !isGrid || results.isEmpty
 
         if heroResult != nil {
             // The hero card owns the default selection; the table starts
@@ -248,18 +270,21 @@ final class PaletteController: NSObject {
             // explicitly arrows down into the row list.
             selectedIndex = -1
             tableView.deselectAll(nil)
+            gridView.collectionView.deselectAll(nil)
         } else if results.isEmpty {
             selectedIndex = 0
             tableView.deselectAll(nil)
+            gridView.collectionView.deselectAll(nil)
         } else {
             selectedIndex = 0
-            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-            tableView.scrollRowToVisible(0)
+            if isGrid {
+                syncGridSelection()
+            } else {
+                tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+                tableView.scrollRowToVisible(0)
+            }
         }
 
-        let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
-        lastParsedMode = query.mode
-        tabsView.setActive(query.mode)
         updateFooter(after: update, query: query)
         resizePanel()
     }
@@ -283,6 +308,46 @@ final class PaletteController: NSObject {
         }
         selectedIndex = row
         actionRunner.perform(results[row])
+    }
+
+    /// Whether the emoji tile grid — rather than the table — is the
+    /// currently visible results presentation. Derived from the EFFECTIVE
+    /// mode (see `lastParsedMode`'s doc comment), not `stickyMode`, so a
+    /// prefix-typed `:term` also renders the grid.
+    private var isGridMode: Bool {
+        lastParsedMode == .emoji
+    }
+
+    /// Mirrors `gridView.collectionView`'s selection to `selectedIndex`
+    /// and scrolls the selected tile into view — the grid analog of
+    /// `tableView.selectRowIndexes`/`scrollRowToVisible` in
+    /// `moveSelection`.
+    private func syncGridSelection() {
+        guard results.indices.contains(selectedIndex) else {
+            gridView.collectionView.deselectAll(nil)
+            return
+        }
+        let indexPath = IndexPath(item: selectedIndex, section: 0)
+        gridView.collectionView.selectionIndexPaths = [indexPath]
+        gridView.collectionView.scrollToItems(at: [indexPath], scrollPosition: [])
+    }
+
+    /// Grid analog of `moveSelection(by:)`: ←/→ pass `by: ±1`, ↑/↓ pass
+    /// `by: ±PaletteMetrics.gridColumns`. The grid has no hero sentinel
+    /// (emoji mode never produces a hero), so this only ever clamps within
+    /// `results` via `GridNavigation`.
+    private func moveGridSelection(by offset: Int) {
+        guard !results.isEmpty else {
+            return
+        }
+        selectedIndex = GridNavigation.move(
+            index: max(selectedIndex, 0),
+            by: offset,
+            columns: PaletteMetrics.gridColumns,
+            count: results.count
+        )
+        syncGridSelection()
+        updateFooterActions()
     }
 
     private func selectedResult() -> SearchResult? {
@@ -346,7 +411,11 @@ final class PaletteController: NSObject {
     }
 
     private func resizePanel() {
-        let newHeight = Self.panelHeight(resultCount: results.count, hasHero: heroResult != nil)
+        let newHeight = Self.panelHeight(
+            resultCount: results.count,
+            hasHero: heroResult != nil,
+            isGrid: isGridMode
+        )
         var frame = panel.frame
         let top = frame.maxY
         frame.origin.y = top - newHeight
@@ -421,7 +490,11 @@ final class PaletteController: NSObject {
                 footerView.setStatus("Files")
             }
         case .emoji:
-            footerView.setStatus("Emoji")
+            // Emoji mode has no hero, so `results` == `update.results` here
+            // — count with grouping ("1,914 emoji" / "12 matches"), noun
+            // driven by whether there's a search term narrowing the catalog.
+            let noun = query.term.isEmpty ? "emoji" : "matches"
+            footerView.setStatus("\(results.count.formatted()) \(noun)")
         case .translation:
             footerView.setStatus("Translate")
         }
@@ -490,17 +563,10 @@ final class PaletteController: NSObject {
         return false
     }
 
-    private static func panelHeight(resultCount: Int, hasHero: Bool) -> CGFloat {
-        let visibleRows = min(resultCount, PaletteMetrics.maxVisibleRows)
-        let listHeight: CGFloat
-        if visibleRows == 0 {
-            listHeight = 0
-        } else {
-            listHeight = CGFloat(visibleRows) * PaletteMetrics.rowHeight
-                + CGFloat(visibleRows - 1) * PaletteMetrics.interRowGap
-                + PaletteMetrics.listTopInset
-                + PaletteMetrics.listBottomInset
-        }
+    private static func panelHeight(resultCount: Int, hasHero: Bool, isGrid: Bool) -> CGFloat {
+        let contentHeight = isGrid
+            ? gridContentHeight(resultCount: resultCount)
+            : listContentHeight(resultCount: resultCount)
         let heroHeight: CGFloat = hasHero
             ? PaletteMetrics.heroHeight + PaletteMetrics.listTopInset + PaletteMetrics.listBottomInset
             : 0
@@ -508,8 +574,33 @@ final class PaletteController: NSObject {
             + PaletteMetrics.separatorHeight
             + PaletteMetrics.tabsHeight
             + heroHeight
-            + listHeight
+            + contentHeight
             + PaletteMetrics.footerHeight
+    }
+
+    private static func listContentHeight(resultCount: Int) -> CGFloat {
+        let visibleRows = min(resultCount, PaletteMetrics.maxVisibleRows)
+        guard visibleRows > 0 else {
+            return 0
+        }
+        return CGFloat(visibleRows) * PaletteMetrics.rowHeight
+            + CGFloat(visibleRows - 1) * PaletteMetrics.interRowGap
+            + PaletteMetrics.listTopInset
+            + PaletteMetrics.listBottomInset
+    }
+
+    /// 5 tile-rows visible (~300pt content) then scrolls, same
+    /// cap-then-scroll pattern as `listContentHeight`'s `maxVisibleRows`.
+    private static func gridContentHeight(resultCount: Int) -> CGFloat {
+        guard resultCount > 0 else {
+            return 0
+        }
+        let totalRows = (resultCount + PaletteMetrics.gridColumns - 1) / PaletteMetrics.gridColumns
+        let visibleRows = min(totalRows, PaletteMetrics.gridVisibleRows)
+        return CGFloat(visibleRows) * PaletteMetrics.gridTileSize
+            + CGFloat(visibleRows - 1) * PaletteMetrics.gridSpacing
+            + PaletteMetrics.listTopInset
+            + PaletteMetrics.listBottomInset
     }
 }
 
@@ -525,9 +616,30 @@ extension PaletteController: NSTextFieldDelegate {
     ) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.moveUp(_:)):
-            moveSelection(by: -1)
+            if isGridMode {
+                moveGridSelection(by: -PaletteMetrics.gridColumns)
+            } else {
+                moveSelection(by: -1)
+            }
         case #selector(NSResponder.moveDown(_:)):
-            moveSelection(by: 1)
+            if isGridMode {
+                moveGridSelection(by: PaletteMetrics.gridColumns)
+            } else {
+                moveSelection(by: 1)
+            }
+        case #selector(NSResponder.moveLeft(_:)):
+            // Only meaningful in the grid: in text mode this MUST fall
+            // through (return false) so the caret moves normally instead
+            // of silently swallowing the keystroke.
+            guard isGridMode else {
+                return false
+            }
+            moveGridSelection(by: -1)
+        case #selector(NSResponder.moveRight(_:)):
+            guard isGridMode else {
+                return false
+            }
+            moveGridSelection(by: 1)
         case #selector(NSResponder.insertTab(_:)):
             cycleTab(by: 1)
         case #selector(NSResponder.insertBacktab(_:)):
@@ -592,5 +704,38 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
         rowViewForRow row: Int
     ) -> NSTableRowView? {
         PaletteRowView()
+    }
+}
+
+extension PaletteController: NSCollectionViewDataSource, NSCollectionViewDelegate {
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        results.count
+    }
+
+    func collectionView(
+        _ collectionView: NSCollectionView,
+        itemForRepresentedObjectAt indexPath: IndexPath
+    ) -> NSCollectionViewItem {
+        let item = collectionView.makeItem(
+            withIdentifier: EmojiTileItem.reuseIdentifier,
+            for: indexPath
+        ) as? EmojiTileItem ?? EmojiTileItem()
+        guard results.indices.contains(indexPath.item) else {
+            return item
+        }
+        item.configure(with: results[indexPath.item])
+        return item
+    }
+
+    /// Single click performs the tile's result, mirroring `rowClicked`'s
+    /// launcher-style single-click-executes behavior for the table.
+    /// `collectionView.selectionIndexPaths` is already updated by AppKit
+    /// before this delegate call fires.
+    func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        guard let indexPath = indexPaths.first, results.indices.contains(indexPath.item) else {
+            return
+        }
+        selectedIndex = indexPath.item
+        actionRunner.perform(results[indexPath.item])
     }
 }

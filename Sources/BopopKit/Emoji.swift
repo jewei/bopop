@@ -29,8 +29,6 @@ public final class EmojiCatalog {
 }
 
 public final class EmojiProvider: ResultProvider {
-    private static let emptyTermResultLimit = 24
-
     public let id: ProviderID = .emoji
 
     private let catalog: EmojiCatalog
@@ -50,7 +48,10 @@ public final class EmojiProvider: ResultProvider {
         let term = query.term.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !term.isEmpty else {
-            let topByFrecency = indexedEntries.sorted { lhs, rhs in
+            // Grid mode scrolls through the FULL catalog frecency-first
+            // (ties broken by catalog order) rather than the old top-24
+            // list cutoff — the tile grid has room to browse everything.
+            let byFrecency = indexedEntries.sorted { lhs, rhs in
                 let lhsScore = frecencyFor(lhs.element.char)
                 let rhsScore = frecencyFor(rhs.element.char)
                 if lhsScore != rhsScore {
@@ -58,9 +59,7 @@ public final class EmojiProvider: ResultProvider {
                 }
                 return lhs.offset < rhs.offset
             }
-            return topByFrecency.prefix(Self.emptyTermResultLimit).map {
-                makeResult($0.element, catalogIndex: $0.offset)
-            }
+            return byFrecency.map { makeResult($0.element, catalogIndex: $0.offset) }
         }
 
         return indexedEntries.map { makeResult($0.element, catalogIndex: $0.offset) }
