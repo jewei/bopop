@@ -502,6 +502,8 @@ final class PaletteController: NSObject {
             footerView.setStatus("\(results.count.formatted()) \(noun)")
         case .translation:
             footerView.setStatus("Translate")
+        case .snippets:
+            footerView.setStatus("Snippets")
         }
         updateFooterActions()
     }
@@ -524,6 +526,8 @@ final class PaletteController: NSObject {
             footerView.setStatus("Emoji")
         case .translation:
             footerView.setStatus("Translate")
+        case .snippets:
+            footerView.setStatus("Snippets")
         }
     }
 

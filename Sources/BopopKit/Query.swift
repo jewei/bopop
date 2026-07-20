@@ -7,6 +7,7 @@ public nonisolated enum Mode: String, Hashable, Sendable {
     case clipboard
     case emoji
     case translation
+    case snippets
 }
 
 public nonisolated struct ParsedQuery: Equatable, Sendable {

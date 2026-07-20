@@ -16,6 +16,13 @@ final class PaletteTabsView: NSView {
         (.translation, "Translate", "character.bubble")
     ]
 
+    /// Modes with a pill in `pills` that is NOT part of the resting six-pill
+    /// row. Hidden unless its mode is the active one — see `setActive`.
+    /// `cycleTab(by:)` iterates `orderedTabs` only, so ⇥ skips these.
+    static let transientTabs: [(Mode, String, String)] = [
+        (.snippets, "Snippets", "text.quote")
+    ]
+
     /// Wired by `PaletteController` — a pill click enters that mode,
     /// mirroring `actionRunner.onModeChange` for command rows.
     var onSelect: ((Mode) -> Void)?
@@ -41,6 +48,11 @@ final class PaletteTabsView: NSView {
         for (pillMode, pill) in pills {
             pill.setActive(pillMode == mode)
         }
+        // Transient pills (e.g. Snippets) have no resting spot in the tab
+        // row — they exist only while their mode is the active one.
+        for (transientMode, _, _) in Self.transientTabs {
+            pills[transientMode]?.isHidden = transientMode != mode
+        }
     }
 
     private func configureView() {
@@ -57,6 +69,15 @@ final class PaletteTabsView: NSView {
             pill.target = self
             pill.action = #selector(pillTapped(_:))
             pill.setActive(mode == activeMode)
+            pills[mode] = pill
+            views.append(pill)
+        }
+        for (mode, title, symbolName) in Self.transientTabs {
+            let pill = PaletteTabPillButton(title: title, symbolName: symbolName, mode: mode)
+            pill.target = self
+            pill.action = #selector(pillTapped(_:))
+            pill.setActive(mode == activeMode)
+            pill.isHidden = mode != activeMode
             pills[mode] = pill
             views.append(pill)
         }

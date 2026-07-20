@@ -7,6 +7,10 @@ struct SettingsView: View {
     @State private var newSearchName = ""
     @State private var newSearchKeyword = ""
     @State private var newSearchTemplate = ""
+    @State private var selectedSnippetID: UUID?
+    @State private var snippetName = ""
+    @State private var snippetKeyword = ""
+    @State private var snippetContent = ""
 
     var body: some View {
         Form {
@@ -127,6 +131,80 @@ struct SettingsView: View {
                     Label("Add Folder…", systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderless)
+            }
+
+            Section("Snippets") {
+                ForEach(model.snippets) { snippet in
+                    HStack {
+                        Text(snippet.name)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button {
+                            model.removeSnippet(id: snippet.id)
+                            if selectedSnippetID == snippet.id {
+                                selectedSnippetID = nil
+                                snippetName = ""
+                                snippetKeyword = ""
+                                snippetContent = ""
+                            }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedSnippetID = snippet.id
+                        snippetName = snippet.name
+                        snippetKeyword = snippet.keyword ?? ""
+                        snippetContent = snippet.content
+                    }
+                }
+
+                TextField("Name", text: $snippetName)
+                TextField("Keyword (optional)", text: $snippetKeyword)
+                TextEditor(text: $snippetContent)
+                    .frame(height: 80)
+                    .font(.body)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.secondary.opacity(0.3))
+                    )
+
+                HStack {
+                    Button {
+                        let added = model.addSnippet(
+                            name: snippetName,
+                            keyword: snippetKeyword,
+                            content: snippetContent
+                        )
+                        if added {
+                            selectedSnippetID = nil
+                            snippetName = ""
+                            snippetKeyword = ""
+                            snippetContent = ""
+                        }
+                    } label: {
+                        Label("Add Snippet", systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.borderless)
+
+                    if let selectedSnippetID,
+                       let selected = model.snippets.first(where: { $0.id == selectedSnippetID }) {
+                        Button("Save") {
+                            model.updateSnippet(Snippet(
+                                id: selected.id,
+                                name: snippetName.trimmingCharacters(in: .whitespacesAndNewlines),
+                                keyword: snippetKeyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? nil
+                                    : snippetKeyword.trimmingCharacters(in: .whitespacesAndNewlines),
+                                content: snippetContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                            ))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
             }
 
             Section("Appearance") {

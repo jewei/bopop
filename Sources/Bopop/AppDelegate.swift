@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let storage: Storage
     private let usageStore: UsageStore
     private let clipboardStore: ClipboardStore
+    private let snippetStore: SnippetStore
     private let pasteboardWatcher: PasteboardWatcher
     private let appCatalog: AppCatalog
     private let paletteController: PaletteController
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let usageStore = UsageStore(storage: storage)
         let clipboardLimit = SettingsModel.storedClipboardLimit(in: defaults)
         let clipboardStore = ClipboardStore(storage: storage, limit: clipboardLimit)
+        let snippetStore = SnippetStore(storage: storage)
         let pasteboardWatcher = PasteboardWatcher(store: clipboardStore)
         let appCatalog = AppCatalog()
         let hotkeyManager = HotkeyManager()
@@ -66,7 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     URLCleanProvider(),
                     WebSearchProvider(engine: searchEngineFor),
                     SystemCommandsProvider(),
-                    CustomSearchProvider(searches: customSearchesFor)
+                    CustomSearchProvider(searches: customSearchesFor),
+                    SnippetsProvider(store: snippetStore),
+                    CommandsProvider()
                 ],
                 .apps: [appsProvider],
                 .fileSearch: [
@@ -83,7 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         translator: appleTranslator,
                         chineseVariant: chineseVariantFor
                     )
-                ]
+                ],
+                .snippets: [SnippetsProvider(store: snippetStore)]
             ],
             frecencyFor: usageStore.score
         )
@@ -103,12 +108,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.storage = storage
         self.usageStore = usageStore
         self.clipboardStore = clipboardStore
+        self.snippetStore = snippetStore
         self.pasteboardWatcher = pasteboardWatcher
         self.appCatalog = appCatalog
         self.hotkeyManager = hotkeyManager
         let settingsModel = SettingsModel(
             hotkeyManager: hotkeyManager,
             clipboardStore: clipboardStore,
+            snippetStore: snippetStore,
             storage: storage,
             defaults: defaults
         )

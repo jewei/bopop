@@ -15,6 +15,7 @@ public nonisolated enum ProviderID: String, Hashable, Sendable {
     case webSearch
     case system
     case customSearch
+    case snippets
 }
 
 public nonisolated enum IconRef: Equatable, Sendable {

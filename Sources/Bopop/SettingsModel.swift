@@ -79,6 +79,8 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    @Published private(set) var snippets: [Snippet]
+
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
 
@@ -89,6 +91,7 @@ final class SettingsModel: ObservableObject {
 
     private let hotkeyManager: HotkeyManager
     private let clipboardStore: ClipboardStore
+    private let snippetStore: SnippetStore
     private let storage: Storage
     private let defaults: UserDefaults
     private var isRevertingLaunchAtLogin = false
@@ -96,12 +99,14 @@ final class SettingsModel: ObservableObject {
     init(
         hotkeyManager: HotkeyManager,
         clipboardStore: ClipboardStore,
+        snippetStore: SnippetStore,
         storage: Storage,
         defaults: UserDefaults = .standard
     ) {
         let hotkey = HotkeyConfig.load(from: defaults)
         self.hotkeyManager = hotkeyManager
         self.clipboardStore = clipboardStore
+        self.snippetStore = snippetStore
         self.storage = storage
         self.defaults = defaults
         self.hotkey = hotkey
@@ -112,6 +117,7 @@ final class SettingsModel: ObservableObject {
         searchEngine = Self.storedSearchEngine(in: defaults)
         fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
         customSearches = Self.storedCustomSearches(in: defaults)
+        snippets = snippetStore.snippets
         hasCustomBrandImage = FileManager.default.fileExists(atPath: storage.brandImageURL.path)
     }
 
@@ -192,6 +198,37 @@ final class SettingsModel: ObservableObject {
 
     func removeCustomSearch(id: UUID) {
         customSearches.removeAll { $0.id == id }
+    }
+
+    /// Adds a new snippet if name and content are both non-empty once
+    /// trimmed. Keyword is optional and stored trimmed; an empty keyword is
+    /// stored as `nil`. Returns whether it was added.
+    @discardableResult
+    func addSnippet(name: String, keyword: String, content: String) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedContent.isEmpty else {
+            return false
+        }
+        let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        snippetStore.add(Snippet(
+            id: UUID(),
+            name: trimmedName,
+            keyword: trimmedKeyword.isEmpty ? nil : trimmedKeyword,
+            content: trimmedContent
+        ))
+        snippets = snippetStore.snippets
+        return true
+    }
+
+    func updateSnippet(_ snippet: Snippet) {
+        snippetStore.update(snippet)
+        snippets = snippetStore.snippets
+    }
+
+    func removeSnippet(id: UUID) {
+        snippetStore.remove(id: id)
+        snippets = snippetStore.snippets
     }
 
     /// Opens an NSOpenPanel (single image file) and imports the chosen

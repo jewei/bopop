@@ -37,6 +37,10 @@ public nonisolated struct Storage {
         baseDirectory.appendingPathComponent("rates.json")
     }
 
+    public var snippetsFileURL: URL {
+        baseDirectory.appendingPathComponent("snippets.json")
+    }
+
     /// The custom palette icon image, written by the app target's import
     /// pipeline. Its mere presence is the "custom icon active" flag — no
     /// separate defaults key. See docs/superpowers/specs/2026-07-20-custom-palette-icon-design.md.
