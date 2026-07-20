@@ -104,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsModel = SettingsModel(
             hotkeyManager: hotkeyManager,
             clipboardStore: clipboardStore,
+            storage: storage,
             defaults: defaults
         )
         self.settingsModel = settingsModel
@@ -117,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         paletteController = PaletteController(
             engine: engine,
             actionRunner: actionRunner,
+            brandImageURL: storage.brandImageURL,
             onWillShow: appCatalog.refreshIfStale,
             onShowSettings: { settingsWindowController.show() },
             onOpenScriptsFolder: { NSWorkspace.shared.open(storage.scriptsDirectory) },

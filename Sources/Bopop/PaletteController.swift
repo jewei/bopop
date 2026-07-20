@@ -43,10 +43,17 @@ final class PaletteController: NSObject {
     private var isHiding = false
     private var isProgrammaticFrameChange = false
     private var userAdjustedPosition = false
+    private let brandImageURL: URL
+    /// Modification date of `brandImageURL` as of the last successful stat,
+    /// used to avoid re-decoding the image on every `show()` — only a
+    /// changed (or newly missing) date triggers a reload. `nil` means "no
+    /// file" (either never checked or confirmed absent).
+    private var cachedBrandImageDate: Date?
 
     init(
         engine: QueryEngine,
         actionRunner: ActionRunner,
+        brandImageURL: URL = Storage.production().brandImageURL,
         onWillShow: @escaping () -> Void = {},
         onShowSettings: @escaping () -> Void = {},
         onOpenScriptsFolder: @escaping () -> Void = {},
@@ -54,6 +61,7 @@ final class PaletteController: NSObject {
     ) {
         self.engine = engine
         self.actionRunner = actionRunner
+        self.brandImageURL = brandImageURL
         self.onWillShow = onWillShow
         self.onShowSettings = onShowSettings
         self.onOpenScriptsFolder = onOpenScriptsFolder
@@ -102,6 +110,7 @@ final class PaletteController: NSObject {
             return
         }
         onWillShow()
+        refreshBrandImage()
         let height = Self.panelHeight(resultCount: results.count, hasHero: heroResult != nil)
         let frame: NSRect
         if let topLeft = savedTopLeft(), Self.isOnAnyScreen(topLeft) {
@@ -156,6 +165,25 @@ final class PaletteController: NSObject {
         lastParsedMode = .general
         tabsView.setActive(.general)
         resizePanel()
+    }
+
+    /// Cheap stat-and-compare: only decodes `brandImageURL` when its
+    /// modification date has changed since the last check (including the
+    /// transition to/from "file missing"), so a Settings-driven import or
+    /// reset applies on the next summon without restart, per design doc.
+    /// Missing/undecodable file silently falls back to the keycap.
+    private func refreshBrandImage() {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: brandImageURL.path)
+        let modificationDate = attributes?[.modificationDate] as? Date
+        guard modificationDate != cachedBrandImageDate else {
+            return
+        }
+        cachedBrandImageDate = modificationDate
+        guard modificationDate != nil, let image = NSImage(contentsOf: brandImageURL) else {
+            brandView.setCustomImage(nil)
+            return
+        }
+        brandView.setCustomImage(image)
     }
 
     private func connectCallbacks() {

@@ -35,6 +35,16 @@ func storagePermissionsArePrivate() throws {
 }
 
 @Test
+func brandImageURLIsUnderBaseDirectory() {
+    let root = makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = Storage(baseDirectory: root)
+
+    #expect(storage.brandImageURL == root.appendingPathComponent("brand.png"))
+    #expect(storage.brandImageURL.deletingLastPathComponent() == storage.baseDirectory)
+}
+
+@Test
 func corruptFileIsQuarantinedAndCanBeReplaced() throws {
     let root = makeTemporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }

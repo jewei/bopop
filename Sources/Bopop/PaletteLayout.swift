@@ -269,6 +269,7 @@ enum PaletteLayout {
 final class PaletteBrandView: NSView {
     private let gradientLayer = CAGradientLayer()
     private let glyphLabel = NSTextField(labelWithString: "b")
+    private let imageLayer = CALayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -284,8 +285,19 @@ final class PaletteBrandView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = bounds
+        imageLayer.frame = bounds
         layer?.cornerRadius = bounds.height * 0.24
         CATransaction.commit()
+    }
+
+    /// nil restores the default keycap (gradient + glyph); a non-nil image
+    /// swaps in the custom icon, masked by the same continuous-corner
+    /// radius the keycap uses (shared via this view's own layer mask).
+    func setCustomImage(_ image: NSImage?) {
+        imageLayer.contents = image
+        imageLayer.isHidden = image == nil
+        gradientLayer.isHidden = image != nil
+        glyphLabel.isHidden = image != nil
     }
 
     private func configureView() {
@@ -305,6 +317,10 @@ final class PaletteBrandView: NSView {
         gradientLayer.startPoint = CGPoint(x: 0.4, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0.6, y: 1)
         layer?.addSublayer(gradientLayer)
+
+        imageLayer.contentsGravity = .resizeAspectFill
+        imageLayer.isHidden = true
+        layer?.addSublayer(imageLayer)
 
         glyphLabel.font = .monospacedSystemFont(
             ofSize: PaletteMetrics.brandSquareSize * 0.62,

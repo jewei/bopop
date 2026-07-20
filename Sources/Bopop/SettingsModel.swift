@@ -3,6 +3,7 @@ import BopopKit
 import Combine
 import Foundation
 import ServiceManagement
+import UniformTypeIdentifiers
 
 @MainActor
 final class SettingsModel: ObservableObject {
@@ -71,19 +72,27 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
 
+    /// The presence of `storage.brandImageURL` IS the flag — no separate
+    /// defaults key, one source of truth (see design doc).
+    @Published private(set) var hasCustomBrandImage: Bool
+    @Published private(set) var brandImageImportError: String?
+
     private let hotkeyManager: HotkeyManager
     private let clipboardStore: ClipboardStore
+    private let storage: Storage
     private let defaults: UserDefaults
     private var isRevertingLaunchAtLogin = false
 
     init(
         hotkeyManager: HotkeyManager,
         clipboardStore: ClipboardStore,
+        storage: Storage,
         defaults: UserDefaults = .standard
     ) {
         let hotkey = HotkeyConfig.load(from: defaults)
         self.hotkeyManager = hotkeyManager
         self.clipboardStore = clipboardStore
+        self.storage = storage
         self.defaults = defaults
         self.hotkey = hotkey
         clipboardLimit = Self.storedClipboardLimit(in: defaults)
@@ -92,6 +101,7 @@ final class SettingsModel: ObservableObject {
         chineseVariant = Self.storedChineseVariant(in: defaults)
         searchEngine = Self.storedSearchEngine(in: defaults)
         fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
+        hasCustomBrandImage = FileManager.default.fileExists(atPath: storage.brandImageURL.path)
     }
 
     static func storedClipboardLimit(in defaults: UserDefaults) -> Int {
@@ -145,6 +155,52 @@ final class SettingsModel: ObservableObject {
 
     func removeFileSearchFolder(_ path: String) {
         fileSearchFolders.removeAll { $0 == path }
+    }
+
+    /// Opens an NSOpenPanel (single image file) and imports the chosen
+    /// image as the palette's custom icon. Runs modally on the main actor,
+    /// matching `presentFileSearchFolderPicker`'s convention.
+    func presentBrandImagePicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff]
+        panel.prompt = "Choose"
+        panel.message = "Choose a palette icon image"
+        guard panel.runModal() == .OK, let url = panel.urls.first else {
+            return
+        }
+        importBrandImage(from: url)
+    }
+
+    func resetBrandImageToDefault() {
+        brandImageImportError = nil
+        try? FileManager.default.removeItem(at: storage.brandImageURL)
+        hasCustomBrandImage = false
+    }
+
+    /// Decode → aspect-fill square-crop → downscale (via
+    /// `BrandImageImporter`, a pure function) → write PNG at 0600, mirroring
+    /// `Storage.save`'s permission conventions. Import = copy: the original
+    /// file at `url` is never referenced again.
+    private func importBrandImage(from url: URL) {
+        brandImageImportError = nil
+        guard let image = NSImage(contentsOf: url),
+              let data = BrandImageImporter.importedPNGData(from: image) else {
+            brandImageImportError = "Couldn't read that image."
+            return
+        }
+        do {
+            try data.write(to: storage.brandImageURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: storage.brandImageURL.path
+            )
+            hasCustomBrandImage = true
+        } catch {
+            brandImageImportError = error.localizedDescription
+        }
     }
 
     private func addFileSearchFolders(_ paths: [String]) {

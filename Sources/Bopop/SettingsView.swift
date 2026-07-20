@@ -92,6 +92,26 @@ struct SettingsView: View {
                 .buttonStyle(.borderless)
             }
 
+            Section("Appearance") {
+                HStack {
+                    Text("Palette icon")
+                    Spacer()
+                    if model.hasCustomBrandImage {
+                        Button("Reset to Default") {
+                            model.resetBrandImageToDefault()
+                        }
+                    }
+                    Button("Choose Image…") {
+                        model.presentBrandImagePicker()
+                    }
+                }
+                if let error = model.brandImageImportError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("General") {
                 Toggle("Launch Bopop at login", isOn: $model.launchAtLogin)
                 if let error = model.launchAtLoginError {
@@ -104,6 +124,6 @@ struct SettingsView: View {
         .tint(Color(nsColor: .bopopAccent))
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 380, height: 460)
+        .frame(width: 380, height: 530)
     }
 }
