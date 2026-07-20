@@ -7,7 +7,12 @@ final class PasteboardWatcher {
         "com.apple.Passwords",
         "com.apple.keychainaccess"
     ]
-    static let upstreamClearScrubWindow: TimeInterval = 600
+    // Narrowed from 600 s: the scrub exists for sensitive managers (Apple
+    // Passwords clears ~90 s after a copy) — a bare clearContents from any
+    // other app minutes later shouldn't delete unrelated history. True
+    // source attribution is impossible (NSPasteboard doesn't identify the
+    // clearer), so this window is the only lever available.
+    static let upstreamClearScrubWindow: TimeInterval = 120
 
     private static let concealedType = NSPasteboard.PasteboardType(
         "org.nspasteboard.ConcealedType"

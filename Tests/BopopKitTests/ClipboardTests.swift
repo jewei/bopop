@@ -41,6 +41,11 @@ func clipboardStoreEvictsOldestEntries() throws {
     #expect(store.entries.map(\.text) == ["D", "C", "B"])
 }
 
+// Boundary values below (100 s / 130 s against a 120 s window) match the
+// narrowed PasteboardWatcher.upstreamClearScrubWindow (600 s → 120 s, Task 6):
+// the scrub exists for sensitive managers like Apple Passwords that clear
+// ~90 s after copy, not for arbitrary same-session clears many minutes later.
+
 @MainActor
 @Test
 func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
@@ -52,9 +57,9 @@ func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
     store.add("older")
     currentDate = Date(timeIntervalSince1970: 1_010)
     store.add("secret")
-    currentDate = Date(timeIntervalSince1970: 1_100)
+    currentDate = Date(timeIntervalSince1970: 1_110) // 100 s after "secret"
 
-    store.forgetNewest(ifCapturedWithin: 600)
+    store.forgetNewest(ifCapturedWithin: 120)
     #expect(store.entries.map(\.text) == ["older"])
 
     let reloaded = ClipboardStore(storage: fixture.storage)
@@ -70,13 +75,13 @@ func clipboardStoreKeepsNewestWhenClearArrivesLate() throws {
     let store = ClipboardStore(storage: fixture.storage) { currentDate }
 
     store.add("kept")
-    currentDate = Date(timeIntervalSince1970: 1_700)
+    currentDate = Date(timeIntervalSince1970: 1_130) // 130 s after "kept"
 
-    store.forgetNewest(ifCapturedWithin: 600)
+    store.forgetNewest(ifCapturedWithin: 120)
     #expect(store.entries.map(\.text) == ["kept"])
 
     store.clear()
-    store.forgetNewest(ifCapturedWithin: 600)
+    store.forgetNewest(ifCapturedWithin: 120)
     #expect(store.entries.isEmpty)
 }
 
