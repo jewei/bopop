@@ -33,6 +33,19 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
 - Drag the palette anywhere — it remembers the position across launches (falls back to center if the saved spot is offscreen)
 - Click a row to run it directly, same as Return — no need to select first
 - Palette header mark is the app icon's keycap by default; replace it with your own image in Settings → Appearance
+- Type `lock`, `sleep`, `restart`, `empty trash`, and more for instant system commands — the
+  destructive ones (log out, restart, shut down) go through macOS's own confirmation dialog
+- Define your own keyword searches in Settings → Search — a name, a keyword, and a `{query}` URL
+  template turns `keyword term` into a search row alongside the built-in web-search fallback
+- "Snippets…" or a name/keyword match right in All mode surfaces your saved snippets — Return copies
+  the text; add, edit, and delete them in Settings → Snippets
+- `define <word>` (or `def <word>`) renders a dictionary hero card, fully on-device via macOS's own
+  Dictionary — Return opens the Dictionary app
+- ⇥ feeds a showing calculator answer back into the query so a chained calculation can continue,
+  instead of cycling tabs
+- ⌘⏎ reveals the selected file result in Finder; ⌘Y opens it in Quick Look
+- ⌘L blows the current selection up into a full-screen Large Type view — press ⌘L again, Esc, or
+  click anywhere to dismiss
 
 ## Build & run
 
@@ -84,11 +97,11 @@ Deliberate decisions:
   run and never touches directly.
 - Clipboard privacy has four layers: (1) apps marking `org.nspasteboard.ConcealedType` or `org.nspasteboard.TransientType` are never captured; (2) copies made while Apple Passwords or Keychain Access is frontmost are skipped using a heuristic, though a copy followed by an instant app switch within the 0.5 s poll can evade it; (3) a bare upstream clipboard clear (a zero-type change — Apple Passwords fires one ~90 s after a copy, including from its menu-bar popover, which layer 2 cannot see) retroactively removes the newest captured entry, so the secret does not outlive the clipboard, though it is visible in history during that pre-clear window; (4) "Clear Clipboard History" wipes the stored history on demand. Entries are capped at 100 KB; contents never appear in any log; `clipboard.json` is `-rw-------` inside a `drwx------` directory.
 - Scripts (`~/Library/Application Support/Bopop/Scripts`): run only on explicit Return, never from typed input alone; executed directly via `Process` with an empty argv — no shell, no interpolation; rows carry a visible "Script" badge; output goes to `scripts.log` only. There is deliberately no timeout — a long-running script is legitimate.
-- Permissions: nothing requested up front. Notification auth is requested on first script run; macOS file-access prompts appear only when you open a protected file. Accessibility is never requested.
+- Permissions: nothing requested up front. Notification auth is requested on first script run; macOS file-access prompts appear only when you open a protected file. Two system commands — Empty Trash and Eject All — script Finder via AppleScript, which triggers macOS's one-time Automation consent the first time either runs; every other command (lock, sleep, screen saver, log out, restart, shut down) is permissionless, and the network story above is otherwise unchanged. Accessibility is never requested.
 - Logs use `os.Logger` with private interpolation for paths and queries.
 
 ## Testing
 
-`swift test` — 177 tests over the parser, ranker (incl. the web-search pin-last rule), query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles, `.apps` mode), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search (incl. full-catalog frecency-first ordering for the grid) and pure grid row/column math (`GridNavigation`), translation direction detection/provider flow against a mock translator, web-search URL encoding per engine, category-badge derivation, file-search folder-scope resolution/fallback, and the brand-image storage path.
+`swift test` — 203 tests over the parser, ranker (incl. the web-search pin-last rule), query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles, `.apps` mode), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search (incl. full-catalog frecency-first ordering for the grid) and pure grid row/column math (`GridNavigation`), translation direction detection/provider flow against a mock translator, web-search URL encoding per engine, category-badge derivation, file-search folder-scope resolution/fallback, the brand-image storage path, system-command keyword/invocation mapping, custom-search keyword matching and URL templating, the snippet store (add/update/remove, persistence), the dictionary `define`/`def` prefix parser and definition excerpting, the tab-key policy (autocomplete vs. cycle), and file-result reveal secondary actions.
 
 Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
