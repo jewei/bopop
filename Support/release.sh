@@ -32,8 +32,8 @@ BUILD="${2:-$(git -C "$PROJECT_DIR" rev-list --count HEAD)}"
 DMG_NAME="$APP_NAME-$VERSION.dmg"
 TAG="v$VERSION"
 
-if git -C "$PROJECT_DIR" rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
-    echo "error: tag $TAG already exists — bump CFBundleShortVersionString first." >&2
+if git -C "$PROJECT_DIR" ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+    echo "error: tag $TAG already exists on origin — bump CFBundleShortVersionString first." >&2
     exit 1
 fi
 
@@ -72,16 +72,16 @@ printf 'APPL????' > "$APP_PATH/Contents/PkgInfo"
 
 echo "▶ Signing with Developer ID…"
 FMWK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
-codesign --force --options runtime --sign "$SIGN_IDENTITY" \
+codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" \
     "$FMWK/Versions/B/XPCServices/Downloader.xpc"
-codesign --force --options runtime --sign "$SIGN_IDENTITY" \
+codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" \
     "$FMWK/Versions/B/XPCServices/Installer.xpc"
-codesign --force --options runtime --sign "$SIGN_IDENTITY" \
+codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" \
     "$FMWK/Versions/B/Autoupdate"
-codesign --force --options runtime --sign "$SIGN_IDENTITY" \
+codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" \
     "$FMWK/Versions/B/Updater.app"
-codesign --force --options runtime --sign "$SIGN_IDENTITY" "$FMWK"
-codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"
+codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$FMWK"
+codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"
 
 # ── Notarize & staple ─────────────────────────────────────────────────────────
 
