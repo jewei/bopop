@@ -277,8 +277,9 @@ public final class AppsProvider: ResultProvider {
             // against name+keywords) before mapping — this also means the
             // tilde-abbreviated subtitle below (an NSString bridge + path
             // walk) is only computed for survivors, not the whole catalog.
+            let foldedTerm = Ranker.foldedQuery(query.term)
             selectedApps = indexedApps.filter { indexedApp in
-                matchesTier(term: query.term, app: indexedApp.app)
+                matchesTier(foldedTerm: foldedTerm, app: indexedApp.app)
             }
         }
 
@@ -303,8 +304,10 @@ public final class AppsProvider: ResultProvider {
         "app:\(app.bundleID ?? app.path)"
     }
 
-    private nonisolated func matchesTier(term: String, app: AppInfo) -> Bool {
-        ([app.name] + app.keywords).contains { Ranker.tier(query: term, candidate: $0) != .none }
+    private nonisolated func matchesTier(foldedTerm: String, app: AppInfo) -> Bool {
+        ([app.name] + app.keywords).contains {
+            Ranker.tier(foldedQuery: foldedTerm, candidate: $0) != .none
+        }
     }
 
     private struct IndexedApp {

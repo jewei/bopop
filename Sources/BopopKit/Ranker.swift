@@ -36,7 +36,14 @@ public nonisolated enum Ranker {
         tier(foldedQuery: folded(query), candidate: candidate)
     }
 
-    private static func tier(foldedQuery query: String, candidate: String) -> MatchTier {
+    /// Folds `query` once so callers that check many candidates against the
+    /// same query (e.g. catalog pre-filters) can reuse the result via
+    /// `tier(foldedQuery:candidate:)` instead of re-folding per candidate.
+    static func foldedQuery(_ query: String) -> String {
+        folded(query)
+    }
+
+    static func tier(foldedQuery query: String, candidate: String) -> MatchTier {
         let candidate = folded(candidate)
 
         if query == candidate {

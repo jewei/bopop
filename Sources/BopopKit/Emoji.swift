@@ -75,14 +75,17 @@ public final class EmojiProvider: ResultProvider {
         // against name+keywords) before building a SearchResult for each —
         // building ~1900 unranked SearchResults per keystroke just to have
         // Ranker discard most of them was the hot-path cost here.
+        let foldedTerm = Ranker.foldedQuery(term)
         let matching = indexedEntries.filter { indexed in
-            matchesTier(term: term, entry: indexed.element)
+            matchesTier(foldedTerm: foldedTerm, entry: indexed.element)
         }
         return matching.map { makeResult($0.element, catalogIndex: $0.offset) }
     }
 
-    private nonisolated func matchesTier(term: String, entry: EmojiEntry) -> Bool {
-        ([entry.name] + entry.keywords).contains { Ranker.tier(query: term, candidate: $0) != .none }
+    private nonisolated func matchesTier(foldedTerm: String, entry: EmojiEntry) -> Bool {
+        ([entry.name] + entry.keywords).contains {
+            Ranker.tier(foldedQuery: foldedTerm, candidate: $0) != .none
+        }
     }
 
     private nonisolated func makeResult(_ entry: EmojiEntry, catalogIndex: Int) -> SearchResult {
