@@ -6,9 +6,9 @@ Source: Claude design export `~/Downloads/next-generation-productivity-launcher`
 
 | Token | Value | Usage |
 |---|---|---|
-| `accent` | `#7c5cff` | THE brand violet: selection tint/border, brand square, keycap emphasis, settings tint |
-| `accentDeep` | `#5b3ff0` | Gradient partner (tiles, icon) |
-| `accentSoft` | `#a48bff` | Gradient partner (brand square), icon dot |
+| `accent` | `#7c5cff` | THE brand violet: selection tint/border, brand keycap, keycap emphasis, settings tint |
+| `accentDeep` | `#5b3ff0` | Gradient partner (tiles, icon, brand keycap) |
+| `accentSoft` | `#a48bff` | Gradient partner (brand keycap), icon dot |
 | `panelTint` | `rgba(22,20,30,0.72)` | Overlay on the blur material |
 | `panelBorder` | `white 10%` | 1px hairline edge |
 | `hairline` | `white 7%` | Header/footer separators |
@@ -19,14 +19,19 @@ Source: Claude design export `~/Downloads/next-generation-productivity-launcher`
 | `keycapBorder` | `white 15%` | Keycap outlines |
 | Selection | fill `#7c5cff` 14%, border 1px `#7c5cff` 30% | Selected row |
 
-Settings window: system appearance + `.tint(#7c5cff)`, fixed 380×360 (grew from 320 to fit the
-Search-engine picker). App icon: keycap concept — dark glass plate (`#191722`), floating violet keycap (`#a48bff→#7c5cff→#5b3ff0`, top rim light, `#5b3ff0` under-glow), white SF Mono heavy "b". Rendered per-size from `Support/generate-icon.swift` (rim dropped below 64 px); `iconutil` builds the icns.
+Settings window: system appearance + `.tint(#7c5cff)`, fixed 380×530 (grew from 280 across the
+Search-engine, File Search, and Appearance sections). App icon: keycap concept — dark glass plate
+(`#191722`), floating violet keycap (`#a48bff→#7c5cff→#5b3ff0`, top rim light, `#5b3ff0`
+under-glow), white SF Mono heavy "b". Rendered per-size from `Support/generate-icon.swift` (rim
+dropped below 64 px, proper macOS icon-grid margins so the mark doesn't read oversized);
+`iconutil` builds the icns. The icon concept matches the product grammar: Bopop *is* a key you
+press, same as the palette's own esc/return keycaps.
 
 ## Typography (SF Pro / SF Mono)
 
 | Element | Spec |
 |---|---|
-| Query field | SF Pro Rounded 22 semibold, white; placeholder same spec at white 35% ("Bopop. Everything starts here"); terminal block cursor (white 85%) covers the glyph at the caret and redraws it panel-dark |
+| Query field | SF Pro Rounded 22 semibold, white; placeholder same spec at white 35% ("Bopop. Everything starts here…"); terminal block cursor (white 85%) covers the glyph at the caret — the placeholder's first character when empty, the character at the insertion index mid-text — and redraws it panel-dark |
 | Row title | 14.5 semibold (selected) / 14 medium, textStrong |
 | Row subtitle | 11.5 / 11 regular, textSecondary, 2pt below title |
 | Footer + keycaps + tab pills + row badge | SF Mono medium 11 (keycap ↵ 10) |
@@ -34,7 +39,14 @@ Search-engine picker). App icon: keycap concept — dark glass plate (`#191722`)
 ## Layout & metrics
 
 - Panel: width 620, radius 20 continuous, `NSVisualEffectView` (dark appearance forced) + `panelTint` overlay, 1px `panelBorder`, heavy shadow.
-- Header: 76 tall, insets 24; contents: 20×20 radius-6 brand square (gradient `#7c5cff→#a48bff`, 135°) · query field · `esc` keycap (SF Mono 11, textSecondary, border keycapBorder, radius 6, padding 8×3). 1px hairline below.
+- Header: 76 tall, insets 24; contents: 36×36 brand keycap (`PaletteBrandView`, continuous corner
+  radius = height × 0.24, same three-stop violet ramp as the app icon's keycap — the header is
+  already the icon's dark plate, so only the keycap itself renders here; the full plate+keycap
+  icns is reserved for Dock/Finder where the plate has contrast) · query field · `esc` keycap
+  (SF Mono 11, textSecondary, border keycapBorder, radius 6, padding 8×3). 1px hairline below.
+  The keycap slot is replaceable: Settings → Appearance → "Choose Image…" swaps in a user image
+  (aspect-fill square crop, masked to the same rounded shape); no image reverts to the drawn
+  keycap. See `docs/superpowers/specs/2026-07-20-custom-palette-icon-design.md`.
 - Tab row (`PaletteTabsView`): 34 pt tall (`PaletteMetrics.tabsHeight`), always visible directly
   under the header hairline — hero/list anchor off its bottom edge. Leading-aligned capsule pills
   (radius = height/2 via `cornerRadius`, `.continuous` curve), inset by `footerInset` (22), 6 pt
@@ -47,7 +59,7 @@ Search-engine picker). App icon: keycap concept — dark glass plate (`#191722`)
   not just the sticky one) — this spends the key previously reserved for a secondary-actions menu,
   which now lives on ⌘K alone. The tab row is a pure function of the mode; there is no independent
   chip state to keep in sync, and the old in-field mode chip (accent-on-pill, next to the brand
-  square) is removed — the active tab is the single mode indicator.
+  keycap) is removed — the active tab is the single mode indicator.
 - List: insets 8 top / 10 sides / 14 bottom; row height 52; 4pt gap between rows (intercell); row content padding 14 h; selection radius 10.
 - Rows: 32×32 leading icon — real app/file icons raw; symbol results in a radius-8 tile (`tileNeutral`; selected row's tile: gradient `#7c5cff→#5b3ff0`, white symbol). Two-line text block (single line vertically centered when no subtitle). Selected row shows trailing `↵` keycap. Trailing category
   badge (rounded-rect chip, same styling as the hero pane badges — 11 pt, white 0.55 text on white
@@ -79,6 +91,27 @@ suppressed from the list to avoid duplication.
 - Footer verb reflects the hero's action: "copy" for calculator/currency/timezone/emoji/translation,
   "open" for the URL cleaner (Return opens the cleaned link in the default browser instead of
   copying it).
+
+## Emoji grid
+
+Emoji mode swaps the results table for a 10-column tile grid (`EmojiGridView`, Raycast-style) — a
+pure view swap over the same ranked `[SearchResult]`/`selectedIndex` model, not a new data path.
+Every other mode keeps the table.
+
+- Tile 52×52, radius 10 continuous, emoji glyph 28pt centered. Hover: white 6% fill. Selected:
+  accent 14% fill + 1px accent 30% border (same tokens as row selection). Grid insets match
+  `listSideInset`.
+- Empty term shows the full catalog, frecency-first (ties in catalog order), instead of the old
+  top-24 cutoff, so there's something to scroll through; a typed term fills the grid left-to-right,
+  top-to-bottom in `Ranker` order.
+- Keyboard: ←/→ move ±1, ↑/↓ move ±10 (`PaletteMetrics.gridColumns`), clamped with no wrap; the
+  grid scrolls to keep the selection visible. Return or a tile click copies the emoji, same action
+  as a row. Row/column index math is a pure `BopopKit` helper, `GridNavigation.move(index:by:columns:count:)`,
+  covered by edge-case tests (first-row up, last partial row down, rightmost →).
+- Footer in emoji mode reads "↵ copy" with a result-count status ("1,914 emoji" / "12 matches").
+- Category section headers (e.g. "Smileys & People 559") are deferred pending an `emoji.json`
+  regeneration that adds a group field — see
+  `docs/superpowers/specs/2026-07-20-emoji-grid-design.md`.
 
 ## Motion
 

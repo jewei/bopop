@@ -9,7 +9,7 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
   click a tab, or cycle with ⇥/⇧⇥, to enter that mode; prefixes still work and highlight their tab
 - Search and launch installed applications, ranked by match quality + how often you use them
 - Type arithmetic (`2*(3+4)^2`) for an instant result — Return copies it
-- `f <term>` or the Files tab for on-demand Spotlight file search (strictly opt-in, see below); optionally scope it to chosen folders in Settings — the inverse of Spotlight's Privacy exclusion list
+- `f <term>` or the Files tab for on-demand Spotlight file search (strictly opt-in, see below); optionally scope it to chosen folders in Settings → File Search — the inverse of Spotlight's Privacy exclusion list (Settings excludes folders from a whole-system index; Bopop narrows which folders an on-demand, never-indexing search looks at)
 - "Clipboard History…" for recent plain-text copies — Return re-copies
 - Executables in the Scripts folder become searchable commands — run only on explicit Return
 - Calculator, currency, timezone, and URL-cleaner answers render a hero card above the list — the
@@ -18,7 +18,8 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
   in the background when stale
 - Timezone conversion (`9am eastern`, `time in tokyo`) — weekday and numeric-date phrases are rejected
   rather than mis-answered
-- Emoji picker (`:fire` or "Emoji Picker…"), CLDR keyword search, frecency-ranked — Return copies
+- Emoji picker (`:fire` or "Emoji Picker…"), CLDR keyword search, frecency-ranked, rendered as a
+  10-column tile grid (arrow keys move in 2D) — Return or click copies
 - URL tracking-parameter cleaner — paste a tracked link, Return opens the cleaned URL in your default
   browser instead of copying it
 - Web search fallback — a "Search ⟨Engine⟩ for…" row is always pinned last in All mode for any
@@ -30,6 +31,8 @@ A keyboard-first launcher for macOS. Press a shortcut, type, hit Return. Nothing
   framework — Return copies
 - ⌘C copies the selected result's payload (path, value, text); Esc clears → exits mode → closes
 - Drag the palette anywhere — it remembers the position across launches (falls back to center if the saved spot is offscreen)
+- Click a row to run it directly, same as Return — no need to select first
+- Palette header mark is the app icon's keycap by default; replace it with your own image in Settings → Appearance
 
 ## Build & run
 
@@ -56,7 +59,7 @@ Two targets, one protocol, zero dependencies:
 - **`BopopKit`** (library, Foundation + os only — no AppKit): all logic, fully unit-tested.
 - **`Bopop`** (executable): thin AppKit shell — NSPanel palette, Carbon hotkey, footer gear menu, SwiftUI settings.
 
-Data flow: keystroke → `QueryParser` (mode + term; `f ` prefix = file mode) → `QueryEngine` (generation counter; cancels the previous search task, debounces file mode 250 ms inside the task, runs the mode's providers concurrently) → results merge incrementally as each provider finishes (slow providers never block fast ones; a throwing provider is logged and isolated) → `Ranker` (match tiers exact > prefix > word-boundary > substring > subsequence, best-of across title + keywords, then provider weight, then frecency) → table → Return → `ActionRunner`.
+Data flow: keystroke → `QueryParser` (mode + term; `f ` prefix = file mode) → `QueryEngine` (generation counter; cancels the previous search task, debounces file mode 250 ms inside the task, runs the mode's providers concurrently) → results merge incrementally as each provider finishes (slow providers never block fast ones; a throwing provider is logged and isolated) → `Ranker` (match tiers exact > prefix > word-boundary > substring > subsequence, best-of across title + keywords, then provider weight, then frecency) → table/grid → Return or click → `ActionRunner`.
 
 Deliberate decisions:
 
@@ -86,6 +89,6 @@ Deliberate decisions:
 
 ## Testing
 
-`swift test` — 162 tests over the parser, ranker (incl. the web-search pin-last rule), query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles, `.apps` mode), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search, translation direction detection/provider flow against a mock translator, web-search URL encoding per engine, and category-badge derivation.
+`swift test` — 177 tests over the parser, ranker (incl. the web-search pin-last rule), query/mode/escape rules, engine (stale-generation, cancellation, error isolation, incremental publish), stores (permissions, corruption, eviction), clipboard capture policy, app catalog (fixture bundles, `.apps` mode), script runner (real processes: exit codes, 200 KB stderr no-deadlock, stdin EOF, missing shebang), hero-card suppression, currency parsing/cross-rate math/staleness/refresh dedup, timezone parsing against a fixed clock, URL-cleaner rule tables, the emoji catalog and ranked search (incl. full-catalog frecency-first ordering for the grid) and pure grid row/column math (`GridNavigation`), translation direction detection/provider flow against a mock translator, web-search URL encoding per engine, category-badge derivation, file-search folder-scope resolution/fallback, and the brand-image storage path.
 
 Two live Spotlight tests are machine-dependent and opt-in: `BOPOP_LIVE_SPOTLIGHT=1 swift test --filter live`.
