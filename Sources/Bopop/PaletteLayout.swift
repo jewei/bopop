@@ -237,6 +237,11 @@ enum PaletteLayout {
         tableView.selectionHighlightStyle = .regular
         tableView.allowsEmptySelection = false
         tableView.allowsMultipleSelection = false
+        // Keyboard focus must never leave the query field: if the table
+        // becomes first responder (a row click does this by default),
+        // Return stops reaching the field editor's doCommandBySelector and
+        // silently does nothing.
+        tableView.refusesFirstResponder = true
         tableView.backgroundColor = .clear
 
         scrollView.documentView = tableView

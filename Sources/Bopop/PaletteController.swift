@@ -162,6 +162,8 @@ final class PaletteController: NSObject {
         queryField.delegate = self
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.target = self
+        tableView.action = #selector(rowClicked(_:))
 
         panel.onResign = { [weak self] in self?.hide() }
         panel.onCommandCopy = { [weak self] in
@@ -242,6 +244,17 @@ final class PaletteController: NSObject {
         if let hero = heroResult?.hero {
             heroView.configure(with: hero)
         }
+    }
+
+    /// Single click executes the row, launcher-style. Selection state is
+    /// already synced by tableViewSelectionDidChange before the action fires.
+    @objc private func rowClicked(_ sender: NSTableView) {
+        let row = sender.clickedRow
+        guard results.indices.contains(row) else {
+            return
+        }
+        selectedIndex = row
+        actionRunner.perform(results[row])
     }
 
     private func selectedResult() -> SearchResult? {
