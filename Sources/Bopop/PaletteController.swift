@@ -652,7 +652,16 @@ extension PaletteController: NSTextFieldDelegate {
             }
             moveGridSelection(by: 1)
         case #selector(NSResponder.insertTab(_:)):
-            cycleTab(by: 1)
+            switch TabKeyPolicy.action(hero: heroResult) {
+            case .autocomplete(let answer):
+                queryField.stringValue = answer
+                if let editor = queryField.currentEditor() {
+                    editor.selectedRange = NSRange(location: answer.count, length: 0)
+                }
+                updateQuery()
+            case .cycleTab:
+                cycleTab(by: 1)
+            }
         case #selector(NSResponder.insertBacktab(_:)):
             cycleTab(by: -1)
         case #selector(NSResponder.insertNewline(_:)):
