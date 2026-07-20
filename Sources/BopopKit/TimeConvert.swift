@@ -312,8 +312,15 @@ public nonisolated enum TimeQueryParser {
     }
 
     private static func gmtOffsetString(for zone: TimeZone, instant: Date) -> String {
-        let hours = zone.secondsFromGMT(for: instant) / 3600
-        return hours >= 0 ? "GMT+\(hours)" : "GMT\(hours)"
+        let totalSeconds = zone.secondsFromGMT(for: instant)
+        let sign = totalSeconds >= 0 ? "+" : "-"
+        let absSeconds = abs(totalSeconds)
+        let hours = absSeconds / 3600
+        let minutes = (absSeconds % 3600) / 60
+        guard minutes != 0 else {
+            return "GMT\(sign)\(hours)"
+        }
+        return "GMT\(sign)\(hours):" + String(format: "%02d", minutes)
     }
 }
 

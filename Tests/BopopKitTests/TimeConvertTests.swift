@@ -63,6 +63,24 @@ private let localZone = TimeZone(identifier: "Asia/Kuala_Lumpur")!
     #expect(TimeQueryParser.parse("13-10 9am eastern", now: fixedNow, localZone: localZone) == nil)
 }
 
+// MARK: - Half-hour / non-whole-hour GMT offsets
+
+@Test func timeParserIncludesMinutesForHalfHourOffset() throws {
+    let result = try #require(TimeQueryParser.parse("9am ist", now: fixedNow, localZone: localZone))
+    #expect(result.sourceDescription == "Thursday, 9 October, 9:00 AM, GMT+5:30")
+}
+
+@Test func timeParserKeepsWholeHourOffsetUnchanged() throws {
+    let result = try #require(TimeQueryParser.parse("9am eastern", now: fixedNow, localZone: localZone))
+    #expect(result.sourceDescription.hasSuffix("GMT-4"))
+}
+
+@Test func timeParserIncludesMinutesForNegativeHalfHourOffset() throws {
+    let winterNow = Date(timeIntervalSince1970: 1_768_478_400) // 2026-01-15 12:00 UTC
+    let result = try #require(TimeQueryParser.parse("time in st johns", now: winterNow, localZone: localZone))
+    #expect(result.sourceDescription == "St Johns, GMT-3:30")
+}
+
 // MARK: - DST awareness (America/New_York flips offset by date)
 
 @Test func timeParserUsesDaylightOffsetInOctober() throws {
