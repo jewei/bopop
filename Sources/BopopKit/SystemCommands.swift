@@ -78,7 +78,7 @@ public final class SystemCommandsProvider: ResultProvider {
 
     public init() {}
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general,
               !query.term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []

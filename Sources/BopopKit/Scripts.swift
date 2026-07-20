@@ -5,7 +5,11 @@ public nonisolated struct ScriptInfo: Equatable, Sendable {
     public let path: String
 }
 
-public final class ScriptCatalog {
+// Holds only an immutable directory URL and performs a stateless synchronous
+// scan per call (no cache to race on) — safe to run entirely off the main
+// actor, which is the whole point: ScriptsProvider's directory scan must not
+// block every other provider while it walks the filesystem.
+public nonisolated final class ScriptCatalog: Sendable {
     private let directory: URL
 
     public init(directory: URL) {
@@ -149,7 +153,7 @@ public final class ScriptsProvider: ResultProvider {
         self.catalog = catalog
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, !query.term.isEmpty else {
             return []
         }

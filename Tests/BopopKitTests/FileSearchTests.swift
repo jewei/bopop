@@ -72,12 +72,17 @@ func fileSearcherReadsScopeProviderPerSearchAndSkipsMissingPaths() async {
     let searcher = FileSearcher(scopeProvider: { [missing, existing] })
 
     let task = Task { await searcher.search(term: "test") }
-    // The scope-resolution/query-build step runs synchronously as soon as
-    // the child task gets scheduled, before it suspends waiting on the
-    // NSMetadataQuery gathering notification — yielding lets that happen
-    // without waiting for a real (possibly slow/unavailable) gather.
-    await Task.yield()
-    await Task.yield()
+    // scopeProvider is now awaited (it's an async hop to MainActor in the
+    // real app), so the scope-resolution/query-build step is no longer
+    // guaranteed to land after a fixed number of yields the way a purely
+    // synchronous call was — poll instead of assuming a fixed scheduling
+    // shape, up to a generous timeout, before falling back to the gathering
+    // notification wait.
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(1)
+    while !searcher.didBuildQuery, clock.now < deadline {
+        await Task.yield()
+    }
 
     #expect(searcher.didBuildQuery)
     #expect(searcher.lastSearchScopes as? [URL] == [URL(fileURLWithPath: existing)])

@@ -41,12 +41,12 @@ public final class TranslationProvider: ResultProvider {
     public let id: ProviderID = .translation
 
     private let translator: Translator
-    private let chineseVariant: @Sendable () -> TranslationTarget
+    private let chineseVariant: @Sendable () async -> TranslationTarget
     private let debounceNanoseconds: UInt64
 
     public init(
         translator: Translator,
-        chineseVariant: @escaping @Sendable () -> TranslationTarget,
+        chineseVariant: @escaping @Sendable () async -> TranslationTarget,
         debounceNanoseconds: UInt64 = 300_000_000
     ) {
         self.translator = translator
@@ -54,7 +54,7 @@ public final class TranslationProvider: ResultProvider {
         self.debounceNanoseconds = debounceNanoseconds
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .translation else {
             return []
         }
@@ -63,7 +63,7 @@ public final class TranslationProvider: ResultProvider {
             return []
         }
 
-        let target = TranslationDirection.target(for: term, chineseVariant: chineseVariant())
+        let target = TranslationDirection.target(for: term, chineseVariant: await chineseVariant())
 
         switch await translator.availability(target: target) {
         case .unsupported:

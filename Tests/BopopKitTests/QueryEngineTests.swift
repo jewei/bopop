@@ -130,6 +130,44 @@ func queryEngineDebounceCancelsEarlierSleep() async {
 }
 
 @MainActor
+@Test
+func queryEngineRunsProvidersConcurrently() async {
+    // Two providers that are each truly nonisolated (unlike FakeProvider,
+    // which stays MainActor-isolated and hops for every call) sleeping
+    // ~400ms apiece. Before task 8, every provider body ran on the main
+    // actor regardless of the task-group fan-out, so this would have taken
+    // the SUM of both sleeps (800ms+). With real off-actor concurrency it
+    // should complete in close to one sleep's worth of wall time. The
+    // margin here is deliberately generous (700ms cutoff, not ~450ms) —
+    // under `swift test`'s default full-suite parallelism this test's own
+    // wall clock is subject to real scheduling jitter from ~200 other
+    // concurrently-running tests, and a tight cutoff was observed to flake.
+    let providerA = NonisolatedFakeProvider(id: .apps) { query in
+        try await Task.sleep(for: .milliseconds(400))
+        return [engineResult(id: "a:\(query.term)", title: query.term)]
+    }
+    let providerB = NonisolatedFakeProvider(id: .files) { query in
+        try await Task.sleep(for: .milliseconds(400))
+        return [engineResult(id: "b:\(query.term)", providerID: .files, title: query.term)]
+    }
+    let engine = QueryEngine(
+        providers: [.general: [providerA, providerB]],
+        debounce: [:]
+    )
+    let recorder = UpdateRecorder()
+    engine.onUpdate = recorder.record
+
+    let clock = ContinuousClock()
+    let start = clock.now
+    engine.update(raw: "go", stickyMode: .general)
+    let final = await recorder.waitForUpdate(matching: \.isFinal)
+    let elapsed = clock.now - start
+
+    #expect(Set(final?.results.map(\.id) ?? []) == ["a:go", "b:go"])
+    #expect(elapsed < .milliseconds(700))
+}
+
+@MainActor
 private final class FakeProvider: ResultProvider {
     let id: ProviderID
     private let operation: @MainActor @Sendable (ParsedQuery) async throws -> [SearchResult]
@@ -137,6 +175,29 @@ private final class FakeProvider: ResultProvider {
     init(
         id: ProviderID,
         operation: @escaping @MainActor @Sendable (ParsedQuery) async throws -> [SearchResult]
+    ) {
+        self.id = id
+        self.operation = operation
+    }
+
+    func results(for query: ParsedQuery) async throws -> [SearchResult] {
+        try await operation(query)
+    }
+}
+
+/// Unlike FakeProvider (deliberately @MainActor, matching how most real
+/// providers still hop back to MainActor for their actual work), this one is
+/// truly nonisolated end to end — both stored properties are immutable and
+/// Sendable, so no `@unchecked` is needed — letting queryEngineRunsProvidersConcurrently
+/// prove QueryEngine's task-group fan-out gives genuine overlap and isn't
+/// just serializing through the main actor.
+private nonisolated final class NonisolatedFakeProvider: ResultProvider {
+    let id: ProviderID
+    private let operation: @Sendable (ParsedQuery) async throws -> [SearchResult]
+
+    init(
+        id: ProviderID,
+        operation: @escaping @Sendable (ParsedQuery) async throws -> [SearchResult]
     ) {
         self.id = id
         self.operation = operation

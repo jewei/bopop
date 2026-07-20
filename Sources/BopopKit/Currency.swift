@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public nonisolated struct CurrencyQuery: Equatable, Sendable {
     public let amount: Double
@@ -229,7 +230,7 @@ public final class RateStore {
     }
 }
 
-public final class CurrencyProvider: ResultProvider {
+public nonisolated final class CurrencyProvider: ResultProvider {
     public let id: ProviderID = .currency
 
     /// EUR-base cross-rates convert every code, but only these have a
@@ -245,8 +246,14 @@ public final class CurrencyProvider: ResultProvider {
     private let store: RateStore
     private let fetcher: RateFetcher
     private let now: @Sendable () -> Date
-    private let relativeDateFormatter: RelativeDateTimeFormatter
-    private var refreshInFlight = false
+    // Once this provider runs off the main actor, two overlapping generations
+    // could format on this shared instance from different threads at once —
+    // RelativeDateTimeFormatter is not thread-safe, so guard it with a lock
+    // rather than constructing one per call.
+    private let relativeDateFormatter: FormatterBox<RelativeDateTimeFormatter>
+    // Guards the refresh-in-flight flag against the same cross-thread race
+    // now that results(for:) is nonisolated.
+    private let refreshInFlight = OSAllocatedUnfairLock(initialState: false)
 
     public init(
         store: RateStore,
@@ -259,15 +266,18 @@ public final class CurrencyProvider: ResultProvider {
         let formatter = RelativeDateTimeFormatter()
         formatter.dateTimeStyle = .named
         formatter.locale = Locale(identifier: "en_US")
-        relativeDateFormatter = formatter
+        relativeDateFormatter = FormatterBox(formatter)
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, let parsed = CurrencyParser.parse(query.term) else {
             return []
         }
 
-        if let cached = store.cached() {
+        // RateStore stays MainActor-isolated (its memoryCache/hasLoaded are
+        // only safe under single-threaded access) — snapshot through it
+        // rather than relaxing its isolation.
+        if let cached = await MainActor.run(body: { store.cached() }) {
             if cached.isStale(now: now()) {
                 refreshInBackground()
             }
@@ -278,7 +288,7 @@ public final class CurrencyProvider: ResultProvider {
             return [Self.unavailableResult()]
         }
         let fetchedAt = now()
-        store.save(rates: freshRates, fetchedAt: fetchedAt)
+        await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
         return makeResults(
             for: parsed,
             rawTerm: query.term,
@@ -289,23 +299,32 @@ public final class CurrencyProvider: ResultProvider {
     /// Cache is stale but still answerable — hand back the stale answer now
     /// and let this unstructured task refresh it for next time without
     /// blocking the current query.
-    private func refreshInBackground() {
+    private nonisolated func refreshInBackground() {
         // One refresh at a time — while the cache is stale, every keystroke of
         // the query re-enters here, and each must not become its own request.
-        guard !refreshInFlight else {
+        // The test-and-set has to be atomic now that multiple provider
+        // invocations can race on this flag from different threads.
+        let shouldStart = refreshInFlight.withLock { inFlight -> Bool in
+            guard !inFlight else {
+                return false
+            }
+            inFlight = true
+            return true
+        }
+        guard shouldStart else {
             return
         }
-        refreshInFlight = true
         Task {
-            defer { refreshInFlight = false }
+            defer { refreshInFlight.withLock { $0 = false } }
             guard let freshRates = try? await fetcher.fetchEURBaseRates() else {
                 return
             }
-            store.save(rates: freshRates, fetchedAt: now())
+            let fetchedAt = now()
+            await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
         }
     }
 
-    private func makeResults(
+    private nonisolated func makeResults(
         for query: CurrencyQuery,
         rawTerm: String,
         rates: CachedRates
@@ -324,7 +343,7 @@ public final class CurrencyProvider: ResultProvider {
         let age = now().timeIntervalSince(rates.fetchedAt)
         let note: String? = age < Self.freshNoteWindow
             ? nil
-            : "Updated \(relativeDateFormatter.localizedString(for: rates.fetchedAt, relativeTo: now()))"
+            : "Updated \(relativeDateFormatter.withLock { $0.localizedString(for: rates.fetchedAt, relativeTo: now()) })"
 
         return [
             SearchResult(
@@ -346,7 +365,7 @@ public final class CurrencyProvider: ResultProvider {
         ]
     }
 
-    private static func unavailableResult() -> SearchResult {
+    private nonisolated static func unavailableResult() -> SearchResult {
         SearchResult(
             id: "currency:unavailable",
             providerID: .currency,
@@ -359,36 +378,40 @@ public final class CurrencyProvider: ResultProvider {
 
     // Built once instead of per call — CurrencyProvider.results(for:) runs on
     // every keystroke of a matching query, and NumberFormatter construction is
-    // expensive enough to notice at that rate.
-    private static let amountFormatter: NumberFormatter = {
+    // expensive enough to notice at that rate. NumberFormatter itself is not
+    // thread-safe, and this static instance is now reachable from whichever
+    // thread the task group happens to run this provider's body on, so every
+    // use goes through this lock instead of relying on MainActor serialization.
+    private static let amountFormatter: FormatterBox<NumberFormatter> = {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 2
-        return formatter
+        return FormatterBox(formatter)
     }()
 
-    private static let targetAmountFormatter: NumberFormatter = {
+    private static let targetAmountFormatter: FormatterBox<NumberFormatter> = {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
-        return formatter
+        return FormatterBox(formatter)
     }()
 
-    private static func formattedAmount(_ value: Double) -> String {
-        amountFormatter.string(from: NSNumber(value: value)) ?? String(value)
+    private nonisolated static func formattedAmount(_ value: Double) -> String {
+        amountFormatter.withLock { $0.string(from: NSNumber(value: value)) } ?? String(value)
     }
 
-    private static func formattedTargetAmount(_ value: Double) -> String {
-        targetAmountFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+    private nonisolated static func formattedTargetAmount(_ value: Double) -> String {
+        targetAmountFormatter.withLock { $0.string(from: NSNumber(value: value)) }
+            ?? String(format: "%.2f", value)
     }
 
-    private static func currencyDisplayName(_ code: String) -> String? {
+    private nonisolated static func currencyDisplayName(_ code: String) -> String? {
         Locale(identifier: "en_US").localizedString(forCurrencyCode: code)
     }
 }

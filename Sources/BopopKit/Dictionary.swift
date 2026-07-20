@@ -22,9 +22,11 @@ public final class DictionaryProvider: ResultProvider {
         self.lookup = lookup
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general,
               let word = DictionaryQuery.word(from: query.term),
+              // lookup wraps DCSCopyTextDefinition, a thread-safe C API — safe to
+              // call synchronously from this now off-main-actor provider body.
               let definition = lookup(word) else {
             return []
         }
@@ -57,7 +59,7 @@ public final class DictionaryProvider: ResultProvider {
 
     /// The system definition begins by repeating the headword; drop it so the
     /// hero pane leads with the sense text.
-    private static func excerpt(
+    private nonisolated static func excerpt(
         _ definition: String,
         droppingLeading word: String,
         limit: Int

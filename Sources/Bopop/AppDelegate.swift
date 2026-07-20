@@ -30,32 +30,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frecencyFor: usageStore.score
         )
         let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
-        // EmojiProvider's frecency hook must be a plain @Sendable closure
-        // (it's invoked off the main actor during concurrent provider
-        // ranking); UsageStore itself is main-actor isolated, so bridge
-        // through assumeIsolated rather than relaxing UsageStore's isolation.
-        let emojiFrecencyFor: @Sendable (String) -> Double = { id in
-            MainActor.assumeIsolated { usageStore.score(id) }
+        // EmojiProvider's frecency hook is invoked off the main actor during
+        // concurrent provider ranking; UsageStore itself is main-actor
+        // isolated, so hop explicitly via MainActor.run rather than the
+        // banned assumeIsolated shortcut.
+        let emojiFrecencyFor: @Sendable (String) async -> Double = { id in
+            await MainActor.run { usageStore.score(id) }
         }
         // settingsModel is constructed AFTER this engine (it needs
-        // hotkeyManager/clipboardStore which are wired up below), so this
-        // closure must not capture settingsModel — it reads defaults
+        // hotkeyManager/clipboardStore which are wired up below), so these
+        // closures must not capture settingsModel — they read defaults
         // directly via the same static-read pattern as
-        // storedClipboardLimit, avoiding the ordering trap. It's invoked
+        // storedClipboardLimit, avoiding the ordering trap. They're invoked
         // off the main actor during concurrent provider ranking (same
-        // reasoning as emojiFrecencyFor above), so bridge through
-        // assumeIsolated rather than relaxing SettingsModel's isolation.
-        let chineseVariantFor: @Sendable () -> TranslationTarget = {
-            MainActor.assumeIsolated { SettingsModel.storedChineseVariant(in: .standard) }
+        // reasoning as emojiFrecencyFor above), so hop via MainActor.run
+        // rather than the banned assumeIsolated shortcut.
+        let chineseVariantFor: @Sendable () async -> TranslationTarget = {
+            await MainActor.run { SettingsModel.storedChineseVariant(in: .standard) }
         }
-        let searchEngineFor: @Sendable () -> SearchEngine = {
-            MainActor.assumeIsolated { SettingsModel.storedSearchEngine(in: .standard) }
+        let searchEngineFor: @Sendable () async -> SearchEngine = {
+            await MainActor.run { SettingsModel.storedSearchEngine(in: .standard) }
         }
-        let fileSearchFoldersFor: @Sendable () -> [String] = {
-            MainActor.assumeIsolated { SettingsModel.storedFileSearchFolders(in: .standard) }
+        let fileSearchFoldersFor: @Sendable () async -> [String] = {
+            await MainActor.run { SettingsModel.storedFileSearchFolders(in: .standard) }
         }
-        let customSearchesFor: @Sendable () -> [CustomWebSearch] = {
-            MainActor.assumeIsolated { SettingsModel.storedCustomSearches(in: .standard) }
+        let customSearchesFor: @Sendable () async -> [CustomWebSearch] = {
+            await MainActor.run { SettingsModel.storedCustomSearches(in: .standard) }
         }
         let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(

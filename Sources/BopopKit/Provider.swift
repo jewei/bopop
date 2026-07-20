@@ -1,6 +1,28 @@
 import Foundation
+import os
 
 public protocol ResultProvider: Sendable {
     var id: ProviderID { get }
-    func results(for query: ParsedQuery) async throws -> [SearchResult]
+    nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult]
+}
+
+/// Foundation formatters are not thread-safe, and some (e.g.
+/// RelativeDateTimeFormatter) explicitly opt out of Sendable entirely, so a
+/// plain `OSAllocatedUnfairLock<Formatter>` won't compile for them (its usual
+/// initializer requires `Formatter: Sendable`). `uncheckedState` exists for
+/// exactly this case: the formatter itself is non-Sendable, but every access
+/// to it is forced through the lock's `withLock`, which is the same
+/// serialization guarantee Sendable would provide — so bypassing the
+/// compile-time check here is sound, and `OSAllocatedUnfairLock` remains
+/// unconditionally `Sendable` regardless of what it locks.
+nonisolated final class FormatterBox<Formatter>: Sendable {
+    private let lock: OSAllocatedUnfairLock<Formatter>
+
+    init(_ formatter: Formatter) {
+        lock = OSAllocatedUnfairLock(uncheckedState: formatter)
+    }
+
+    func withLock<T: Sendable>(_ body: @Sendable (inout Formatter) -> T) -> T {
+        lock.withLock(body)
+    }
 }

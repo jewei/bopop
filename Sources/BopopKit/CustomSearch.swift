@@ -64,15 +64,18 @@ public nonisolated struct CustomWebSearch: Codable, Equatable, Sendable, Identif
 public final class CustomSearchProvider: ResultProvider {
     public let id: ProviderID = .customSearch
 
-    private let searches: @Sendable () -> [CustomWebSearch]
+    private let searches: @Sendable () async -> [CustomWebSearch]
 
-    public init(searches: @escaping @Sendable () -> [CustomWebSearch]) {
+    public init(searches: @escaping @Sendable () async -> [CustomWebSearch]) {
         self.searches = searches
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
-        guard query.mode == .general,
-              let (search, remainder) = CustomWebSearch.match(term: query.term, searches: searches()),
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+        guard query.mode == .general else {
+            return []
+        }
+        let availableSearches = await searches()
+        guard let (search, remainder) = CustomWebSearch.match(term: query.term, searches: availableSearches),
               let url = search.url(for: remainder) else {
             return []
         }

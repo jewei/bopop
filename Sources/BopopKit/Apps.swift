@@ -221,22 +221,26 @@ public final class AppsProvider: ResultProvider {
     public let id: ProviderID = .apps
 
     private let catalog: AppCatalog
-    private let frecencyFor: (String) -> Double
+    private let frecencyFor: @Sendable (String) async -> Double
 
     public init(
         catalog: AppCatalog,
-        frecencyFor: @escaping (String) -> Double
+        frecencyFor: @escaping @Sendable (String) async -> Double
     ) {
         self.catalog = catalog
         self.frecencyFor = frecencyFor
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general || query.mode == .apps else {
             return []
         }
 
-        let indexedApps = catalog.apps.enumerated().map { index, app in
+        // AppCatalog is MainActor-isolated and its `apps` array is refreshed
+        // from a background Task — snapshot it instead of touching it directly
+        // from this now off-main-actor body.
+        let catalogApps = await MainActor.run { catalog.apps }
+        let indexedApps = catalogApps.enumerated().map { index, app in
             IndexedApp(
                 app: app,
                 id: resultID(for: app),
@@ -245,12 +249,13 @@ public final class AppsProvider: ResultProvider {
         }
         let selectedApps: [IndexedApp]
         if query.term.isEmpty {
-            let scoredApps: [ScoredApp] = indexedApps.compactMap { indexedApp in
-                let frecency = frecencyFor(indexedApp.id)
+            var scoredApps: [ScoredApp] = []
+            for indexedApp in indexedApps {
+                let frecency = await frecencyFor(indexedApp.id)
                 guard frecency > 0 else {
-                    return nil
+                    continue
                 }
-                return ScoredApp(indexedApp: indexedApp, frecency: frecency)
+                scoredApps.append(ScoredApp(indexedApp: indexedApp, frecency: frecency))
             }
             selectedApps = scoredApps.sorted { lhs, rhs in
                 if lhs.frecency != rhs.frecency {
@@ -284,7 +289,7 @@ public final class AppsProvider: ResultProvider {
         }
     }
 
-    private func resultID(for app: AppInfo) -> String {
+    private nonisolated func resultID(for app: AppInfo) -> String {
         "app:\(app.bundleID ?? app.path)"
     }
 

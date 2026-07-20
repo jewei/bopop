@@ -125,10 +125,19 @@ func translateFailureReturnsNoResults() async throws {
 @Test
 func debounceCancellationStopsTranslate() async {
     let translator = MockTranslator(availability: .ready, translationResult: .success("你好"))
+    // results(for:) is nonisolated now, so its continuation past the
+    // availability() await resumes on the concurrent executor rather than
+    // being serialized behind this MainActor test body the way it used to
+    // be — under a fully parallel `swift test` run, both this test body's
+    // own resumption and the provider's are competing for worker threads,
+    // so a short debounce window is no longer a reliable margin. A long
+    // window costs nothing here (cancellation still returns immediately,
+    // long before the window would elapse) but makes the race effectively
+    // impossible to lose.
     let provider = TranslationProvider(
         translator: translator,
         chineseVariant: { .chineseSimplified },
-        debounceNanoseconds: 200_000_000
+        debounceNanoseconds: 5_000_000_000
     )
 
     let task = Task {

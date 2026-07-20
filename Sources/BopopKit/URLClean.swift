@@ -134,7 +134,7 @@ public final class URLCleanProvider: ResultProvider {
 
     public init() {}
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }

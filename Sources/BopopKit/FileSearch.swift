@@ -37,13 +37,13 @@ public final class FileSearcher {
     internal private(set) var lastSearchScopes: [Any] = []
 
     private let maxResults: Int
-    private let scopeProvider: @Sendable () -> [String]
+    private let scopeProvider: @Sendable () async -> [String]
     private var active: ActiveSearch?
     private var nextSearchID = 0
 
     public init(
         maxResults: Int = 40,
-        scopeProvider: @escaping @Sendable () -> [String] = { [] }
+        scopeProvider: @escaping @Sendable () async -> [String] = { [] }
     ) {
         self.maxResults = max(0, maxResults)
         self.scopeProvider = scopeProvider
@@ -70,6 +70,14 @@ public final class FileSearcher {
             return []
         }
 
+        // scopeProvider is an async hop to MainActor (it reads SettingsModel
+        // state); fetch it before opening the checked continuation below,
+        // whose own closure must stay synchronous.
+        let scopePaths = await scopeProvider()
+        guard !Task.isCancelled else {
+            return []
+        }
+
         return await withTaskCancellationHandler(
             operation: {
                 await withCheckedContinuation { continuation in
@@ -80,7 +88,7 @@ public final class FileSearcher {
                     }
 
                     didBuildQuery = true
-                    let scopes = Self.resolveScopes(paths: scopeProvider())
+                    let scopes = Self.resolveScopes(paths: scopePaths)
                     lastSearchScopes = scopes
                     let query = NSMetadataQuery()
                     query.predicate = NSPredicate(
@@ -208,7 +216,7 @@ public final class FileSearchProvider: ResultProvider {
         self.searchImpl = searchImpl
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .fileSearch, !query.term.isEmpty else { return [] }
 
         let items = await searchImpl(query.term)

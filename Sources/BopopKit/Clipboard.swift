@@ -124,20 +124,27 @@ public final class ClipboardProvider: ResultProvider {
     public let id: ProviderID = .clipboard
 
     private let store: ClipboardStore
-    private let relativeDateFormatter: RelativeDateTimeFormatter
+    // Once this provider runs off the main actor, two overlapping generations
+    // could format on this shared instance from different threads at once —
+    // RelativeDateTimeFormatter is not thread-safe, so guard it with a lock
+    // rather than constructing one per row (formatter construction is
+    // expensive enough to matter here, same trade-off as Currency's).
+    private let relativeDateFormatter: FormatterBox<RelativeDateTimeFormatter>
 
     public init(store: ClipboardStore) {
         self.store = store
         let formatter = RelativeDateTimeFormatter()
         formatter.dateTimeStyle = .named
-        relativeDateFormatter = formatter
+        relativeDateFormatter = FormatterBox(formatter)
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .clipboard else {
             return []
         }
-        let entries = store.entries
+        // ClipboardStore is MainActor-isolated and mutable — snapshot its
+        // array rather than reading it from this off-main-actor body.
+        let entries = await MainActor.run { store.entries }
         guard !entries.isEmpty else {
             return []
         }
@@ -147,10 +154,9 @@ public final class ClipboardProvider: ResultProvider {
                 id: "clip:\(entry.capturedAt.timeIntervalSince1970)",
                 providerID: .clipboard,
                 title: title(for: entry.text),
-                subtitle: relativeDateFormatter.localizedString(
-                    for: entry.capturedAt,
-                    relativeTo: Date()
-                ),
+                subtitle: relativeDateFormatter.withLock { formatter in
+                    formatter.localizedString(for: entry.capturedAt, relativeTo: Date())
+                },
                 icon: .symbol("doc.on.clipboard"),
                 // Cap searchable text so Ranker never folds 100 KB per keystroke.
                 keywords: [String(entry.text.prefix(1_000))],
@@ -174,7 +180,7 @@ public final class ClipboardProvider: ResultProvider {
         return results
     }
 
-    private func title(for text: String) -> String {
+    private nonisolated func title(for text: String) -> String {
         let firstLine = text.components(separatedBy: .newlines).first ?? ""
         let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 60 else {

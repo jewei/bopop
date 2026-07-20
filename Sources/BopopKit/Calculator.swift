@@ -36,7 +36,7 @@ public final class CalculatorProvider: ResultProvider {
 
     public init() {}
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, Self.isCandidate(query.term) else {
             return []
         }

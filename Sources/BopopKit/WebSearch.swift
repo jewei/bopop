@@ -54,13 +54,13 @@ public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
 public final class WebSearchProvider: ResultProvider {
     public let id: ProviderID = .webSearch
 
-    private let engine: @Sendable () -> SearchEngine
+    private let engine: @Sendable () async -> SearchEngine
 
-    public init(engine: @escaping @Sendable () -> SearchEngine) {
+    public init(engine: @escaping @Sendable () async -> SearchEngine) {
         self.engine = engine
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }
@@ -70,7 +70,7 @@ public final class WebSearchProvider: ResultProvider {
             return []
         }
 
-        let selectedEngine = engine()
+        let selectedEngine = await engine()
         guard let url = selectedEngine.searchURL(for: term) else {
             return []
         }

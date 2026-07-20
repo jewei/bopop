@@ -32,30 +32,37 @@ public final class EmojiProvider: ResultProvider {
     public let id: ProviderID = .emoji
 
     private let catalog: EmojiCatalog
-    private let frecencyFor: @Sendable (String) -> Double
+    private let frecencyFor: @Sendable (String) async -> Double
 
-    public init(catalog: EmojiCatalog, frecencyFor: @escaping @Sendable (String) -> Double) {
+    public init(catalog: EmojiCatalog, frecencyFor: @escaping @Sendable (String) async -> Double) {
         self.catalog = catalog
         self.frecencyFor = frecencyFor
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .emoji else {
             return []
         }
 
-        let indexedEntries = Array(catalog.entries.enumerated())
+        // EmojiCatalog's `entries` is a lazy var — force it to initialize on
+        // MainActor (its home isolation) rather than racing a first access
+        // from this now off-main-actor body.
+        let catalogEntries = await MainActor.run { catalog.entries }
+        let indexedEntries = Array(catalogEntries.enumerated())
         let term = query.term.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !term.isEmpty else {
             // Grid mode scrolls through the FULL catalog frecency-first
             // (ties broken by catalog order) rather than the old top-24
             // list cutoff — the tile grid has room to browse everything.
-            let byFrecency = indexedEntries.sorted { lhs, rhs in
-                let lhsScore = frecencyFor(lhs.element.char)
-                let rhsScore = frecencyFor(rhs.element.char)
-                if lhsScore != rhsScore {
-                    return lhsScore > rhsScore
+            var scored: [(offset: Int, element: EmojiEntry, score: Double)] = []
+            for indexed in indexedEntries {
+                let score = await frecencyFor(indexed.element.char)
+                scored.append((indexed.offset, indexed.element, score))
+            }
+            let byFrecency = scored.sorted { lhs, rhs in
+                if lhs.score != rhs.score {
+                    return lhs.score > rhs.score
                 }
                 return lhs.offset < rhs.offset
             }
@@ -65,7 +72,7 @@ public final class EmojiProvider: ResultProvider {
         return indexedEntries.map { makeResult($0.element, catalogIndex: $0.offset) }
     }
 
-    private func makeResult(_ entry: EmojiEntry, catalogIndex: Int) -> SearchResult {
+    private nonisolated func makeResult(_ entry: EmojiEntry, catalogIndex: Int) -> SearchResult {
         SearchResult(
             id: entry.char,
             providerID: .emoji,

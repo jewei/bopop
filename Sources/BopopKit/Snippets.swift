@@ -68,7 +68,7 @@ public final class SnippetsProvider: ResultProvider {
         self.store = store
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         switch query.mode {
         case .general:
             guard !query.term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -79,7 +79,10 @@ public final class SnippetsProvider: ResultProvider {
         default:
             return []
         }
-        return store.snippets.enumerated().map { index, snippet in
+        // SnippetStore is MainActor-isolated and mutable — snapshot its
+        // array rather than reading it from this off-main-actor body.
+        let snippets = await MainActor.run { store.snippets }
+        return snippets.enumerated().map { index, snippet in
             SearchResult(
                 id: "snippet:\(snippet.id.uuidString)",
                 providerID: .snippets,

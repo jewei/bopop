@@ -337,7 +337,7 @@ public final class TimeProvider: ResultProvider {
         self.localTimeZone = localTimeZone
     }
 
-    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }
