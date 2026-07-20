@@ -2,15 +2,32 @@ import Foundation
 import Testing
 @testable import BopopKit
 
-// Diagnostic for the "empty palette on show" regression: replicates
-// AppDelegate's general-mode wiring and asserts the empty query yields
-// the two mode commands at minimum.
+// Diagnostic for the "empty palette on show" regression: an empty query
+// must still publish a final update containing whatever the general-mode
+// providers yield for an empty term. (The mode command rows this test
+// originally asserted were removed when the tab row replaced them.)
 @MainActor
 @Test
-func emptyQueryProducesCommandRows() async throws {
+func emptyQueryPublishesProviderResults() async throws {
+    struct StubProvider: ResultProvider {
+        let id: ProviderID = .apps
+
+        func results(for query: ParsedQuery) async throws -> [SearchResult] {
+            [
+                SearchResult(
+                    id: "stub:frecent-app",
+                    providerID: .apps,
+                    title: "Stub App",
+                    action: .openApp("stub"),
+                    sortHint: 0
+                )
+            ]
+        }
+    }
+
     let engine = QueryEngine(
         providers: [
-            .general: [CommandsProvider()],
+            .general: [StubProvider()],
             .fileSearch: [],
             .clipboard: []
         ],
@@ -27,8 +44,5 @@ func emptyQueryProducesCommandRows() async throws {
 
     let final = try #require(received.last)
     #expect(final.isFinal)
-    #expect(final.results.count >= 4)
-    #expect(final.results.contains { $0.id == "cmd:file-search" })
-    #expect(final.results.contains { $0.id == "cmd:emoji" })
-    #expect(final.results.contains { $0.id == "cmd:translate" })
+    #expect(final.results.contains { $0.id == "stub:frecent-app" })
 }

@@ -52,7 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let engine = QueryEngine(
             providers: [
                 .general: [
-                    CommandsProvider(),
                     appsProvider,
                     CalculatorProvider(),
                     ScriptsProvider(catalog: scriptCatalog),
