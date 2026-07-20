@@ -11,10 +11,17 @@ enum PaletteLayout {
         let scrollTopToHero: NSLayoutConstraint
     }
 
-    // SF Mono to match the tabs/footer/keycap grammar — the query line is
-    // a terminal prompt, not a billboard. Kern 0: mono spacing is the point.
-    private static let queryFont = NSFont.monospacedSystemFont(ofSize: 22, weight: .semibold)
-    private static let queryKern = 0.0
+    // SF Pro Rounded: warmer than mono for the line you actually type,
+    // while keycaps/tabs/footer keep the mono grammar around it.
+    private static let queryFont: NSFont = {
+        let base = NSFont.systemFont(ofSize: 22, weight: .semibold)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded),
+              let rounded = NSFont(descriptor: descriptor, size: 22) else {
+            return base
+        }
+        return rounded
+    }()
+    private static let queryKern = -0.1
 
     private static var queryTextAttributes: [NSAttributedString.Key: Any] {
         [
