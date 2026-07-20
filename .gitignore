@@ -6,4 +6,5 @@ dist/
 docs/superpowers
 DESIGN.md
 HANDOVER.md
-PRODUCT.md.claude/
+PRODUCT.md
+.claude/
