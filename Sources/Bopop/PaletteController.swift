@@ -329,7 +329,12 @@ final class PaletteController: NSObject {
         }
         let indexPath = IndexPath(item: selectedIndex, section: 0)
         gridView.collectionView.selectionIndexPaths = [indexPath]
-        gridView.collectionView.scrollToItems(at: [indexPath], scrollPosition: [])
+        // Explicit position: an empty ScrollPosition can no-op in AppKit,
+        // leaving the selection below the fold while arrowing.
+        gridView.collectionView.scrollToItems(
+            at: [indexPath],
+            scrollPosition: .nearestHorizontalEdge
+        )
     }
 
     /// Grid analog of `moveSelection(by:)`: ←/→ pass `by: ±1`, ↑/↓ pass
