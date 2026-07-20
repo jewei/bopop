@@ -7,13 +7,13 @@ import BopopKit
 /// responsible for calling `setActive` at every point the effective mode
 /// changes. A pill click enters that mode the same way a command row does.
 final class PaletteTabsView: NSView {
-    static let orderedTabs: [(Mode, String)] = [
-        (.general, "All"),
-        (.apps, "Apps"),
-        (.fileSearch, "Files"),
-        (.clipboard, "Clipboard"),
-        (.emoji, "Emoji"),
-        (.translation, "Translate")
+    static let orderedTabs: [(Mode, String, String)] = [
+        (.general, "All", "square.grid.2x2"),
+        (.apps, "Apps", "app"),
+        (.fileSearch, "Files", "folder"),
+        (.clipboard, "Clipboard", "doc.on.clipboard"),
+        (.emoji, "Emoji", "face.smiling"),
+        (.translation, "Translate", "character.bubble")
     ]
 
     /// Wired by `PaletteController` — a pill click enters that mode,
@@ -52,8 +52,8 @@ final class PaletteTabsView: NSView {
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         var views: [NSView] = []
-        for (mode, title) in Self.orderedTabs {
-            let pill = PaletteTabPillButton(title: title, mode: mode)
+        for (mode, title, symbolName) in Self.orderedTabs {
+            let pill = PaletteTabPillButton(title: title, symbolName: symbolName, mode: mode)
             pill.target = self
             pill.action = #selector(pillTapped(_:))
             pill.setActive(mode == activeMode)
@@ -63,13 +63,14 @@ final class PaletteTabsView: NSView {
         stackView.setViews(views, in: .leading)
         addSubview(stackView)
 
+        // Pills are shorter than the row and vertically centered so the
+        // capsule never touches the hairline above or the list below.
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
                 constant: PaletteMetrics.footerInset
             ),
-            stackView.topAnchor.constraint(equalTo: topAnchor),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            stackView.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }
 
@@ -86,17 +87,25 @@ private final class PaletteTabPillButton: NSButton {
     private static let hoverTextAlpha: CGFloat = 0.7
     private static let activeTextAlpha: CGFloat = 0.92
     private static let activeFillAlpha: CGFloat = 0.25
-    private static let horizontalPadding: CGFloat = 14
+    private static let horizontalPadding: CGFloat = 12
+    private static let iconTextGap: CGFloat = 5
 
     let mode: Mode
     private var isActive = false
     private var hoverTrackingArea: NSTrackingArea?
     private let label: NSTextField
+    private let iconView = NSImageView()
 
-    init(title: String, mode: Mode) {
+    init(title: String, symbolName: String, mode: Mode) {
         self.mode = mode
         label = NSTextField(labelWithString: title)
         super.init(frame: .zero)
+        iconView.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+        )
         configureButton()
     }
 
@@ -106,8 +115,11 @@ private final class PaletteTabPillButton: NSButton {
 
     override var intrinsicContentSize: NSSize {
         NSSize(
-            width: label.intrinsicContentSize.width + Self.horizontalPadding * 2,
-            height: PaletteMetrics.tabsHeight
+            width: iconView.intrinsicContentSize.width
+                + Self.iconTextGap
+                + label.intrinsicContentSize.width
+                + Self.horizontalPadding * 2,
+            height: PaletteMetrics.tabPillHeight
         )
     }
 
@@ -135,14 +147,19 @@ private final class PaletteTabPillButton: NSButton {
         guard !isActive else {
             return
         }
-        label.textColor = NSColor.white.withAlphaComponent(Self.hoverTextAlpha)
+        setForeground(alpha: Self.hoverTextAlpha)
     }
 
     override func mouseExited(with event: NSEvent) {
         guard !isActive else {
             return
         }
-        label.textColor = NSColor.white.withAlphaComponent(Self.inactiveTextAlpha)
+        setForeground(alpha: Self.inactiveTextAlpha)
+    }
+
+    private func setForeground(alpha: CGFloat) {
+        label.textColor = NSColor.white.withAlphaComponent(alpha)
+        iconView.contentTintColor = NSColor.white.withAlphaComponent(alpha)
     }
 
     override func layout() {
@@ -162,7 +179,10 @@ private final class PaletteTabPillButton: NSButton {
         setContentCompressionResistancePriority(.required, for: .horizontal)
         setAccessibilityLabel(label.stringValue)
 
-        heightAnchor.constraint(equalToConstant: PaletteMetrics.tabsHeight).isActive = true
+        heightAnchor.constraint(equalToConstant: PaletteMetrics.tabPillHeight).isActive = true
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(iconView)
 
         label.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         label.alignment = .center
@@ -172,9 +192,14 @@ private final class PaletteTabPillButton: NSButton {
         addSubview(label)
 
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(
+            iconView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
                 constant: Self.horizontalPadding
+            ),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(
+                equalTo: iconView.trailingAnchor,
+                constant: Self.iconTextGap
             ),
             label.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
@@ -190,8 +215,6 @@ private final class PaletteTabPillButton: NSButton {
         layer?.backgroundColor = isActive
             ? NSColor.bopopAccent.withAlphaComponent(Self.activeFillAlpha).cgColor
             : NSColor.clear.cgColor
-        label.textColor = NSColor.white.withAlphaComponent(
-            isActive ? Self.activeTextAlpha : Self.inactiveTextAlpha
-        )
+        setForeground(alpha: isActive ? Self.activeTextAlpha : Self.inactiveTextAlpha)
     }
 }

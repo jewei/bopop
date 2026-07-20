@@ -4,7 +4,8 @@ enum PaletteMetrics {
     static let width: CGFloat = 620
     static let fieldHeight: CGFloat = 76
     static let separatorHeight: CGFloat = 1
-    static let tabsHeight: CGFloat = 34
+    static let tabsHeight: CGFloat = 40
+    static let tabPillHeight: CGFloat = 26
     static let rowHeight: CGFloat = 52
     static let maxVisibleRows = 9
     static let heroHeight: CGFloat = 96
