@@ -55,6 +55,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Search") {
+                Picker("Search engine", selection: $model.searchEngine) {
+                    ForEach(SearchEngine.allCases, id: \.self) { engine in
+                        Text(engine.displayName).tag(engine)
+                    }
+                }
+            }
+
             Section("General") {
                 Toggle("Launch Bopop at login", isOn: $model.launchAtLogin)
                 if let error = model.launchAtLoginError {
@@ -67,6 +75,6 @@ struct SettingsView: View {
         .tint(Color(nsColor: .bopopAccent))
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 380, height: 320)
+        .frame(width: 380, height: 360)
     }
 }

@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let chineseVariantFor: @Sendable () -> TranslationTarget = {
             MainActor.assumeIsolated { SettingsModel.storedChineseVariant(in: .standard) }
         }
+        let searchEngineFor: @Sendable () -> SearchEngine = {
+            MainActor.assumeIsolated { SettingsModel.storedSearchEngine(in: .standard) }
+        }
         let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(
             providers: [
@@ -55,8 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     ScriptsProvider(catalog: scriptCatalog),
                     CurrencyProvider(store: RateStore(storage: storage), fetcher: LiveRateFetcher()),
                     TimeProvider(),
-                    URLCleanProvider()
+                    URLCleanProvider(),
+                    WebSearchProvider(engine: searchEngineFor)
                 ],
+                .apps: [appsProvider],
                 .fileSearch: [
                     FileSearchProvider(searcher: FileSearcher())
                 ],
