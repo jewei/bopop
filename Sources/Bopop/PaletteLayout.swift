@@ -3,8 +3,10 @@ import QuartzCore
 
 enum PaletteLayout {
     struct InstalledConstraints {
-        let generalFieldLeading: NSLayoutConstraint
-        let modeFieldLeading: NSLayoutConstraint
+        /// List top anchor when no hero card is showing. Was pinned to the
+        /// field hairline directly; now pinned to the (always-visible)
+        /// tabs row's bottom edge instead — name kept for continuity with
+        /// the existing toggle pattern in `PaletteController`.
         let scrollTopToSeparator: NSLayoutConstraint
         let scrollTopToHero: NSLayoutConstraint
     }
@@ -24,8 +26,8 @@ enum PaletteLayout {
         in panel: PalettePanel,
         queryField: NSTextField,
         brandView: PaletteBrandView,
-        modeChip: PaletteModeChipView,
         escapeKeycap: PaletteKeycapView,
+        tabsView: PaletteTabsView,
         heroView: PaletteHeroView,
         scrollView: NSScrollView,
         tableView: NSTableView,
@@ -52,28 +54,18 @@ enum PaletteLayout {
         searchArea.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(searchArea)
         searchArea.addSubview(brandView)
-        searchArea.addSubview(modeChip)
         searchArea.addSubview(queryField)
         searchArea.addSubview(escapeKeycap)
 
         let fieldSeparator = PaletteSeparatorView()
         fieldSeparator.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(fieldSeparator)
+        contentView.addSubview(tabsView)
         heroView.isHidden = true
         contentView.addSubview(heroView)
         contentView.addSubview(scrollView)
         contentView.addSubview(footerView)
 
-        let generalLeading = queryField.leadingAnchor.constraint(
-            equalTo: brandView.trailingAnchor,
-            constant: 14
-        )
-        let modeLeading = queryField.leadingAnchor.constraint(
-            equalTo: modeChip.trailingAnchor,
-            constant: 10
-        )
-
-        generalLeading.isActive = true
         NSLayoutConstraint.activate([
             tintView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             tintView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -93,12 +85,10 @@ enum PaletteLayout {
             brandView.widthAnchor.constraint(equalToConstant: PaletteMetrics.brandSquareSize),
             brandView.heightAnchor.constraint(equalToConstant: PaletteMetrics.brandSquareSize),
 
-            modeChip.leadingAnchor.constraint(
+            queryField.leadingAnchor.constraint(
                 equalTo: brandView.trailingAnchor,
-                constant: 10
+                constant: 14
             ),
-            modeChip.centerYAnchor.constraint(equalTo: searchArea.centerYAnchor),
-            modeChip.heightAnchor.constraint(equalToConstant: 20),
 
             escapeKeycap.trailingAnchor.constraint(
                 equalTo: searchArea.trailingAnchor,
@@ -117,6 +107,11 @@ enum PaletteLayout {
             fieldSeparator.topAnchor.constraint(equalTo: searchArea.bottomAnchor),
             fieldSeparator.heightAnchor.constraint(equalToConstant: PaletteMetrics.separatorHeight),
 
+            tabsView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            tabsView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            tabsView.topAnchor.constraint(equalTo: fieldSeparator.bottomAnchor),
+            tabsView.heightAnchor.constraint(equalToConstant: PaletteMetrics.tabsHeight),
+
             heroView.leadingAnchor.constraint(
                 equalTo: contentView.leadingAnchor,
                 constant: PaletteMetrics.listSideInset
@@ -126,7 +121,7 @@ enum PaletteLayout {
                 constant: -PaletteMetrics.listSideInset
             ),
             heroView.topAnchor.constraint(
-                equalTo: fieldSeparator.bottomAnchor,
+                equalTo: tabsView.bottomAnchor,
                 constant: PaletteMetrics.listTopInset
             ),
             heroView.heightAnchor.constraint(equalToConstant: PaletteMetrics.heroHeight),
@@ -141,9 +136,10 @@ enum PaletteLayout {
             footerView.heightAnchor.constraint(equalToConstant: PaletteMetrics.footerHeight)
         ])
 
-        // Toggled by the controller: the list sits directly under the field
-        // hairline normally, or under the hero card when one is showing.
-        let scrollTopToSeparator = scrollView.topAnchor.constraint(equalTo: fieldSeparator.bottomAnchor)
+        // Toggled by the controller: the list sits directly under the
+        // (always-visible) tabs row normally, or under the hero card when
+        // one is showing.
+        let scrollTopToSeparator = scrollView.topAnchor.constraint(equalTo: tabsView.bottomAnchor)
         let scrollTopToHero = scrollView.topAnchor.constraint(
             equalTo: heroView.bottomAnchor,
             constant: PaletteMetrics.listTopInset
@@ -152,8 +148,6 @@ enum PaletteLayout {
 
         panel.contentView = contentView
         return InstalledConstraints(
-            generalFieldLeading: generalLeading,
-            modeFieldLeading: modeLeading,
             scrollTopToSeparator: scrollTopToSeparator,
             scrollTopToHero: scrollTopToHero
         )
@@ -298,57 +292,6 @@ final class PaletteBrandView: NSView {
         gradientLayer.endPoint = CGPoint(x: 1, y: 1)
         layer?.addSublayer(gradientLayer)
         setAccessibilityHidden(true)
-    }
-}
-
-final class PaletteModeChipView: NSView {
-    private let label = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        configureView()
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(
-            width: label.intrinsicContentSize.width + 16,
-            height: 20
-        )
-    }
-
-    func setTitle(_ title: String) {
-        label.stringValue = title
-        invalidateIntrinsicContentSize()
-    }
-
-    private func configureView() {
-        wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.bopopAccent
-            .withAlphaComponent(0.15)
-            .cgColor
-        translatesAutoresizingMaskIntoConstraints = false
-        isHidden = true
-        setContentHuggingPriority(.required, for: .horizontal)
-        setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        label.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
-        label.textColor = .bopopAccent
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)
-        ])
     }
 }
 

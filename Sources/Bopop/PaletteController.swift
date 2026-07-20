@@ -15,7 +15,7 @@ final class PaletteController: NSObject {
     private let panel: PalettePanel
     private let queryField = NSTextField()
     private let brandView = PaletteBrandView()
-    private let modeChip = PaletteModeChipView()
+    private let tabsView = PaletteTabsView()
     private let escapeKeycap = PaletteKeycapView(
         text: "esc",
         fontSize: 11,
@@ -30,6 +30,11 @@ final class PaletteController: NSObject {
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
     private var stickyMode: Mode = .general
+    /// The mode currently reflected by `tabsView`, tracking the EFFECTIVE
+    /// mode from the latest engine update — this includes prefix-typed
+    /// modes (`f `/`:`/`t `), which drive providers without changing
+    /// `stickyMode`. See `apply(_:)`.
+    private var lastParsedMode: Mode = .general
     private var results: [SearchResult] = []
     private var heroResult: SearchResult?
     /// -1 means the hero card owns the selection (Return/⌘C act on it); a
@@ -69,8 +74,8 @@ final class PaletteController: NSObject {
             in: panel,
             queryField: queryField,
             brandView: brandView,
-            modeChip: modeChip,
             escapeKeycap: escapeKeycap,
+            tabsView: tabsView,
             heroView: heroView,
             scrollView: scrollView,
             tableView: tableView,
@@ -148,7 +153,8 @@ final class PaletteController: NSObject {
         updateHeroPresentation()
         footerView.setStatus("Bopop")
         footerView.setActions(primary: nil, hasCopy: false)
-        updateModeChip()
+        lastParsedMode = .general
+        tabsView.setActive(.general)
         resizePanel()
     }
 
@@ -181,6 +187,9 @@ final class PaletteController: NSObject {
         }
         actionRunner.hidePalette = { [weak self] in
             self?.hide()
+        }
+        tabsView.onSelect = { [weak self] mode in
+            self?.enterMode(mode)
         }
         footerView.onShowSettings = { [weak self] in
             self?.hide()
@@ -217,7 +226,11 @@ final class PaletteController: NSObject {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
             tableView.scrollRowToVisible(0)
         }
-        updateFooter(after: update)
+
+        let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
+        lastParsedMode = query.mode
+        tabsView.setActive(query.mode)
+        updateFooter(after: update, query: query)
         resizePanel()
     }
 
@@ -244,42 +257,20 @@ final class PaletteController: NSObject {
     private func enterMode(_ mode: Mode) {
         stickyMode = mode
         queryField.stringValue = ""
-        updateModeChip()
+        lastParsedMode = mode
+        tabsView.setActive(mode)
         updateQuery()
     }
 
-    private func updateModeChip() {
-        switch stickyMode {
-        case .general:
-            modeChip.isHidden = true
-            layoutConstraints.modeFieldLeading.isActive = false
-            layoutConstraints.generalFieldLeading.isActive = true
-        case .apps:
-            modeChip.setTitle("Apps")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        case .fileSearch:
-            modeChip.setTitle("Files")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        case .clipboard:
-            modeChip.setTitle("Clipboard")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        case .emoji:
-            modeChip.setTitle("Emoji")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        case .translation:
-            modeChip.setTitle("Translate")
-            modeChip.isHidden = false
-            layoutConstraints.generalFieldLeading.isActive = false
-            layoutConstraints.modeFieldLeading.isActive = true
-        }
+    /// ⇥ / ⇧⇥ cycles through the ordered tab list from the current
+    /// EFFECTIVE mode (not just `stickyMode`, so cycling while a prefix
+    /// mode is active continues from that mode).
+    private func cycleTab(by offset: Int) {
+        let modes = PaletteTabsView.orderedTabs.map(\.0)
+        let currentIndex = modes.firstIndex(of: lastParsedMode) ?? 0
+        let count = modes.count
+        let nextIndex = ((currentIndex + offset) % count + count) % count
+        enterMode(modes[nextIndex])
     }
 
     private func moveSelection(by offset: Int) {
@@ -370,11 +361,7 @@ final class PaletteController: NSObject {
         engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
     }
 
-    private func updateFooter(after update: QueryEngine.Update) {
-        let query = QueryParser.parse(
-            raw: queryField.stringValue,
-            stickyMode: stickyMode
-        )
+    private func updateFooter(after update: QueryEngine.Update, query: ParsedQuery) {
         switch query.mode {
         case .general:
             footerView.setStatus("Bopop")
@@ -478,6 +465,7 @@ final class PaletteController: NSObject {
             : 0
         return PaletteMetrics.fieldHeight
             + PaletteMetrics.separatorHeight
+            + PaletteMetrics.tabsHeight
             + heroHeight
             + listHeight
             + PaletteMetrics.footerHeight
@@ -499,6 +487,10 @@ extension PaletteController: NSTextFieldDelegate {
             moveSelection(by: -1)
         case #selector(NSResponder.moveDown(_:)):
             moveSelection(by: 1)
+        case #selector(NSResponder.insertTab(_:)):
+            cycleTab(by: 1)
+        case #selector(NSResponder.insertBacktab(_:)):
+            cycleTab(by: -1)
         case #selector(NSResponder.insertNewline(_:)):
             if let result = selectedResult() {
                 actionRunner.perform(result)
@@ -513,7 +505,8 @@ extension PaletteController: NSTextFieldDelegate {
                 updateQuery()
             case .exitMode:
                 stickyMode = .general
-                updateModeChip()
+                lastParsedMode = .general
+                tabsView.setActive(.general)
                 updateQuery()
             case .closePanel:
                 hide()
