@@ -212,12 +212,19 @@ enum PaletteLayout {
         queryField.lineBreakMode = .byTruncatingTail
         // Tagline placeholder renders smaller than the 34pt typed query —
         // it's an invitation, not input; the moment you type, full size.
+        // The cell lays the placeholder out against the 34pt line box, so
+        // the smaller text needs a baseline drop to sit visually centered,
+        // and a head indent so it doesn't touch the insertion point.
+        let placeholderStyle = NSMutableParagraphStyle()
+        placeholderStyle.firstLineHeadIndent = 8
         queryField.placeholderAttributedString = NSAttributedString(
             string: "Bopop. Everything starts here",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 22, weight: .semibold),
                 .foregroundColor: NSColor.white.withAlphaComponent(0.35),
-                .kern: -0.22
+                .kern: -0.22,
+                .baselineOffset: -7,
+                .paragraphStyle: placeholderStyle
             ]
         )
         queryField.translatesAutoresizingMaskIntoConstraints = false
