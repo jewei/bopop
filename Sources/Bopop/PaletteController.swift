@@ -29,6 +29,7 @@ final class PaletteController: NSObject {
     private let tableView = NSTableView()
     private let gridView = EmojiGridView()
     private let footerView = PaletteFooterView()
+    private let largeTypeController = LargeTypeWindowController()
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
     private var stickyMode: Mode = .general
@@ -161,6 +162,7 @@ final class PaletteController: NSObject {
         if QLPreviewPanel.sharedPreviewPanelExists() {
             QLPreviewPanel.shared().orderOut(nil)
         }
+        largeTypeController.hide()
         panel.orderOut(nil)
         stickyMode = .general
         queryField.stringValue = ""
@@ -217,8 +219,14 @@ final class PaletteController: NSObject {
         panel.onToggleQuickLook = { [weak self] in
             self?.toggleQuickLook() ?? false
         }
+        panel.onToggleLargeType = { [weak self] in
+            self?.toggleLargeType() ?? false
+        }
         panel.quickLookDataSource = self
         panel.quickLookDelegate = self
+        largeTypeController.onDismiss = { [weak self] in
+            self?.largeTypeController.hide()
+        }
         engine.onUpdate = { [weak self] update in
             self?.apply(update)
         }
@@ -448,6 +456,20 @@ final class PaletteController: NSObject {
             return false
         }
         QLPreviewPanel.shared().makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    /// No-op (returns `false`) when the selection has no large-type text
+    /// representation and the panel isn't already open to be dismissed.
+    private func toggleLargeType() -> Bool {
+        if largeTypeController.isVisible {
+            largeTypeController.hide()
+            return true
+        }
+        guard let text = LargeType.text(for: selectedResult() ?? heroResult) else {
+            return false
+        }
+        largeTypeController.show(text: text, on: panel.screen ?? NSScreen.main!)
         return true
     }
 

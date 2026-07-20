@@ -6,6 +6,7 @@ final class PalettePanel: NSPanel {
     var onCommandCopy: (() -> Bool)?
     var onCommandReveal: (() -> Bool)?
     var onToggleQuickLook: (() -> Bool)?
+    var onToggleLargeType: (() -> Bool)?
 
     /// Set by `PaletteController` (which implements both protocols) so this
     /// panel — the key window while the palette is visible, and thus first
@@ -37,7 +38,19 @@ final class PalettePanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        onResign?()
+        // The successor key window isn't known yet during resignKey, so defer
+        // one runloop turn: if one of the app's own overlays (Large Type,
+        // Quick Look) — or this panel itself — took key back, it's not a
+        // genuine focus loss and the palette must stay open.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch NSApp.keyWindow {
+            case self, is LargeTypePanel, is QLPreviewPanel:
+                return
+            default:
+                self.onResign?()
+            }
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -77,6 +90,10 @@ final class PalettePanel: NSPanel {
                 }
             case "y":
                 if onToggleQuickLook?() == true {
+                    return true
+                }
+            case "l":
+                if onToggleLargeType?() == true {
                     return true
                 }
             default:
