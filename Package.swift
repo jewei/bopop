@@ -11,6 +11,9 @@ let package = Package(
         .library(name: "BopopKit", targets: ["BopopKit"]),
         .executable(name: "Bopop", targets: ["Bopop"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.3")
+    ],
     targets: [
         .target(
             name: "BopopKit",
@@ -19,8 +22,18 @@ let package = Package(
         ),
         .executableTarget(
             name: "Bopop",
-            dependencies: ["BopopKit"],
-            swiftSettings: [.defaultIsolation(MainActor.self)]
+            dependencies: [
+                "BopopKit",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
+            swiftSettings: [.defaultIsolation(MainActor.self)],
+            linkerSettings: [
+                // The bundled app loads Sparkle from Contents/Frameworks.
+                .unsafeFlags([
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", "@executable_path/../Frameworks"
+                ])
+            ]
         ),
         .testTarget(
             name: "BopopKitTests",
