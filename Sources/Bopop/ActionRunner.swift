@@ -34,6 +34,14 @@ final class ActionRunner {
         execute(result.action)
     }
 
+    /// Reveal routes through the runner like copy does — hide, then
+    /// execute — without the full `perform` path (no usage recording, no
+    /// `onExecuted` callback), since revealing isn't "activating" a result.
+    func performReveal(_ path: String) {
+        hidePalette?()
+        execute(.revealFile(path))
+    }
+
     func performCopy(_ result: SearchResult) {
         let secondaryCopy = result.secondaryActions.first { action in
             if case .copyText = action {
@@ -89,6 +97,8 @@ final class ActionRunner {
             onDownloadTranslation?()
         case .systemCommand(let command):
             run(command.invocation)
+        case let .revealFile(path):
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
     }
 

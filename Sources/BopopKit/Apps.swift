@@ -278,7 +278,7 @@ public final class AppsProvider: ResultProvider {
                 icon: .appBundle(app.path),
                 keywords: app.keywords,
                 action: .openApp(app.path),
-                secondaryActions: [.copyText(app.path)],
+                secondaryActions: [.copyText(app.path), .revealFile(app.path)],
                 sortHint: indexedApp.sortHint
             )
         }

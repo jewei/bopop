@@ -36,6 +36,7 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case openURL(String)
     case downloadTranslation
     case systemCommand(SystemCommand)
+    case revealFile(String)
 }
 
 public nonisolated struct HeroContent: Equatable, Sendable {

@@ -6,6 +6,7 @@ final class PaletteFooterView: NSView {
     private let navigateLabel = NSTextField(labelWithString: "↑↓ navigate")
     private let copyLabel = NSTextField(labelWithString: "⌘C copy")
     private let primaryLabel = NSTextField(labelWithString: "↵ select")
+    private let fileLabel = NSTextField(labelWithString: "⌘⏎ reveal · ⌘Y preview")
     private let gearButton = PaletteFooterGearButton()
     private let rightCluster = NSStackView()
 
@@ -29,11 +30,12 @@ final class PaletteFooterView: NSView {
         statusLabel.toolTip = text
     }
 
-    func setActions(primary: String?, hasCopy: Bool) {
+    func setActions(primary: String?, hasCopy: Bool, hasFile: Bool = false) {
         let verb = primary?.lowercased() ?? "select"
         primaryLabel.stringValue = "↵ \(verb)"
         primaryLabel.setAccessibilityLabel("Return activates the selected result")
         copyLabel.isHidden = !hasCopy
+        fileLabel.isHidden = !hasFile
     }
 
     private func configureView() {
@@ -58,6 +60,10 @@ final class PaletteFooterView: NSView {
         configureLabel(primaryLabel)
         primaryLabel.setAccessibilityLabel("Return selects the selected result")
 
+        configureLabel(fileLabel)
+        fileLabel.isHidden = true
+        fileLabel.setAccessibilityLabel("Command Return reveals in Finder, Command Y previews")
+
         gearButton.target = self
         gearButton.action = #selector(gearButtonTapped(_:))
         gearButton.setAccessibilityLabel("More options")
@@ -69,7 +75,7 @@ final class PaletteFooterView: NSView {
         // gotcha #6 applies when views must be pinned independently within
         // a stack; this cluster is pinned as a single unit instead).
         rightCluster.setViews(
-            [navigateLabel, copyLabel, primaryLabel, gearButton],
+            [navigateLabel, copyLabel, fileLabel, primaryLabel, gearButton],
             in: .leading
         )
         rightCluster.orientation = .horizontal

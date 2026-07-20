@@ -229,7 +229,7 @@ public final class FileSearchProvider: ResultProvider {
                 icon: .file(item.path),
                 keywords: [],
                 action: .openFile(item.path),
-                secondaryActions: [.copyText(item.path)],
+                secondaryActions: [.copyText(item.path), .revealFile(item.path)],
                 sortHint: index
             )
         }

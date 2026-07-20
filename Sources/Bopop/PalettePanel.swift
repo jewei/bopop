@@ -1,8 +1,18 @@
 import AppKit
+import Quartz
 
 final class PalettePanel: NSPanel {
     var onResign: (() -> Void)?
     var onCommandCopy: (() -> Bool)?
+    var onCommandReveal: (() -> Bool)?
+    var onToggleQuickLook: (() -> Bool)?
+
+    /// Set by `PaletteController` (which implements both protocols) so this
+    /// panel — the key window while the palette is visible, and thus first
+    /// in the responder chain QuickLook consults — can hand control of the
+    /// shared `QLPreviewPanel` to it.
+    weak var quickLookDataSource: QLPreviewPanelDataSource?
+    weak var quickLookDelegate: QLPreviewPanelDelegate?
 
     private lazy var blockCursorEditor: BlockCursorTextView = {
         // TextKit 1 explicitly: under TextKit 2 (the default since macOS 14)
@@ -61,11 +71,46 @@ final class PalettePanel: NSPanel {
                 if NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self) {
                     return true
                 }
+            case "\r":
+                if onCommandReveal?() == true {
+                    return true
+                }
+            case "y":
+                if onToggleQuickLook?() == true {
+                    return true
+                }
             default:
                 break
             }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    // MARK: - QLPreviewPanel control contract
+    //
+    // These are an informal NSResponder protocol (declared by QuickLookUI as
+    // a category) with no-op default implementations, so overriding them
+    // here is how this panel becomes the QLPreviewPanel's data
+    // source/delegate whenever it is asked to take control — which happens
+    // as long as it's still part of the responder chain of the current key
+    // window at the moment `QLPreviewPanel.shared()` is invoked.
+
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        true
+    }
+
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated {
+            panel.dataSource = quickLookDataSource
+            panel.delegate = quickLookDelegate
+        }
+    }
+
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated {
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
     }
 }
 

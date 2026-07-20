@@ -161,8 +161,8 @@ func fileSearchProviderMapsItems() async throws {
     #expect(results.map(\.keywords) == [[], []])
     #expect(results.map(\.action) == [.openFile(firstPath), .openFile(secondPath)])
     #expect(results.map(\.secondaryActions) == [
-        [.copyText(firstPath)],
-        [.copyText(secondPath)]
+        [.copyText(firstPath), .revealFile(firstPath)],
+        [.copyText(secondPath), .revealFile(secondPath)]
     ])
     #expect(results.map(\.sortHint) == [0, 1])
 }

@@ -1,5 +1,6 @@
 import AppKit
 import BopopKit
+import Quartz
 
 final class PaletteController: NSObject {
     private static let emptyFileSearchMessage = "Type to search files in your home folder"
@@ -157,6 +158,9 @@ final class PaletteController: NSObject {
         defer { isHiding = false }
         engine.cancel()
         persistPositionIfUserAdjusted()
+        if QLPreviewPanel.sharedPreviewPanelExists() {
+            QLPreviewPanel.shared().orderOut(nil)
+        }
         panel.orderOut(nil)
         stickyMode = .general
         queryField.stringValue = ""
@@ -207,6 +211,14 @@ final class PaletteController: NSObject {
         panel.onCommandCopy = { [weak self] in
             self?.performSelectedCopy() ?? false
         }
+        panel.onCommandReveal = { [weak self] in
+            self?.performSelectedReveal() ?? false
+        }
+        panel.onToggleQuickLook = { [weak self] in
+            self?.toggleQuickLook() ?? false
+        }
+        panel.quickLookDataSource = self
+        panel.quickLookDelegate = self
         engine.onUpdate = { [weak self] update in
             self?.apply(update)
         }
@@ -401,6 +413,7 @@ final class PaletteController: NSObject {
             tableView.scrollRowToVisible(selectedIndex)
         }
         updateFooterActions()
+        refreshQuickLookIfVisible()
     }
 
     private func performSelectedCopy() -> Bool {
@@ -413,6 +426,36 @@ final class PaletteController: NSObject {
         }
         actionRunner.performCopy(result)
         return true
+    }
+
+    private func performSelectedReveal() -> Bool {
+        guard let path = FilePayload.path(for: selectedResult()) else {
+            return false
+        }
+        actionRunner.performReveal(path)
+        return true
+    }
+
+    /// No-op (returns `false`, letting the key event fall through
+    /// harmlessly) when the selection has no file path and the panel isn't
+    /// already open to be dismissed.
+    private func toggleQuickLook() -> Bool {
+        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
+            QLPreviewPanel.shared().orderOut(nil)
+            return true
+        }
+        guard FilePayload.path(for: selectedResult()) != nil else {
+            return false
+        }
+        QLPreviewPanel.shared().makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    private func refreshQuickLookIfVisible() {
+        guard QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible else {
+            return
+        }
+        QLPreviewPanel.shared().reloadData()
     }
 
     private func resizePanel() {
@@ -539,7 +582,8 @@ final class PaletteController: NSObject {
 
         footerView.setActions(
             primary: Self.actionTitle(for: result.action),
-            hasCopy: Self.hasCopyAction(result)
+            hasCopy: Self.hasCopyAction(result),
+            hasFile: FilePayload.path(for: result) != nil
         )
     }
 
@@ -559,6 +603,8 @@ final class PaletteController: NSObject {
             "download"
         case .systemCommand:
             "run"
+        case .revealFile:
+            "reveal"
         }
     }
 
@@ -717,6 +763,7 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
             selectedIndex = -1
         }
         updateFooterActions()
+        refreshQuickLookIfVisible()
     }
 
     func tableView(
@@ -757,5 +804,18 @@ extension PaletteController: NSCollectionViewDataSource, NSCollectionViewDelegat
         }
         selectedIndex = indexPath.item
         actionRunner.perform(results[indexPath.item])
+    }
+}
+
+extension PaletteController: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        FilePayload.path(for: selectedResult()) != nil ? 1 : 0
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        guard let path = FilePayload.path(for: selectedResult()) else {
+            return nil
+        }
+        return URL(fileURLWithPath: path) as QLPreviewItem
     }
 }
