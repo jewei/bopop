@@ -90,6 +90,7 @@ func needsDownloadRow() async throws {
     )
     let results = try await provider.results(for: ParsedQuery(mode: .translation, term: "hello"))
     #expect(results.first?.title == "Download Chinese ⇄ English translation…")
+    #expect(results.first?.action == .downloadTranslation)
     #expect(await translator.translateCallCount == 0)
 }
 

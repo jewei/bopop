@@ -29,6 +29,7 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case runScript(String)
     case enterMode(Mode)
     case openURL(String)
+    case downloadTranslation
 }
 
 public nonisolated struct HeroContent: Equatable, Sendable {

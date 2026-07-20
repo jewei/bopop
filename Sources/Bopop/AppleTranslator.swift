@@ -38,7 +38,7 @@ import Translation
 /// same pattern `CurrencyProvider`/`TranslationProvider` already use in
 /// BopopKit for their own default-isolated target.
 @MainActor
-final class AppleTranslator: Translator {
+final class AppleTranslator: NSObject, Translator, NSWindowDelegate {
     private enum QueueItem: Sendable {
         case translate(text: String, continuation: CheckedContinuation<String, Error>)
         case prepareDownload
@@ -94,6 +94,56 @@ final class AppleTranslator: Translator {
         }
     }
 
+    /// Hosts its own, deliberately separate `TranslationSession` purely to
+    /// drive `prepareTranslation()` for `presentDownloadFlow()`'s visible
+    /// window — NOT one of the four immortal `HostView` sessions above.
+    /// Reusing one of those would tie this one-shot download UI's
+    /// lifetime to the app's permanent translate plumbing for no benefit,
+    /// and this session's whole point is to live inside a window the
+    /// user can actually see, unlike theirs.
+    private struct DownloadProgressView: View {
+        let configuration: TranslationSession.Configuration
+        let onSettled: @Sendable () -> Void
+
+        @State private var statusText = "Waiting for download approval…"
+
+        var body: some View {
+            VStack(spacing: 16) {
+                Text("Chinese ⇄ English Translation")
+                    .font(.headline)
+                // Apple's Translation framework exposes no byte-level
+                // download-progress API for on-device language packs —
+                // this indeterminate spinner plus the status text below
+                // IS the progress feedback available to us.
+                ProgressView()
+                    .progressViewStyle(.circular)
+                Text(statusText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
+            .frame(width: 380, height: 150)
+            .translationTask(configuration) { @Sendable session in
+                do {
+                    try await session.prepareTranslation()
+                } catch {
+                    // User declined the download (or some other failure) —
+                    // either way, there's nothing left to wait for.
+                }
+                onSettled()
+            }
+            .task {
+                // No event distinguishes "the user is looking at the
+                // system's consent sheet" from "bytes are downloading" —
+                // both happen inside the single prepareTranslation() await
+                // above — so this flips the status text once this view's
+                // tasks are underway, the closest observable proxy we have.
+                statusText = "Downloading language pack…"
+            }
+        }
+    }
+
     /// English⇄Simplified and English⇄Traditional, both directions each —
     /// the only pairs `TranslationDirection.target(for:chineseVariant:)`
     /// can ever produce.
@@ -107,11 +157,26 @@ final class AppleTranslator: Translator {
     private let defaults: UserDefaults
     private let window: NSWindow
     private var continuations: [SessionPair: AsyncStream<QueueItem>.Continuation] = [:]
-    /// Download prompts are deduped per pair per app run here — creating a
-    /// session for an uninstalled pair does NOT itself prompt (only
-    /// `prepareTranslation()`/`translate()` do), so this only needs to
-    /// guard those two call sites, not session construction above.
+    /// Guards `presentDownloadFlow()` against double-presentation: once a
+    /// pair's visible download window is showing, a repeated Return on the
+    /// "Download…" row brings the existing window forward instead of
+    /// opening a second one. (This used to dedupe a proactive
+    /// `requestDownload` call made from `availability()` — removed; see
+    /// that method for why.)
     private var downloadRequested: Set<SessionPair> = []
+    /// The single visible download-progress window, if one is currently
+    /// showing — `presentDownloadFlow()` allows only one at a time.
+    private var downloadWindow: NSWindow?
+    /// Which pair `downloadWindow`/`downloadPollingTask` belong to, so
+    /// `windowWillClose(_:)` and the completion/poll paths in
+    /// `presentDownloadFlow()` know what to clear from `downloadRequested`
+    /// when the flow ends.
+    private var downloadPair: SessionPair?
+    /// Belt-and-braces poll (see `presentDownloadFlow()`) that closes the
+    /// download window once `LanguageAvailability` reports both directions
+    /// of the pair installed, in case `prepareTranslation()`'s own
+    /// completion is ever missed.
+    private var downloadPollingTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -152,6 +217,8 @@ final class AppleTranslator: Translator {
         hostingView.frame = NSRect(x: 0, y: 0, width: 1, height: CGFloat(hosts.count))
         window.contentView = hostingView
         window.orderFrontRegardless()
+
+        super.init()
     }
 
     func availability(target: TranslationTarget) async -> TranslatorAvailability {
@@ -164,13 +231,16 @@ final class AppleTranslator: Translator {
         case .installed:
             return .ready
         case .supported:
-            // Kick off the system download prompt proactively so the
-            // "Download…" row the provider shows is informational — the
-            // user doesn't need a second action to start the download.
-            // requestDownload dedupes per pair per run, so repeated
-            // keystrokes (TranslationProvider calls availability on every
-            // one) don't re-prompt after the user has already seen it.
-            await requestDownload(target: target)
+            // Deliberately NOT kicking off a download here. prepareTranslation()
+            // presents the system's download-consent sheet attached to whatever
+            // window hosts the session that requested it — and every session
+            // reachable from this method lives in the permanently offscreen,
+            // alpha-0 host window above, so the sheet would render but never be
+            // visible or approvable. That was the original bug: pressing Return
+            // on the "Download…" row appeared to do nothing because the consent
+            // sheet was there, just unseeable. The row's action now routes to
+            // `presentDownloadFlow()`, which hosts a real, visible window for
+            // exactly this purpose — see that method.
             return .needsDownload
         case .unsupported:
             return .unsupported
@@ -198,6 +268,125 @@ final class AppleTranslator: Translator {
         }
         downloadRequested.insert(pair)
         continuations[pair]?.yield(.prepareDownload)
+    }
+
+    /// Presents a small, real, titled window that hosts the on-device
+    /// language-pack download/consent flow for {English, the configured
+    /// Chinese variant}. This is the actual fix for the invisible-sheet
+    /// bug: `prepareTranslation()`'s system consent sheet attaches to
+    /// whatever window hosts its session, so that session has to live
+    /// somewhere the user can see and interact with — unlike the four
+    /// immortal sessions above, which stay in the permanently offscreen,
+    /// alpha-0 window and exist only to keep `translate()` fast once a
+    /// pair is already installed.
+    ///
+    /// Idempotent while a flow is already in progress for the pair:
+    /// repeated Returns on the "Download…" row bring the existing window
+    /// forward instead of presenting a second one.
+    func presentDownloadFlow() {
+        let target = SettingsModel.storedChineseVariant(in: defaults)
+        let pair = SessionPair(source: .english, target: target)
+
+        guard downloadPair != pair else {
+            downloadWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        guard !downloadRequested.contains(pair) else {
+            return
+        }
+        downloadRequested.insert(pair)
+        downloadPair = pair
+
+        let configuration = TranslationSession.Configuration(
+            source: Locale.Language(identifier: pair.source.rawValue),
+            target: Locale.Language(identifier: pair.target.rawValue)
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 150),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Chinese ⇄ English Translation"
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+
+        let hostingView = NSHostingView(
+            rootView: DownloadProgressView(configuration: configuration) { [weak self] in
+                Task { @MainActor in
+                    self?.handleDownloadSettled(for: pair)
+                }
+            }
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 380, height: 150)
+        window.contentView = hostingView
+
+        downloadWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        startPollingAvailability(for: pair)
+    }
+
+    /// Belt-and-braces alongside `DownloadProgressView`'s own
+    /// `prepareTranslation()` completion: closes the download window the
+    /// moment `LanguageAvailability` reports BOTH directions of the pair
+    /// as `.installed`, in case that completion callback is ever missed.
+    /// There is no public byte-level progress API to poll instead — this,
+    /// plus the indeterminate spinner/status text in
+    /// `DownloadProgressView`, is the extent of the progress feedback the
+    /// framework allows.
+    private func startPollingAvailability(for pair: SessionPair) {
+        downloadPollingTask?.cancel()
+        downloadPollingTask = Task { [weak self] in
+            let availability = LanguageAvailability()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled, let self else {
+                    return
+                }
+                let forward = await availability.status(
+                    from: Locale.Language(identifier: pair.source.rawValue),
+                    to: Locale.Language(identifier: pair.target.rawValue)
+                )
+                let backward = await availability.status(
+                    from: Locale.Language(identifier: pair.target.rawValue),
+                    to: Locale.Language(identifier: pair.source.rawValue)
+                )
+                if forward == .installed, backward == .installed {
+                    self.handleDownloadSettled(for: pair)
+                    return
+                }
+            }
+        }
+    }
+
+    private func handleDownloadSettled(for pair: SessionPair) {
+        guard downloadPair == pair else {
+            return
+        }
+        downloadWindow?.close()
+    }
+
+    /// Single cleanup path for the download flow ending, whether it's
+    /// `handleDownloadSettled` closing the window programmatically or the
+    /// user clicking the window's own titlebar close button — both funnel
+    /// through here via `NSWindow.close()` triggering this delegate call.
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === downloadWindow else {
+            return
+        }
+        downloadPollingTask?.cancel()
+        downloadPollingTask = nil
+        if let pair = downloadPair {
+            downloadRequested.remove(pair)
+        }
+        downloadPair = nil
+        downloadWindow = nil
     }
 
     /// Our supported pairing is always {English, the configured Chinese

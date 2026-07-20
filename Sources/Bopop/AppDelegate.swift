@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             usageStore.record(result.id)
         }
+        actionRunner.onDownloadTranslation = { appleTranslator.presentDownloadFlow() }
         self.storage = storage
         self.usageStore = usageStore
         self.clipboardStore = clipboardStore

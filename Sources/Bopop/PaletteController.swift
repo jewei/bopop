@@ -436,6 +436,8 @@ final class PaletteController: NSObject {
             "run"
         case .enterMode:
             "select"
+        case .downloadTranslation:
+            "download"
         }
     }
 

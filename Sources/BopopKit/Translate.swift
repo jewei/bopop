@@ -86,7 +86,7 @@ public final class TranslationProvider: ResultProvider {
                     title: "Download Chinese ⇄ English translation…",
                     icon: .symbol("arrow.down.circle"),
                     keywords: [query.term],
-                    action: .enterMode(.translation),
+                    action: .downloadTranslation,
                     sortHint: 0
                 )
             ]
