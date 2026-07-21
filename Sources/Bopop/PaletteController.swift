@@ -30,6 +30,7 @@ final class PaletteController: NSObject {
     private let gridView = EmojiGridView()
     private let footerView = PaletteFooterView()
     private let largeTypeController = LargeTypeWindowController()
+    private let actionsPanel = ActionsPanelController()
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
     private var stickyMode: Mode = .general
@@ -163,6 +164,7 @@ final class PaletteController: NSObject {
 
         isHiding = true
         defer { isHiding = false }
+        actionsPanel.hide()
         engine.cancel()
         persistPositionIfUserAdjusted()
         if QLPreviewPanel.sharedPreviewPanelExists() {
@@ -216,17 +218,55 @@ final class PaletteController: NSObject {
         gridView.collectionView.delegate = self
 
         panel.onResign = { [weak self] in self?.hide() }
+        // Panel-only shortcuts (see spec): ⌘C/⌘⏎/⌘Y/⌘L act on the result
+        // only while the Actions panel is open. `run(kind:)` returning
+        // false (no such item for this result) lets the key event fall
+        // through — for ⌘C that reaches the field editor's text copy,
+        // which also remains the path when the panel is closed.
         panel.onCommandCopy = { [weak self] in
-            self?.performSelectedCopy() ?? false
+            guard let self, actionsPanel.isVisible else {
+                return false
+            }
+            return actionsPanel.run(kind: .copy)
         }
         panel.onCommandReveal = { [weak self] in
-            self?.performSelectedReveal() ?? false
+            guard let self, actionsPanel.isVisible else {
+                return false
+            }
+            return actionsPanel.run(kind: .reveal)
         }
+        // Quick Look / Large Type stay toggles: with the overlay already up
+        // (the Actions panel necessarily closed — opening from it hides
+        // it), the same key dismisses the overlay.
         panel.onToggleQuickLook = { [weak self] in
-            self?.toggleQuickLook() ?? false
+            guard let self else {
+                return false
+            }
+            if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
+                return toggleQuickLook()
+            }
+            guard actionsPanel.isVisible else {
+                return false
+            }
+            return actionsPanel.run(kind: .quickLook)
         }
         panel.onToggleLargeType = { [weak self] in
-            self?.toggleLargeType() ?? false
+            guard let self else {
+                return false
+            }
+            if largeTypeController.isVisible {
+                return toggleLargeType()
+            }
+            guard actionsPanel.isVisible else {
+                return false
+            }
+            return actionsPanel.run(kind: .largeType)
+        }
+        panel.onCommandK = { [weak self] in
+            self?.toggleActionsPanel() ?? false
+        }
+        actionsPanel.onRun = { [weak self] kind in
+            self?.runAction(kind)
         }
         panel.quickLookDataSource = self
         panel.quickLookDelegate = self
@@ -278,9 +318,13 @@ final class PaletteController: NSObject {
         footerView.onQuit = { [weak self] in
             self?.onQuit()
         }
+        footerView.onShowActions = { [weak self] in
+            _ = self?.toggleActionsPanel()
+        }
     }
 
     private func apply(_ update: QueryEngine.Update) {
+        actionsPanel.hide()
         let split = HeroPresentation.split(update.results)
         heroResult = split.hero
         results = split.rows
@@ -526,6 +570,45 @@ final class PaletteController: NSObject {
         return true
     }
 
+    /// No-op (returns `false`) when nothing is selected — matching the
+    /// hidden footer button in that state.
+    private func toggleActionsPanel() -> Bool {
+        if actionsPanel.isVisible {
+            actionsPanel.hide()
+            return true
+        }
+        guard let result = selectedResult() else {
+            return false
+        }
+        actionsPanel.show(
+            items: ResultActions.items(for: result),
+            title: result.title,
+            over: panel
+        )
+        return true
+    }
+
+    /// Every panel exit runs through here: close first, then dispatch to
+    /// the same paths the shortcuts used pre-panel, so Quick Look/Large
+    /// Type toggle their overlays with the panel already gone.
+    private func runAction(_ kind: ResultActions.Kind) {
+        actionsPanel.hide()
+        switch kind {
+        case .primary:
+            if let result = selectedResult() {
+                actionRunner.perform(result)
+            }
+        case .copy:
+            _ = performSelectedCopy()
+        case .reveal:
+            _ = performSelectedReveal()
+        case .quickLook:
+            _ = toggleQuickLook()
+        case .largeType:
+            _ = toggleLargeType()
+        }
+    }
+
     private func refreshQuickLookIfVisible() {
         guard QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible else {
             return
@@ -598,6 +681,7 @@ final class PaletteController: NSObject {
     }
 
     private func updateQuery() {
+        actionsPanel.hide()
         if let editor = queryField.currentEditor() as? NSTextView {
             PaletteLayout.configureFieldEditor(editor)
         }
@@ -735,6 +819,26 @@ extension PaletteController: NSTextFieldDelegate {
         textView: NSTextView,
         doCommandBy commandSelector: Selector
     ) -> Bool {
+        if actionsPanel.isVisible {
+            switch commandSelector {
+            case #selector(NSResponder.moveUp(_:)):
+                actionsPanel.moveSelection(by: -1)
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                actionsPanel.moveSelection(by: 1)
+                return true
+            case #selector(NSResponder.insertNewline(_:)):
+                actionsPanel.runSelected()
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                actionsPanel.hide()
+                return true
+            default:
+                // ⇥ etc. fall through to normal handling; any resulting
+                // query/mode change closes the panel via updateQuery().
+                break
+            }
+        }
         switch commandSelector {
         case #selector(NSResponder.moveUp(_:)):
             if isGridMode {
