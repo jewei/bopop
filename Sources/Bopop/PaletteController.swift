@@ -235,9 +235,10 @@ final class PaletteController: NSObject {
             }
             return actionsPanel.run(kind: .reveal)
         }
-        // Quick Look / Large Type stay toggles: with the overlay already up
-        // (the Actions panel necessarily closed — opening from it hides
-        // it), the same key dismisses the overlay.
+        // Quick Look / Large Type stay toggles: the overlay-visible check
+        // runs first, so if the overlay is already up the same key
+        // dismisses it — that dismiss wins over the Actions-panel gating
+        // below regardless of whether the panel also happens to be open.
         panel.onToggleQuickLook = { [weak self] in
             guard let self else {
                 return false
@@ -481,18 +482,6 @@ final class PaletteController: NSObject {
         refreshQuickLookIfVisible()
     }
 
-    private func performSelectedCopy() -> Bool {
-        if let editor = queryField.currentEditor() as? NSTextView,
-           editor.selectedRange().length > 0 {
-            return false
-        }
-        guard let result = selectedResult(), ResultActions.hasCopyAction(result) else {
-            return false
-        }
-        actionRunner.performCopy(result)
-        return true
-    }
-
     private func performSelectedReveal() -> Bool {
         guard let path = FilePayload.path(for: selectedResult()) else {
             return false
@@ -599,7 +588,12 @@ final class PaletteController: NSObject {
                 actionRunner.perform(result)
             }
         case .copy:
-            _ = performSelectedCopy()
+            // The panel's Copy is an explicit action on the result — the
+            // field-editor-selection veto in performSelectedCopy exists to
+            // disambiguate a bare ⌘C, which can't reach here.
+            if let result = selectedResult(), ResultActions.hasCopyAction(result) {
+                actionRunner.performCopy(result)
+            }
         case .reveal:
             _ = performSelectedReveal()
         case .quickLook:
@@ -832,6 +826,14 @@ extension PaletteController: NSTextFieldDelegate {
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 actionsPanel.hide()
+                return true
+            case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)):
+                // In the emoji grid these move the RESULT selection, which
+                // would leave the panel showing a stale result's actions.
+                // In text mode they just move the caret — let those through.
+                guard isGridMode else {
+                    break
+                }
                 return true
             default:
                 // ⇥ etc. fall through to normal handling; any resulting
