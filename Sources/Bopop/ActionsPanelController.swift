@@ -1,10 +1,10 @@
 import AppKit
 import BopopKit
 
-/// Raycast-style Actions popover: a borderless child window anchored above
-/// the footer's right edge, listing every action applicable to the selected
-/// result with its shortcut. It never becomes key (borderless windows
-/// refuse key by default) — the query field keeps focus and
+/// Raycast-style Actions popover: a non-activating borderless child panel
+/// anchored above the footer's right edge, listing every action applicable
+/// to the selected result with its shortcut. It never becomes key (borderless
+/// panels refuse key by default) — the query field keeps focus and
 /// `PaletteController` routes ↑↓/⏎/esc and the shortcut keys here while
 /// visible, mirroring the app's route-keys-don't-move-focus pattern.
 final class ActionsPanelController {
@@ -88,9 +88,9 @@ final class ActionsPanelController {
             width: Self.width,
             height: height
         )
-        let window = NSWindow(
+        let window = NSPanel(
             contentRect: frame,
-            styleMask: .borderless,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -224,6 +224,12 @@ private final class ActionsPanelRowView: NSView {
             return
         }
         onClick?()
+    }
+
+    /// First click runs the action even when Bopop isn't the active app —
+    /// without this the click is consumed as the activation click.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 
     private func configureView() {
