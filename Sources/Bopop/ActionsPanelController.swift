@@ -97,6 +97,10 @@ final class ActionsPanelController {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = true
+        // NSPanel defaults this to true; the palette's other overlays set it
+        // false explicitly (see applyBopopOverlayStyle) — without it AppKit
+        // could self-hide the panel on app deactivate, bypassing hide().
+        window.hidesOnDeactivate = false
         window.level = parent.level
         window.contentView = makeContentView(title: title)
         return window
