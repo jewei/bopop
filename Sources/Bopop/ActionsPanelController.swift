@@ -25,10 +25,10 @@ final class ActionsPanelController {
     private static let footerGap: CGFloat = 6
 
     func show(items: [ResultActions.ActionItem], title: String, over parent: NSWindow) {
+        hide()
         guard !items.isEmpty else {
             return
         }
-        hide()
         self.items = items
         selectedIndex = 0
         let window = makeWindow(title: title, over: parent)
