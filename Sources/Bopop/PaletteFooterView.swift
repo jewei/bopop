@@ -4,9 +4,8 @@ final class PaletteFooterView: NSView {
     private let topSeparator = PaletteFooterSeparatorView()
     private let statusLabel = NSTextField(labelWithString: "Bopop")
     private let navigateLabel = NSTextField(labelWithString: "↑↓ navigate")
-    private let copyLabel = NSTextField(labelWithString: "⌘C copy")
     private let primaryLabel = NSTextField(labelWithString: "↵ select")
-    private let fileLabel = NSTextField(labelWithString: "⌘⏎ reveal · ⌘Y preview")
+    private let actionsButton = PaletteFooterActionsButton()
     private let gearButton = PaletteFooterGearButton()
     private let rightCluster = NSStackView()
 
@@ -15,6 +14,8 @@ final class PaletteFooterView: NSView {
     var onShowSettings: (() -> Void)?
     var onOpenScriptsFolder: (() -> Void)?
     var onQuit: (() -> Void)?
+    /// Opens the ⌘K Actions panel, same closure style as the above.
+    var onShowActions: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -30,12 +31,11 @@ final class PaletteFooterView: NSView {
         statusLabel.toolTip = text
     }
 
-    func setActions(primary: String?, hasCopy: Bool, hasFile: Bool = false) {
-        let verb = primary?.lowercased() ?? "select"
+    func setActions(primary: String?, hasActions: Bool) {
+        let verb = primary ?? "select"
         primaryLabel.stringValue = "↵ \(verb)"
         primaryLabel.setAccessibilityLabel("Return activates the selected result")
-        copyLabel.isHidden = !hasCopy
-        fileLabel.isHidden = !hasFile
+        actionsButton.isHidden = !hasActions
     }
 
     private func configureView() {
@@ -53,16 +53,13 @@ final class PaletteFooterView: NSView {
         configureLabel(navigateLabel)
         navigateLabel.setAccessibilityLabel("Up and down arrows navigate results")
 
-        configureLabel(copyLabel)
-        copyLabel.isHidden = true
-        copyLabel.setAccessibilityLabel("Command C copies the selected result")
-
         configureLabel(primaryLabel)
         primaryLabel.setAccessibilityLabel("Return selects the selected result")
 
-        configureLabel(fileLabel)
-        fileLabel.isHidden = true
-        fileLabel.setAccessibilityLabel("Command Return reveals in Finder, Command Y previews")
+        actionsButton.target = self
+        actionsButton.action = #selector(actionsButtonTapped)
+        actionsButton.isHidden = true
+        actionsButton.setAccessibilityLabel("Command K shows actions for the selected result")
 
         gearButton.target = self
         gearButton.action = #selector(gearButtonTapped(_:))
@@ -75,7 +72,7 @@ final class PaletteFooterView: NSView {
         // gotcha #6 applies when views must be pinned independently within
         // a stack; this cluster is pinned as a single unit instead).
         rightCluster.setViews(
-            [navigateLabel, copyLabel, fileLabel, primaryLabel, gearButton],
+            [navigateLabel, primaryLabel, actionsButton, gearButton],
             in: .leading
         )
         rightCluster.orientation = .horizontal
@@ -163,6 +160,10 @@ final class PaletteFooterView: NSView {
     @objc private func quitMenuItemTapped() {
         onQuit?()
     }
+
+    @objc private func actionsButtonTapped() {
+        onShowActions?()
+    }
 }
 
 /// Borderless gearshape icon button with a hover-brighten state
@@ -219,6 +220,67 @@ private final class PaletteFooterGearButton: NSButton {
             accessibilityDescription: "More options"
         )?.withSymbolConfiguration(config)
         contentTintColor = NSColor.white.withAlphaComponent(Self.idleAlpha)
+    }
+}
+
+/// Borderless "⌘K actions" text button with the same hover-brighten state
+/// as the gear (white 0.45 idle → 0.8 hovered).
+private final class PaletteFooterActionsButton: NSButton {
+    private static let idleAlpha: CGFloat = 0.45
+    private static let hoverAlpha: CGFloat = 0.8
+
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureButton()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        applyTitle(alpha: Self.hoverAlpha)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        applyTitle(alpha: Self.idleAlpha)
+    }
+
+    private func configureButton() {
+        translatesAutoresizingMaskIntoConstraints = false
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryChange)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        applyTitle(alpha: Self.idleAlpha)
+    }
+
+    private func applyTitle(alpha: CGFloat) {
+        attributedTitle = NSAttributedString(
+            string: "⌘K actions",
+            attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.white.withAlphaComponent(alpha)
+            ]
+        )
     }
 }
 

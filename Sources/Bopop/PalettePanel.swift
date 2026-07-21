@@ -7,6 +7,7 @@ final class PalettePanel: NSPanel {
     var onCommandReveal: (() -> Bool)?
     var onToggleQuickLook: (() -> Bool)?
     var onToggleLargeType: (() -> Bool)?
+    var onCommandK: (() -> Bool)?
 
     /// Set by `PaletteController` (which implements both protocols) so this
     /// panel — the key window while the palette is visible, and thus first
@@ -91,6 +92,10 @@ final class PalettePanel: NSPanel {
                 }
             case "l":
                 if onToggleLargeType?() == true {
+                    return true
+                }
+            case "k":
+                if onCommandK?() == true {
                     return true
                 }
             default:
