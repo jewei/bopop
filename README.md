@@ -28,10 +28,7 @@ Bopop is a fast, keyboard-first launcher for macOS. Open apps, search files on d
 | `⌘Space` | Open Bopop |
 | `⇥` / `⇧⇥` | Switch tabs |
 | `⏎` | Run selected result |
-| `⌘C` | Copy result |
-| `⌘⏎` | Reveal file in Finder |
-| `⌘Y` | Quick Look file |
-| `⌘L` | Show result in Large Type |
+| `⌘K` | Actions for the selected result — copy, reveal in Finder, Quick Look, Large Type |
 | `Esc` | Clear, exit mode, or close |
 
 The global shortcut is configurable.
