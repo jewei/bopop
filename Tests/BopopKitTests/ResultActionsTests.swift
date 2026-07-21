@@ -18,6 +18,15 @@ import Testing
     #expect(items[3].shortcut == "⌘L")
 }
 
+@Test func fileResultWithSecondaryCopyOrdersAllFiveKinds() {
+    let file = SearchResult(
+        id: "fc", providerID: .files, title: "Notes.txt",
+        action: .openFile("/Users/x/Notes.txt"),
+        secondaryActions: [.copyText("/Users/x/Notes.txt")], sortHint: 0)
+    let items = ResultActions.items(for: file)
+    #expect(items.map(\.kind) == [.primary, .copy, .reveal, .quickLook, .largeType])
+}
+
 @Test func copyPrimaryIsNotDuplicatedAsCopyRow() {
     let clip = SearchResult(
         id: "c", providerID: .clipboard, title: "Text",
