@@ -6,10 +6,10 @@
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>Bopop</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.oneone.bopop</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.oneone.bopop</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.1.1</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -26,11 +26,11 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/jewei/bopop/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>Ns9aeDpiL/p7DCVX4TRw4OnqkmZs0y6+7afPO+i1vPM=</string>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
 </dict>
 </plist>
