@@ -181,7 +181,7 @@ final class PaletteController: NSObject {
         gridView.isHidden = true
         updateHeroPresentation()
         footerView.setStatus("Bopop")
-        footerView.setActions(primary: nil, hasCopy: false)
+        footerView.setActions(primary: nil, hasActions: false)
         lastParsedMode = .general
         tabsView.setActive(.general)
         resizePanel()
@@ -442,7 +442,7 @@ final class PaletteController: NSObject {
            editor.selectedRange().length > 0 {
             return false
         }
-        guard let result = selectedResult(), Self.hasCopyAction(result) else {
+        guard let result = selectedResult(), ResultActions.hasCopyAction(result) else {
             return false
         }
         actionRunner.performCopy(result)
@@ -674,48 +674,14 @@ final class PaletteController: NSObject {
 
     private func updateFooterActions() {
         guard let result = selectedResult() else {
-            footerView.setActions(primary: nil, hasCopy: false)
+            footerView.setActions(primary: nil, hasActions: false)
             return
         }
 
         footerView.setActions(
-            primary: Self.actionTitle(for: result.action),
-            hasCopy: Self.hasCopyAction(result),
-            hasFile: FilePayload.path(for: result) != nil
+            primary: ResultActions.verb(for: result.action),
+            hasActions: true
         )
-    }
-
-    private static func actionTitle(for action: ResultAction) -> String {
-        switch action {
-        case .openApp, .openFile, .openURL:
-            "open"
-        case .copyText:
-            "copy"
-        case .clearClipboardHistory:
-            "clear"
-        case .runScript:
-            "run"
-        case .enterMode:
-            "select"
-        case .downloadTranslation:
-            "download"
-        case .systemCommand:
-            "run"
-        case .revealFile:
-            "reveal"
-        }
-    }
-
-    private static func hasCopyAction(_ result: SearchResult) -> Bool {
-        isCopyAction(result.action)
-            || result.secondaryActions.contains(where: isCopyAction)
-    }
-
-    private static func isCopyAction(_ action: ResultAction) -> Bool {
-        if case .copyText = action {
-            return true
-        }
-        return false
     }
 
     private static func panelHeight(resultCount: Int, hasHero: Bool, isGrid: Bool) -> CGFloat {
