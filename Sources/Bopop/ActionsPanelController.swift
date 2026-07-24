@@ -171,12 +171,14 @@ private final class ActionsPanelRowView: NSView {
 
     private let titleLabel: NSTextField
     private let keycap: PaletteKeycapView
+    private let showsShortcut: Bool
     private var selected = false
     private var hovered = false
     private var hoverTrackingArea: NSTrackingArea?
 
     init(item: ResultActions.ActionItem) {
         titleLabel = NSTextField(labelWithString: item.title)
+        showsShortcut = !item.shortcut.isEmpty
         keycap = PaletteKeycapView(
             text: item.shortcut,
             fontSize: 11,
@@ -248,18 +250,35 @@ private final class ActionsPanelRowView: NSView {
         titleLabel.maximumNumberOfLines = 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
-        addSubview(keycap)
 
-        NSLayoutConstraint.activate([
+        if showsShortcut {
+            addSubview(keycap)
+        } else {
+            keycap.isHidden = true
+        }
+
+        var constraints = [
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: keycap.leadingAnchor,
-                constant: -10
-            ),
-            keycap.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            keycap.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
+        ]
+        if showsShortcut {
+            constraints.append(contentsOf: [
+                titleLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: keycap.leadingAnchor,
+                    constant: -10
+                ),
+                keycap.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+                keycap.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+        } else {
+            constraints.append(
+                titleLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: trailingAnchor,
+                    constant: -10
+                )
+            )
+        }
+        NSLayoutConstraint.activate(constraints)
         refreshBackground()
     }
 

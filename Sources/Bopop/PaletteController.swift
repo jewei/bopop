@@ -305,6 +305,15 @@ final class PaletteController: NSObject {
         actionRunner.hidePalette = { [weak self] in
             self?.hide()
         }
+        actionRunner.onStayOpenRefresh = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.engine.update(
+                raw: self.queryField.stringValue,
+                stickyMode: self.stickyMode
+            )
+        }
         tabsView.onSelect = { [weak self] mode in
             self?.enterMode(mode)
         }
@@ -593,6 +602,10 @@ final class PaletteController: NSObject {
             // disambiguate a bare ⌘C, which can't reach here.
             if let result = selectedResult(), ResultActions.hasCopyAction(result) {
                 actionRunner.performCopy(result)
+            }
+        case .pin:
+            if let result = selectedResult(), ResultActions.hasPinAction(result) {
+                actionRunner.performPin(result)
             }
         case .reveal:
             _ = performSelectedReveal()

@@ -31,6 +31,8 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case openFile(String)
     case copyText(String)
     case clearClipboardHistory
+    case pinClipboard(Date)
+    case unpinClipboard(Date)
     case runScript(String)
     case enterMode(Mode)
     case openURL(String)
