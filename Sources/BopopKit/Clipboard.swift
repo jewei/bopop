@@ -29,10 +29,13 @@ public nonisolated enum ClipboardCapturePolicy {
 public struct ClipboardEntry: Codable, Equatable, Sendable {
     public let text: String
     public let capturedAt: Date
+    /// `nil` = unpinned. Non-nil is both the pin flag and pin-recency key.
+    public let pinnedAt: Date?
 
-    public init(text: String, capturedAt: Date) {
+    public init(text: String, capturedAt: Date, pinnedAt: Date? = nil) {
         self.text = text
         self.capturedAt = capturedAt
+        self.pinnedAt = pinnedAt
     }
 }
 
@@ -59,7 +62,7 @@ public final class ClipboardStore {
             expectedVersion: Self.version,
             from: storage.clipboardFileURL
         ) ?? []
-        entries = Array(persistedEntries.prefix(self.limit))
+        entries = Self.loadEntries(persistedEntries, limit: self.limit)
     }
 
     public func add(_ text: String) {
@@ -69,15 +72,49 @@ public final class ClipboardStore {
         guard text.utf8.count <= Self.maximumTextSize else {
             return
         }
-        guard text != entries.first?.text else {
+        if let newest = entries.max(by: { $0.capturedAt < $1.capturedAt }),
+           newest.text == text {
             return
         }
 
-        entries.insert(
-            ClipboardEntry(text: text, capturedAt: now()),
-            at: entries.startIndex
-        )
+        let entry = ClipboardEntry(text: text, capturedAt: now())
+        let pinCount = entries.prefix(while: { $0.pinnedAt != nil }).count
+        entries.insert(entry, at: pinCount)
         trimToLimit()
+        persist()
+    }
+
+    public func pin(capturedAt: Date) {
+        guard let index = entries.firstIndex(where: { $0.capturedAt == capturedAt }) else {
+            return
+        }
+        guard entries[index].pinnedAt == nil else {
+            return
+        }
+        let existing = entries[index]
+        entries[index] = ClipboardEntry(
+            text: existing.text,
+            capturedAt: existing.capturedAt,
+            pinnedAt: now()
+        )
+        sortEntries()
+        persist()
+    }
+
+    public func unpin(capturedAt: Date) {
+        guard let index = entries.firstIndex(where: { $0.capturedAt == capturedAt }) else {
+            return
+        }
+        guard entries[index].pinnedAt != nil else {
+            return
+        }
+        let existing = entries[index]
+        entries[index] = ClipboardEntry(
+            text: existing.text,
+            capturedAt: existing.capturedAt,
+            pinnedAt: nil
+        )
+        sortEntries()
         persist()
     }
 
@@ -88,7 +125,7 @@ public final class ClipboardStore {
     }
 
     public func clear() {
-        entries.removeAll()
+        entries.removeAll { $0.pinnedAt == nil }
         persist()
     }
 
@@ -97,17 +134,51 @@ public final class ClipboardStore {
     /// a copy), drop the most recent capture so the secret doesn't outlive the
     /// clipboard here.
     public func forgetNewest(ifCapturedWithin window: TimeInterval) {
-        guard let newest = entries.first,
-              now().timeIntervalSince(newest.capturedAt) <= window else {
+        let cutoff = now()
+        guard let index = entries.indices
+            .filter({ cutoff.timeIntervalSince(entries[$0].capturedAt) <= window })
+            .max(by: { entries[$0].capturedAt < entries[$1].capturedAt })
+        else {
             return
         }
-        entries.removeFirst()
+        entries.remove(at: index)
         persist()
     }
 
+    /// Keep every pin, then unpinned up to `limit`, then restore display order.
+    private static func loadEntries(_ persisted: [ClipboardEntry], limit: Int) -> [ClipboardEntry] {
+        let pinned = persisted.filter { $0.pinnedAt != nil }
+        let unpinned = persisted.filter { $0.pinnedAt == nil }.prefix(limit)
+        var combined = Array(pinned) + Array(unpinned)
+        combined.sort(by: entrySort)
+        return combined
+    }
+
     private func trimToLimit() {
-        if entries.count > limit {
-            entries.removeLast(entries.count - limit)
+        var unpinnedCount = entries.filter { $0.pinnedAt == nil }.count
+        while unpinnedCount > limit {
+            guard let index = entries.lastIndex(where: { $0.pinnedAt == nil }) else {
+                break
+            }
+            entries.remove(at: index)
+            unpinnedCount -= 1
+        }
+    }
+
+    private func sortEntries() {
+        entries.sort(by: Self.entrySort)
+    }
+
+    private static func entrySort(_ lhs: ClipboardEntry, _ rhs: ClipboardEntry) -> Bool {
+        switch (lhs.pinnedAt, rhs.pinnedAt) {
+        case let (l?, r?):
+            return l > r
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        case (nil, nil):
+            return lhs.capturedAt > rhs.capturedAt
         }
     }
 
@@ -150,18 +221,22 @@ public final class ClipboardProvider: ResultProvider {
         }
 
         var results = entries.enumerated().map { index, entry in
-            SearchResult(
+            let pinAction: ResultAction = entry.pinnedAt == nil
+                ? .pinClipboard(entry.capturedAt)
+                : .unpinClipboard(entry.capturedAt)
+            return SearchResult(
                 id: "clip:\(entry.capturedAt.timeIntervalSince1970)",
                 providerID: .clipboard,
                 title: DisplayTruncation.firstLine(entry.text, limit: 60),
                 subtitle: relativeDateFormatter.withLock { formatter in
                     formatter.localizedString(for: entry.capturedAt, relativeTo: Date())
                 },
-                icon: .symbol("doc.on.clipboard"),
+                icon: .symbol(entry.pinnedAt == nil ? "doc.on.clipboard" : "pin.fill"),
                 // Cap searchable text so Ranker never folds 100 KB per keystroke.
                 keywords: [String(entry.text.prefix(1_000))],
                 badge: "Clipboard",
                 action: .copyText(entry.text),
+                secondaryActions: [pinAction],
                 sortHint: index
             )
         }

@@ -7,6 +7,7 @@ public nonisolated enum ResultActions {
     public enum Kind: Equatable, Sendable {
         case primary
         case copy
+        case pin
         case reveal
         case quickLook
         case largeType
@@ -25,6 +26,8 @@ public nonisolated enum ResultActions {
         case .openApp, .openFile, .openURL: "open"
         case .copyText: "copy"
         case .clearClipboardHistory: "clear"
+        case .pinClipboard: "pin"
+        case .unpinClipboard: "unpin"
         case .runScript, .systemCommand: "run"
         case .enterMode: "select"
         case .downloadTranslation: "download"
@@ -38,6 +41,13 @@ public nonisolated enum ResultActions {
             title: verb(for: result.action).capitalized,
             shortcut: "⏎"
         )]
+        if let pin = pinAction(in: result) {
+            items.append(ActionItem(
+                kind: .pin,
+                title: pinTitle(for: pin),
+                shortcut: ""
+            ))
+        }
         // No duplicate row when the primary action already IS a copy.
         if hasCopyAction(result), !isCopyAction(result.action) {
             items.append(ActionItem(kind: .copy, title: "Copy", shortcut: "⌘C"))
@@ -59,10 +69,32 @@ public nonisolated enum ResultActions {
             || result.secondaryActions.contains(where: isCopyAction)
     }
 
+    public static func hasPinAction(_ result: SearchResult) -> Bool {
+        pinAction(in: result) != nil
+    }
+
+    public static func pinAction(in result: SearchResult) -> ResultAction? {
+        result.secondaryActions.first(where: isPinAction)
+    }
+
     private static func isCopyAction(_ action: ResultAction) -> Bool {
         if case .copyText = action {
             return true
         }
         return false
+    }
+
+    private static func isPinAction(_ action: ResultAction) -> Bool {
+        switch action {
+        case .pinClipboard, .unpinClipboard: true
+        default: false
+        }
+    }
+
+    private static func pinTitle(for action: ResultAction) -> String {
+        switch action {
+        case .unpinClipboard: "Unpin"
+        default: "Pin"
+        }
     }
 }

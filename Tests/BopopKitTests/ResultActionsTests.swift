@@ -30,11 +30,26 @@ import Testing
 @Test func copyPrimaryIsNotDuplicatedAsCopyRow() {
     let clip = SearchResult(
         id: "c", providerID: .clipboard, title: "Text",
-        action: .copyText("hello"), sortHint: 0)
+        action: .copyText("hello"),
+        secondaryActions: [.pinClipboard(Date(timeIntervalSince1970: 1))],
+        sortHint: 0)
     let items = ResultActions.items(for: clip)
     // copyText payload also gives it a Large Type representation.
-    #expect(items.map(\.kind) == [.primary, .largeType])
+    #expect(items.map(\.kind) == [.primary, .pin, .largeType])
     #expect(items[0].title == "Copy")
+    #expect(items[1].title == "Pin")
+    #expect(items[1].shortcut == "")
+}
+
+@Test func unpinSecondaryShowsUnpinTitle() {
+    let clip = SearchResult(
+        id: "c", providerID: .clipboard, title: "Text",
+        action: .copyText("hello"),
+        secondaryActions: [.unpinClipboard(Date(timeIntervalSince1970: 1))],
+        sortHint: 0)
+    let items = ResultActions.items(for: clip)
+    #expect(items.map(\.kind) == [.primary, .pin, .largeType])
+    #expect(items[1].title == "Unpin")
 }
 
 @Test func secondaryCopyGetsItsOwnRow() {
@@ -63,6 +78,8 @@ import Testing
     #expect(ResultActions.verb(for: .openURL("https://x")) == "open")
     #expect(ResultActions.verb(for: .copyText("t")) == "copy")
     #expect(ResultActions.verb(for: .clearClipboardHistory) == "clear")
+    #expect(ResultActions.verb(for: .pinClipboard(Date())) == "pin")
+    #expect(ResultActions.verb(for: .unpinClipboard(Date())) == "unpin")
     #expect(ResultActions.verb(for: .runScript("/s")) == "run")
     #expect(ResultActions.verb(for: .enterMode(.apps)) == "select")
     #expect(ResultActions.verb(for: .downloadTranslation) == "download")

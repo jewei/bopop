@@ -12,6 +12,8 @@ final class ActionRunner {
     var onExecuted: ((SearchResult) -> Void)?
     var hidePalette: (() -> Void)?
     var onDownloadTranslation: (() -> Void)?
+    /// Fired after a mutation that must keep the palette open and re-query.
+    var onStayOpenRefresh: (() -> Void)?
 
     init(
         storage: Storage,
@@ -59,6 +61,15 @@ final class ActionRunner {
         onExecuted?(result)
     }
 
+    /// Pin/unpin keeps the palette open and refreshes the result list.
+    func performPin(_ result: SearchResult) {
+        guard let action = ResultActions.pinAction(in: result) else {
+            return
+        }
+        execute(action)
+        onStayOpenRefresh?()
+    }
+
     private func execute(_ action: ResultAction) {
         switch action {
         case let .openApp(path):
@@ -73,6 +84,10 @@ final class ActionRunner {
             NSPasteboard.general.setString(text, forType: .string)
         case .clearClipboardHistory:
             clipboardStore.clear()
+        case let .pinClipboard(capturedAt):
+            clipboardStore.pin(capturedAt: capturedAt)
+        case let .unpinClipboard(capturedAt):
+            clipboardStore.unpin(capturedAt: capturedAt)
         case let .runScript(path):
             let name = URL(fileURLWithPath: path)
                 .deletingPathExtension()
