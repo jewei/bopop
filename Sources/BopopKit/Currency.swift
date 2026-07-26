@@ -371,7 +371,12 @@ public nonisolated final class CurrencyProvider: ResultProvider {
             providerID: .currency,
             title: "Exchange rates unavailable — check connection",
             icon: .symbol("wifi.slash"),
-            action: .copyText(""),
+            // Informational row, so it takes the same inert `.enterMode`
+            // action TranslationProvider's unsupported row uses: `perform`
+            // returns before both `execute` and `onExecuted`. A `.copyText("")`
+            // here made ⏎ wipe the user's real clipboard, record a frecency
+            // hit, and give ⌘L an empty string to blow up full-screen.
+            action: .enterMode(.general),
             sortHint: 0
         )
     }

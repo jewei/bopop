@@ -70,6 +70,19 @@ final class ActionRunner {
         onStayOpenRefresh?()
     }
 
+    /// The only schemes ever handed to NSWorkspace. `.openURL` payloads come
+    /// from user-authored custom-search templates among other places, so this
+    /// allowlist is what stops one from launching `file://` or an arbitrary
+    /// app scheme. Pure and static so it can be tested without side effects.
+    nonisolated static func allowedURL(from string: String) -> URL? {
+        guard let url = URL(string: string),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" || scheme == "dict" else {
+            return nil
+        }
+        return url
+    }
+
     private func execute(_ action: ResultAction) {
         switch action {
         case let .openApp(path):
@@ -103,8 +116,7 @@ final class ActionRunner {
         case .enterMode:
             break
         case let .openURL(string):
-            guard let url = URL(string: string),
-                  url.scheme == "http" || url.scheme == "https" || url.scheme == "dict" else {
+            guard let url = Self.allowedURL(from: string) else {
                 return
             }
             NSWorkspace.shared.open(url)

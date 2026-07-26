@@ -144,11 +144,7 @@ public nonisolated enum TimeQueryParser {
         let place = placeName(for: token)
         let sourceDescription = "\(place), \(gmtOffsetString(for: zone, instant: now))"
 
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = zone
-        timeFormatter.dateFormat = "h:mm a"
-        let localDescription = timeFormatter.string(from: now)
+        let localDescription = string(timeOfDayFormatter, from: now, in: zone)
 
         return TimeConversion(sourceDescription: sourceDescription, localDescription: localDescription, instant: now)
     }
@@ -295,20 +291,41 @@ public nonisolated enum TimeQueryParser {
 
     // MARK: - Formatting
 
-    private static func formatSourceDescription(instant: Date, zone: TimeZone) -> String {
+    /// Built once each and locked rather than constructed per call — this
+    /// parser runs on every keystroke of a general-mode query, the same hot
+    /// path that made CurrencyProvider hoist its formatters. DateFormatter is
+    /// not thread-safe and providers now run off the main actor; `timeZone`
+    /// varies per call, so it's set inside `withLock` where the mutation is
+    /// serialized with the formatting that reads it.
+    private static func makeFormatter(_ dateFormat: String) -> FormatterBox<DateFormatter> {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = zone
-        formatter.dateFormat = "EEEE, d MMMM, h:mm a"
-        return "\(formatter.string(from: instant)), \(gmtOffsetString(for: zone, instant: instant))"
+        formatter.dateFormat = dateFormat
+        return FormatterBox(formatter)
+    }
+
+    private static let timeOfDayFormatter = makeFormatter("h:mm a")
+    private static let sourceDescriptionFormatter = makeFormatter("EEEE, d MMMM, h:mm a")
+    private static let localDescriptionFormatter = makeFormatter("MMMM d, yyyy 'at' HH:mm")
+
+    private static func string(
+        _ box: FormatterBox<DateFormatter>,
+        from instant: Date,
+        in zone: TimeZone
+    ) -> String {
+        box.withLock { formatter in
+            formatter.timeZone = zone
+            return formatter.string(from: instant)
+        }
+    }
+
+    private static func formatSourceDescription(instant: Date, zone: TimeZone) -> String {
+        let formatted = string(sourceDescriptionFormatter, from: instant, in: zone)
+        return "\(formatted), \(gmtOffsetString(for: zone, instant: instant))"
     }
 
     private static func formatLocalDescription(instant: Date, zone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = zone
-        formatter.dateFormat = "MMMM d, yyyy 'at' HH:mm"
-        return formatter.string(from: instant)
+        string(localDescriptionFormatter, from: instant, in: zone)
     }
 
     private static func gmtOffsetString(for zone: TimeZone, instant: Date) -> String {

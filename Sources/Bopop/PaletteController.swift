@@ -578,10 +578,15 @@ final class PaletteController: NSObject {
         // active selection (`selectedIndex == -1`), and `apply(_:)` always
         // forces that whenever `heroResult != nil` — so a fallback to
         // `heroResult` here can never fire and was dead code.
-        guard let text = LargeType.text(for: selectedResult()) else {
+        // `panel.screen` is nil whenever the frame intersects no screen (a
+        // saved position after a display change — the case `show()` guards
+        // with `isOnAnyScreen`), and `NSScreen.main` is nil when no screen
+        // owns the key window. Bail like `show()` does rather than trap.
+        guard let text = LargeType.text(for: selectedResult()),
+              let screen = panel.screen ?? NSScreen.main else {
             return false
         }
-        largeTypeController.show(text: text, on: panel.screen ?? NSScreen.main!)
+        largeTypeController.show(text: text, on: screen)
         return true
     }
 

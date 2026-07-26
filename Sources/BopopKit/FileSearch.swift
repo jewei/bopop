@@ -36,10 +36,17 @@ public final class FileSearcher {
     internal private(set) var didBuildQuery = false
     internal private(set) var lastSearchScopes: [Any] = []
 
+    /// How long a started NSMetadataQuery gets to post
+    /// DidFinishGathering before the search gives up and answers empty.
+    /// Generous next to a normal Spotlight gather (well under a second) —
+    /// this is a stuck-forever backstop, not a latency budget.
+    static let gatheringDeadline: Duration = .seconds(5)
+
     private let maxResults: Int
     private let scopeProvider: @Sendable () async -> [String]
     private var active: ActiveSearch?
     private var nextSearchID = 0
+    private var timeoutTask: Task<Void, Never>?
 
     public init(
         maxResults: Int = 40,
@@ -122,7 +129,26 @@ public final class FileSearcher {
                         continuation: continuation,
                         resumeGuard: SingleResume()
                     )
-                    query.start()
+
+                    // start() returns false when NSMetadataQuery refuses to
+                    // run at all; the gathering notification then never
+                    // arrives and this continuation would never resume.
+                    guard query.start() else {
+                        finishActive(searchID: searchID, with: [])
+                        return
+                    }
+                    // Even a started query can go quiet (Spotlight disabled
+                    // mid-flight, an unreachable scope). Without a deadline
+                    // the provider stays pending forever and the footer sits
+                    // on "Searching…" until the user happens to type again —
+                    // same reasoning as ScriptRunner's drain watchdog.
+                    timeoutTask = Task { [weak self] in
+                        try? await Task.sleep(for: Self.gatheringDeadline)
+                        guard !Task.isCancelled else {
+                            return
+                        }
+                        self?.finishActive(searchID: searchID, with: [])
+                    }
                 }
             },
             onCancel: {
@@ -134,8 +160,7 @@ public final class FileSearcher {
     }
 
     private func finishGathering(searchID: Int) {
-        guard let active, active.id == searchID,
-              active.resumeGuard.claim() else {
+        guard let active, active.id == searchID else {
             return
         }
 
@@ -173,21 +198,31 @@ public final class FileSearcher {
             )
         }
 
-        query.stop()
+        finishActive(searchID: searchID, with: items)
+    }
+
+    /// The one place a search's continuation is resumed, whether it finished
+    /// gathering, failed to start, hit the deadline, or was cancelled — so
+    /// the resume guard, the observer, the query, and the deadline task are
+    /// always torn down together.
+    private func finishActive(searchID: Int, with items: [Item]) {
+        guard let active, active.id == searchID, active.resumeGuard.claim() else {
+            return
+        }
+
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        active.query.stop()
         NotificationCenter.default.removeObserver(active.observerToken)
         self.active = nil
         active.continuation.resume(returning: items)
     }
 
     private func cancelActive() {
-        guard let active, active.resumeGuard.claim() else {
+        guard let active else {
             return
         }
-
-        active.query.stop()
-        NotificationCenter.default.removeObserver(active.observerToken)
-        self.active = nil
-        active.continuation.resume(returning: [])
+        finishActive(searchID: active.id, with: [])
     }
 
     private struct ActiveSearch {

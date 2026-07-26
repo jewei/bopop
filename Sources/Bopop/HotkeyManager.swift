@@ -59,6 +59,22 @@ final class HotkeyManager {
         self.hotkeyRef = nil
     }
 
+    /// The Carbon handler holds `self` as an UNRETAINED opaque pointer and
+    /// `handleHotkeyEvent` resurrects it with `takeUnretainedValue()`, so
+    /// leaving it installed past this object's lifetime turns the next hotkey
+    /// press into a use-after-free. Today AppDelegate owns the only instance
+    /// for the whole process, but that invariant was implicit and unenforced.
+    /// `isolated` so it can touch the two Carbon refs, which are
+    /// non-Sendable OpaquePointers on a MainActor-isolated class.
+    isolated deinit {
+        if let hotkeyRef {
+            _ = UnregisterEventHotKey(hotkeyRef)
+        }
+        if let eventHandlerRef {
+            _ = RemoveEventHandler(eventHandlerRef)
+        }
+    }
+
     private func installEventHandlerIfNeeded() -> Bool {
         // Only latch `attemptedEventHandlerInstallation` on SUCCESS. If we
         // latched it unconditionally (as before), one transient

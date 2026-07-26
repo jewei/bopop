@@ -21,6 +21,49 @@ func saveAndLoadRoundTrip() throws {
     #expect(loaded == expected)
 }
 
+/// `load` is all-or-nothing, so one entry with a missing key used to
+/// quarantine the whole file — every clipboard entry or every snippet gone.
+/// `loadElements` drops only the unreadable record.
+@Test
+func loadElementsKeepsReadableElementsAroundABadOne() throws {
+    let root = makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+
+    // Middle element is missing the required `count` key.
+    let json = """
+    {"version":1,"payload":[\
+    {"name":"first","count":1},\
+    {"name":"broken"},\
+    {"name":"third","count":3}\
+    ]}
+    """
+    try Data(json.utf8).write(to: storage.usageFileURL)
+
+    let loaded = storage.loadElements(Sample.self, expectedVersion: 1, from: storage.usageFileURL)
+
+    #expect(loaded == [Sample(name: "first", count: 1), Sample(name: "third", count: 3)])
+    // Survivors were recovered in place, so the file is not quarantined.
+    #expect(FileManager.default.fileExists(atPath: storage.usageFileURL.path))
+    #expect(!FileManager.default.fileExists(atPath: storage.usageFileURL.path + ".corrupt"))
+}
+
+@Test
+func loadElementsStillQuarantinesUnreadableEnvelopes() throws {
+    let root = makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+
+    try Data("{not json at all".utf8).write(to: storage.usageFileURL)
+    #expect(storage.loadElements(Sample.self, expectedVersion: 1, from: storage.usageFileURL) == nil)
+    #expect(FileManager.default.fileExists(atPath: storage.usageFileURL.path + ".corrupt"))
+
+    try storage.save([Sample(name: "ok", count: 1)], version: 2, to: storage.usageFileURL)
+    #expect(storage.loadElements(Sample.self, expectedVersion: 1, from: storage.usageFileURL) == nil)
+}
+
 @Test
 func storagePermissionsArePrivate() throws {
     let root = makeTemporaryDirectory()

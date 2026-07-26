@@ -88,8 +88,8 @@ public final class ClipboardStore {
         self.storage = storage
         self.limit = max(1, limit)
         self.now = now
-        let persistedEntries = storage.load(
-            [ClipboardEntry].self,
+        let persistedEntries = storage.loadElements(
+            ClipboardEntry.self,
             expectedVersion: Self.version,
             from: storage.clipboardFileURL
         ) ?? []

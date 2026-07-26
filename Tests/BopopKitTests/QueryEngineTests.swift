@@ -77,6 +77,37 @@ func queryEngineIsolatesThrowingProvider() async {
     #expect(final?.results.map(\.id) == ["app:good"])
 }
 
+/// A provider that reports cancellation must not strand `isFinal`. The
+/// `.cancelled` branch used to `continue` past the emit, so when the cancelled
+/// provider was the LAST one outstanding no final update was ever published
+/// and File mode's footer sat on "Searching…" until the next keystroke.
+@MainActor
+@Test
+func queryEngineStillFinalizesWhenLastProviderReportsCancellation() async {
+    let gate = Gate()
+    let quick = FakeProvider(id: .apps) { _ in
+        [engineResult(id: "app:good", title: "Good")]
+    }
+    // Finishes last, and finishes by throwing CancellationError.
+    let cancelling = FakeProvider(id: .files) { _ in
+        await gate.wait()
+        throw CancellationError()
+    }
+    let engine = QueryEngine(
+        providers: [.general: [quick, cancelling]],
+        debounce: [:]
+    )
+    let recorder = UpdateRecorder()
+    engine.onUpdate = recorder.record
+
+    engine.update(raw: "good", stickyMode: .general)
+    await gate.waitUntilStarted()
+    await gate.release()
+
+    let final = await recorder.waitForUpdate(matching: \.isFinal)
+    #expect(final?.results.map(\.id) == ["app:good"])
+}
+
 @MainActor
 @Test
 func queryEnginePublishesIncrementally() async {
