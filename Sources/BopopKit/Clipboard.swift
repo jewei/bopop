@@ -26,16 +26,42 @@ public nonisolated enum ClipboardCapturePolicy {
     }
 }
 
-public struct ClipboardEntry: Codable, Equatable, Sendable {
+public struct ClipboardEntry: Codable, Equatable, Sendable, Identifiable {
+    /// Stable primary key for pin/unpin and `SearchResult.id`. `capturedAt`
+    /// used to serve as one, but it round-trips through JSON as a Double and
+    /// two clips captured in the same instant collide — pin then acted on the
+    /// wrong row, or silently on none.
+    public let id: UUID
     public let text: String
     public let capturedAt: Date
     /// `nil` = unpinned. Non-nil is both the pin flag and pin-recency key.
     public let pinnedAt: Date?
 
-    public init(text: String, capturedAt: Date, pinnedAt: Date? = nil) {
+    public init(
+        id: UUID = UUID(),
+        text: String,
+        capturedAt: Date,
+        pinnedAt: Date? = nil
+    ) {
+        self.id = id
         self.text = text
         self.capturedAt = capturedAt
         self.pinnedAt = pinnedAt
+    }
+
+    /// `id` postdates the v1 file format, and bumping the version quarantines
+    /// the existing file (see `Storage.load`) — so entries persisted without
+    /// one get a fresh id on load rather than costing the user their history.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        text = try container.decode(String.self, forKey: .text)
+        capturedAt = try container.decode(Date.self, forKey: .capturedAt)
+        pinnedAt = try container.decodeIfPresent(Date.self, forKey: .pinnedAt)
+    }
+
+    fileprivate func pinned(at date: Date?) -> ClipboardEntry {
+        ClipboardEntry(id: id, text: text, capturedAt: capturedAt, pinnedAt: date)
     }
 }
 
@@ -44,6 +70,11 @@ public final class ClipboardStore {
 
     private static let version = 1
     private static let maximumTextSize = 100_000
+    /// Pins are exempt from `limit`, so they need a ceiling of their own —
+    /// without one the store, the persisted file, and the per-keystroke work
+    /// in `ClipboardProvider` all grow unbounded. Passing it demotes the
+    /// oldest pin: the entry stays in history, it just stops being exempt.
+    public static let maximumPinnedEntries = 50
 
     private let storage: Storage
     private let now: () -> Date
@@ -62,7 +93,8 @@ public final class ClipboardStore {
             expectedVersion: Self.version,
             from: storage.clipboardFileURL
         ) ?? []
-        entries = Self.loadEntries(persistedEntries, limit: self.limit)
+        entries = persistedEntries.sorted(by: Self.entrySort)
+        enforceLimits()
     }
 
     public func add(_ text: String) {
@@ -72,58 +104,59 @@ public final class ClipboardStore {
         guard text.utf8.count <= Self.maximumTextSize else {
             return
         }
+        // Dedup is deliberately consecutive-only: re-copying an older history
+        // row promotes it as a fresh capture. Pinned text is the exception —
+        // activating a pin puts its text back on the pasteboard, and
+        // PasteboardWatcher reads it straight back, so without this guard
+        // every pin the user actually uses grows an unpinned twin.
         if let newest = entries.max(by: { $0.capturedAt < $1.capturedAt }),
            newest.text == text {
             return
         }
+        guard !entries.contains(where: { $0.pinnedAt != nil && $0.text == text }) else {
+            return
+        }
 
         let entry = ClipboardEntry(text: text, capturedAt: now())
-        let pinCount = entries.prefix(while: { $0.pinnedAt != nil }).count
-        entries.insert(entry, at: pinCount)
-        trimToLimit()
+        entries.insert(entry, at: pinnedCount)
+        enforceLimits()
         persist()
     }
 
-    public func pin(capturedAt: Date) {
-        guard let index = entries.firstIndex(where: { $0.capturedAt == capturedAt }) else {
+    public func pin(id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].pinnedAt == nil else {
             return
         }
-        guard entries[index].pinnedAt == nil else {
-            return
-        }
-        let existing = entries[index]
-        entries[index] = ClipboardEntry(
-            text: existing.text,
-            capturedAt: existing.capturedAt,
-            pinnedAt: now()
-        )
+        entries[index] = entries[index].pinned(at: now())
         sortEntries()
+        enforceLimits()
         persist()
     }
 
-    public func unpin(capturedAt: Date) {
-        guard let index = entries.firstIndex(where: { $0.capturedAt == capturedAt }) else {
+    public func unpin(id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].pinnedAt != nil else {
             return
         }
-        guard entries[index].pinnedAt != nil else {
-            return
-        }
-        let existing = entries[index]
-        entries[index] = ClipboardEntry(
-            text: existing.text,
-            capturedAt: existing.capturedAt,
-            pinnedAt: nil
-        )
+        entries[index] = entries[index].pinned(at: nil)
         sortEntries()
+        // The entry rejoins the unpinned pool, which can push it over `limit`
+        // — every other mutation trims, and this one used to be the exception.
+        enforceLimits()
         persist()
     }
 
     public func setLimit(_ newLimit: Int) {
         limit = max(1, newLimit)
-        trimToLimit()
+        enforceLimits()
         persist()
     }
 
+    /// Drops unpinned history only — a pin is the user's explicit "keep this".
+    /// `ClipboardProvider` hides the Clear row entirely when nothing is left
+    /// to drop, and names what it keeps when some of it is pinned, so this
+    /// never reads as a full wipe that quietly wasn't.
     public func clear() {
         entries.removeAll { $0.pinnedAt == nil }
         persist()
@@ -133,35 +166,43 @@ public final class ClipboardStore {
     /// a bare clearContents (zero types — Apple Passwords does this ~90 s after
     /// a copy), drop the most recent capture so the secret doesn't outlive the
     /// clipboard here.
+    ///
+    /// Pinned entries are never scrubbed. This heuristic can't tell a password
+    /// manager's clear from any other app's (see the comment above), so it must
+    /// not be able to destroy something the user explicitly asked to keep.
     public func forgetNewest(ifCapturedWithin window: TimeInterval) {
-        let cutoff = now()
-        guard let index = entries.indices
-            .filter({ cutoff.timeIntervalSince(entries[$0].capturedAt) <= window })
-            .max(by: { entries[$0].capturedAt < entries[$1].capturedAt })
-        else {
+        // `entrySort` puts pins first and orders the unpinned tail newest-first,
+        // so the newest unpinned entry is the one right after the pinned run.
+        let index = pinnedCount
+        guard index < entries.count,
+              now().timeIntervalSince(entries[index].capturedAt) <= window else {
             return
         }
         entries.remove(at: index)
         persist()
     }
 
-    /// Keep every pin, then unpinned up to `limit`, then restore display order.
-    private static func loadEntries(_ persisted: [ClipboardEntry], limit: Int) -> [ClipboardEntry] {
-        let pinned = persisted.filter { $0.pinnedAt != nil }
-        let unpinned = persisted.filter { $0.pinnedAt == nil }.prefix(limit)
-        var combined = Array(pinned) + Array(unpinned)
-        combined.sort(by: entrySort)
-        return combined
+    /// Length of the leading pinned run — `entrySort`'s invariant is that pins
+    /// form the head of `entries` and unpinned entries the tail.
+    private var pinnedCount: Int {
+        entries.prefix { $0.pinnedAt != nil }.count
     }
 
-    private func trimToLimit() {
-        var unpinnedCount = entries.filter { $0.pinnedAt == nil }.count
-        while unpinnedCount > limit {
-            guard let index = entries.lastIndex(where: { $0.pinnedAt == nil }) else {
-                break
+    /// The single owner of both caps, shared by every mutation and by load, so
+    /// the policy can't drift between them. Excess pins demote rather than
+    /// vanish; only unpinned entries are ever dropped. Requires `entries` to
+    /// already satisfy `entrySort`'s invariant.
+    private func enforceLimits() {
+        let pinned = pinnedCount
+        if pinned > Self.maximumPinnedEntries {
+            for index in Self.maximumPinnedEntries..<pinned {
+                entries[index] = entries[index].pinned(at: nil)
             }
-            entries.remove(at: index)
-            unpinnedCount -= 1
+            sortEntries()
+        }
+        let unpinnedCount = entries.count - min(pinned, Self.maximumPinnedEntries)
+        if unpinnedCount > limit {
+            entries.removeLast(unpinnedCount - limit)
         }
     }
 
@@ -222,10 +263,10 @@ public final class ClipboardProvider: ResultProvider {
 
         var results = entries.enumerated().map { index, entry in
             let pinAction: ResultAction = entry.pinnedAt == nil
-                ? .pinClipboard(entry.capturedAt)
-                : .unpinClipboard(entry.capturedAt)
+                ? .pinClipboard(entry.id)
+                : .unpinClipboard(entry.id)
             return SearchResult(
-                id: "clip:\(entry.capturedAt.timeIntervalSince1970)",
+                id: "clip:\(entry.id.uuidString)",
                 providerID: .clipboard,
                 title: DisplayTruncation.firstLine(entry.text, limit: 60),
                 subtitle: relativeDateFormatter.withLock { formatter in
@@ -240,11 +281,21 @@ public final class ClipboardProvider: ResultProvider {
                 sortHint: index
             )
         }
+        // Clear drops unpinned history only, so it's hidden rather than
+        // offered as a no-op once everything left is pinned, and it names what
+        // it keeps when only some of it is.
+        let pinnedCount = entries.count { $0.pinnedAt != nil }
+        guard pinnedCount < entries.count else {
+            return results
+        }
         results.append(
             SearchResult(
                 id: "clip:clear",
                 providerID: .clipboard,
                 title: "Clear Clipboard History",
+                subtitle: pinnedCount == 0
+                    ? nil
+                    : "Keeps \(pinnedCount) pinned item\(pinnedCount == 1 ? "" : "s")",
                 icon: .symbol("trash"),
                 keywords: ["clear", "delete"],
                 badge: "Clipboard",

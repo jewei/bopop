@@ -48,11 +48,16 @@ struct SettingsView: View {
 
             Section("Clipboard") {
                 Stepper(
-                    "Keep last \(model.clipboardLimit) items",
+                    "Keep last \(model.clipboardLimit) unpinned items",
                     value: $model.clipboardLimit,
                     in: 10...500,
                     step: 10
                 )
+                Text(
+                    "Pinned items are kept regardless of this limit, up to \(ClipboardStore.maximumPinnedEntries), and survive Clear Clipboard History."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Translation") {

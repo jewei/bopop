@@ -16,7 +16,10 @@ public nonisolated enum ResultActions {
     public struct ActionItem: Equatable, Sendable {
         public let kind: Kind
         public let title: String
-        public let shortcut: String
+        /// `nil` for rows the panel lists without a direct key of their own —
+        /// modelled as absence rather than "" so the row view can skip
+        /// building a keycap it would never show.
+        public let shortcut: String?
     }
 
     /// Lowercase verb for the footer's "↵ open" label; the panel shows it
@@ -45,7 +48,7 @@ public nonisolated enum ResultActions {
             items.append(ActionItem(
                 kind: .pin,
                 title: pinTitle(for: pin),
-                shortcut: ""
+                shortcut: nil
             ))
         }
         // No duplicate row when the primary action already IS a copy.

@@ -84,10 +84,10 @@ final class ActionRunner {
             NSPasteboard.general.setString(text, forType: .string)
         case .clearClipboardHistory:
             clipboardStore.clear()
-        case let .pinClipboard(capturedAt):
-            clipboardStore.pin(capturedAt: capturedAt)
-        case let .unpinClipboard(capturedAt):
-            clipboardStore.unpin(capturedAt: capturedAt)
+        case let .pinClipboard(id):
+            clipboardStore.pin(id: id)
+        case let .unpinClipboard(id):
+            clipboardStore.unpin(id: id)
         case let .runScript(path):
             let name = URL(fileURLWithPath: path)
                 .deletingPathExtension()
