@@ -31,21 +31,22 @@ import Testing
     let clip = SearchResult(
         id: "c", providerID: .clipboard, title: "Text",
         action: .copyText("hello"),
-        secondaryActions: [.pinClipboard(Date(timeIntervalSince1970: 1))],
+        secondaryActions: [.pinClipboard(UUID())],
         sortHint: 0)
     let items = ResultActions.items(for: clip)
     // copyText payload also gives it a Large Type representation.
     #expect(items.map(\.kind) == [.primary, .pin, .largeType])
     #expect(items[0].title == "Copy")
     #expect(items[1].title == "Pin")
-    #expect(items[1].shortcut == "")
+    // Pin has no direct key of its own — absence, not an empty string.
+    #expect(items[1].shortcut == nil)
 }
 
 @Test func unpinSecondaryShowsUnpinTitle() {
     let clip = SearchResult(
         id: "c", providerID: .clipboard, title: "Text",
         action: .copyText("hello"),
-        secondaryActions: [.unpinClipboard(Date(timeIntervalSince1970: 1))],
+        secondaryActions: [.unpinClipboard(UUID())],
         sortHint: 0)
     let items = ResultActions.items(for: clip)
     #expect(items.map(\.kind) == [.primary, .pin, .largeType])
@@ -78,8 +79,8 @@ import Testing
     #expect(ResultActions.verb(for: .openURL("https://x")) == "open")
     #expect(ResultActions.verb(for: .copyText("t")) == "copy")
     #expect(ResultActions.verb(for: .clearClipboardHistory) == "clear")
-    #expect(ResultActions.verb(for: .pinClipboard(Date())) == "pin")
-    #expect(ResultActions.verb(for: .unpinClipboard(Date())) == "unpin")
+    #expect(ResultActions.verb(for: .pinClipboard(UUID())) == "pin")
+    #expect(ResultActions.verb(for: .unpinClipboard(UUID())) == "unpin")
     #expect(ResultActions.verb(for: .runScript("/s")) == "run")
     #expect(ResultActions.verb(for: .enterMode(.apps)) == "select")
     #expect(ResultActions.verb(for: .downloadTranslation) == "download")

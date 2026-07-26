@@ -110,16 +110,19 @@ public nonisolated enum Ranker {
             if lhs.score != rhs.score {
                 return lhs.score > rhs.score
             }
-            if query.isEmpty, lhs.result.sortHint != rhs.result.sortHint {
+            // `sortHint` is the provider's own ordering intent — clipboard
+            // pinned-then-recency, Spotlight relevance, emoji catalog order —
+            // and it breaks ties ahead of the alphabetical fallback for EVERY
+            // query, not just the empty one. Gating it on `query.isEmpty` sent
+            // filtered clipboard results alphabetical, scattering pinned rows
+            // through the history the moment the user typed a term.
+            if lhs.result.sortHint != rhs.result.sortHint {
                 return lhs.result.sortHint < rhs.result.sortHint
             }
 
             let titleOrder = lhs.result.title.localizedStandardCompare(rhs.result.title)
             if titleOrder != .orderedSame {
                 return titleOrder == .orderedAscending
-            }
-            if lhs.result.sortHint != rhs.result.sortHint {
-                return lhs.result.sortHint < rhs.result.sortHint
             }
             return lhs.result.id < rhs.result.id
         }.map(\.result)

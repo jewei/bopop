@@ -99,6 +99,26 @@ func rankingIsDeterministic() {
     #expect(rank() == rank())
 }
 
+/// A provider's own ordering — clipboard pinned-then-recency here — has to
+/// survive a typed query, not just an empty one. Ranked alphabetically,
+/// "zeta-key" (pinned, sortHint 0) would fall below "alpha-key".
+@Test
+func sortHintBreaksTiesAheadOfTitleForNonEmptyQueries() {
+    let input = [
+        makeResult(id: "clip:alpha", providerID: .clipboard, title: "alpha-key", sortHint: 1),
+        makeResult(id: "clip:zeta", providerID: .clipboard, title: "zeta-key", sortHint: 0)
+    ]
+
+    let ranked = Ranker.rank(
+        input,
+        query: "key",
+        frecencyFor: { _ in 0 },
+        providerWeights: [.clipboard: 30]
+    )
+
+    #expect(ranked.map(\.id) == ["clip:zeta", "clip:alpha"])
+}
+
 @Test
 func emptyQueryKeepsProviderSortOrder() {
     let input = [

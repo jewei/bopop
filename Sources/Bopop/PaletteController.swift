@@ -44,6 +44,11 @@ final class PaletteController: NSObject {
     /// -1 means the hero card owns the selection (Return/⌘C act on it); a
     /// valid `results` index means a table row is selected.
     private var selectedIndex = 0
+    /// Id of the result the next engine update should re-select, set by a
+    /// stay-open mutation (pin/unpin). Pinning moves its row into or out of
+    /// the pinned block, so `apply(_:)`'s default snap back to row 0 would
+    /// silently retarget ⏎ at whatever slid into that slot.
+    private var selectionToRestore: String?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
     private var userAdjustedPosition = false
@@ -177,6 +182,7 @@ final class PaletteController: NSObject {
         results = []
         heroResult = nil
         selectedIndex = 0
+        selectionToRestore = nil
         tableView.reloadData()
         gridView.collectionView.reloadData()
         scrollView.isHidden = true
@@ -309,10 +315,11 @@ final class PaletteController: NSObject {
             guard let self else {
                 return
             }
-            self.engine.update(
-                raw: self.queryField.stringValue,
-                stickyMode: self.stickyMode
-            )
+            self.selectionToRestore = self.selectedResult()?.id
+            // Full updateQuery(), not a bare engine.update() — the pin path
+            // shouldn't be a third partial copy of the refresh sequence that
+            // silently misses whatever gets added to it next.
+            self.updateQuery()
         }
         tabsView.onSelect = { [weak self] mode in
             self?.enterMode(mode)
@@ -340,6 +347,13 @@ final class PaletteController: NSObject {
         results = split.rows
         updateHeroPresentation()
 
+        // Consumed by this update whether or not the row survived it, so a
+        // stale id can never steer a later, unrelated one.
+        let restoredIndex = selectionToRestore.flatMap { id in
+            results.firstIndex { $0.id == id }
+        }
+        selectionToRestore = nil
+
         let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
         lastParsedMode = query.mode
         tabsView.setActive(query.mode)
@@ -366,12 +380,15 @@ final class PaletteController: NSObject {
             tableView.deselectAll(nil)
             gridView.collectionView.deselectAll(nil)
         } else {
-            selectedIndex = 0
+            selectedIndex = restoredIndex ?? 0
             if isGrid {
                 syncGridSelection()
             } else {
-                tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-                tableView.scrollRowToVisible(0)
+                tableView.selectRowIndexes(
+                    IndexSet(integer: selectedIndex),
+                    byExtendingSelection: false
+                )
+                tableView.scrollRowToVisible(selectedIndex)
             }
         }
 

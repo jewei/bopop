@@ -16,7 +16,7 @@ Bopop is a fast, keyboard-first launcher for macOS. Open apps, search files on d
 - **Dictionary** — look up words on-device.
 - **Translation** — English and Chinese translation using Apple’s Translation framework.
 - **URL cleaner** — remove common tracking parameters.
-- **Clipboard history** — browse and re-copy recent plain-text entries.
+- **Clipboard history** — browse and re-copy recent plain-text entries, and pin the ones worth keeping above the rest.
 - **Snippets** — save and search reusable text.
 - **Emoji** — search and copy emoji with keyboard navigation.
 - **Web search** — use built-in or custom search engines.
@@ -28,7 +28,7 @@ Bopop is a fast, keyboard-first launcher for macOS. Open apps, search files on d
 | `⌘Space` | Open Bopop |
 | `⇥` / `⇧⇥` | Switch tabs |
 | `⏎` | Run selected result |
-| `⌘K` | Actions for the selected result — copy, reveal in Finder, Quick Look, Large Type |
+| `⌘K` | Actions for the selected result — copy, pin/unpin, reveal in Finder, Quick Look, Large Type |
 | `Esc` | Clear, exit mode, or close |
 
 The global shortcut is configurable.
@@ -55,7 +55,7 @@ Bopop is local-first.
 - File search runs only when requested.
 - Translation runs on-device.
 - Clipboard entries marked concealed or transient are ignored.
-- Clipboard history is stored locally and can be cleared at any time.
+- Clipboard history is stored locally. Clearing it drops unpinned entries; pinned entries are kept until you unpin them, so unpin first to remove one.
 - Scripts run only after explicit confirmation with `Return`.
 - Scripts use `Process` directly, without shell interpolation.
 - Accessibility permission is not required.

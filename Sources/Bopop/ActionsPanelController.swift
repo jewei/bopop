@@ -170,22 +170,24 @@ private final class ActionsPanelRowView: NSView {
     var onClick: (() -> Void)?
 
     private let titleLabel: NSTextField
-    private let keycap: PaletteKeycapView
-    private let showsShortcut: Bool
+    /// `nil` for a shortcut-less row — the chip isn't built at all rather than
+    /// built, left unparented, and hidden.
+    private let keycap: PaletteKeycapView?
     private var selected = false
     private var hovered = false
     private var hoverTrackingArea: NSTrackingArea?
 
     init(item: ResultActions.ActionItem) {
         titleLabel = NSTextField(labelWithString: item.title)
-        showsShortcut = !item.shortcut.isEmpty
-        keycap = PaletteKeycapView(
-            text: item.shortcut,
-            fontSize: 11,
-            textAlpha: 0.55,
-            horizontalPadding: 6,
-            verticalPadding: 2
-        )
+        keycap = item.shortcut.map { shortcut in
+            PaletteKeycapView(
+                text: shortcut,
+                fontSize: 11,
+                textAlpha: 0.55,
+                horizontalPadding: 6,
+                verticalPadding: 2
+            )
+        }
         super.init(frame: .zero)
         configureView()
     }
@@ -251,17 +253,12 @@ private final class ActionsPanelRowView: NSView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
-        if showsShortcut {
-            addSubview(keycap)
-        } else {
-            keycap.isHidden = true
-        }
-
         var constraints = [
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ]
-        if showsShortcut {
+        if let keycap {
+            addSubview(keycap)
             constraints.append(contentsOf: [
                 titleLabel.trailingAnchor.constraint(
                     lessThanOrEqualTo: keycap.leadingAnchor,

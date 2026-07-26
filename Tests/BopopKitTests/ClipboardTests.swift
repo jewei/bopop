@@ -134,9 +134,12 @@ func clipboardStorePersistsWithPrivatePermissions() throws {
 
     let secondStore = ClipboardStore(storage: fixture.storage)
 
-    #expect(secondStore.entries == [
-        ClipboardEntry(text: "persisted", capturedAt: capturedAt)
-    ])
+    #expect(secondStore.entries.count == 1)
+    #expect(secondStore.entries.first?.text == "persisted")
+    #expect(secondStore.entries.first?.capturedAt == capturedAt)
+    #expect(secondStore.entries.first?.pinnedAt == nil)
+    // The id is the store's primary key, so it has to survive the round trip.
+    #expect(secondStore.entries.first?.id == firstStore.entries.first?.id)
     #expect(try clipboardPermissions(at: fixture.storage.clipboardFileURL) == 0o600)
 }
 
@@ -188,9 +191,8 @@ func clipboardStorePinSortsAboveUnpinnedMostRecentFirst() throws {
     store.add("A")
     store.add("B")
     store.add("C")
-    // times: A@1000, B@1001, C@1002; now advances to 1003
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_000)) // A
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_001)) // B, more recent pin
+    store.pin(id: store.id(of: "A"))
+    store.pin(id: store.id(of: "B")) // more recent pin
 
     #expect(store.entries.map(\.text) == ["B", "A", "C"])
     #expect(store.entries[0].pinnedAt != nil)
@@ -211,7 +213,7 @@ func clipboardStoreClearKeepsPinnedEntries() throws {
 
     store.add("keep")
     store.add("drop")
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_000))
+    store.pin(id: store.id(of: "keep"))
     store.clear()
 
     #expect(store.entries.map(\.text) == ["keep"])
@@ -234,7 +236,7 @@ func clipboardStoreTrimExemptsPinnedEntries() throws {
     }
 
     store.add("old-pin")
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_000))
+    store.pin(id: store.id(of: "old-pin"))
     store.add("u1")
     store.add("u2")
     store.add("u3")
@@ -257,7 +259,7 @@ func clipboardStoreAddWithPinsDedupsAgainstNewestCapture() throws {
 
     store.add("pinned")
     store.add("fresh")
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_000))
+    store.pin(id: store.id(of: "pinned"))
     #expect(store.entries.map(\.text) == ["pinned", "fresh"])
 
     store.add("fresh")
@@ -267,9 +269,31 @@ func clipboardStoreAddWithPinsDedupsAgainstNewestCapture() throws {
     #expect(store.entries.map(\.text) == ["pinned", "newer", "fresh"])
 }
 
+/// Activating a pin copies its text, which PasteboardWatcher reads straight
+/// back — the pin must not sprout an unpinned twin of itself.
 @MainActor
 @Test
-func clipboardStoreForgetNewestRemovesMaxCapturedEvenIfPinned() throws {
+func clipboardStoreAddSkipsTextThatIsAlreadyPinned() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+
+    store.add("deploy-key")
+    store.pin(id: store.id(of: "deploy-key"))
+    store.add("foo")
+    // "foo" is now the newest capture, so the consecutive-dedup guard misses.
+    store.add("deploy-key")
+
+    #expect(store.entries.map(\.text) == ["deploy-key", "foo"])
+}
+
+@MainActor
+@Test
+func clipboardStoreForgetNewestSkipsPinnedAndScrubsNewestUnpinned() throws {
     let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
@@ -277,12 +301,19 @@ func clipboardStoreForgetNewestRemovesMaxCapturedEvenIfPinned() throws {
 
     store.add("older")
     currentDate = Date(timeIntervalSince1970: 1_010)
+    store.add("kept-by-pin")
+    store.pin(id: store.id(of: "kept-by-pin"))
+    currentDate = Date(timeIntervalSince1970: 1_020)
     store.add("secret")
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_010))
     currentDate = Date(timeIntervalSince1970: 1_110)
 
+    // The pin has the newest capture of the three, but an explicit keep
+    // outranks a heuristic that can't identify who cleared the pasteboard.
     store.forgetNewest(ifCapturedWithin: 120)
-    #expect(store.entries.map(\.text) == ["older"])
+    #expect(store.entries.map(\.text) == ["kept-by-pin", "older"])
+
+    let reloaded = ClipboardStore(storage: fixture.storage)
+    #expect(reloaded.entries.map(\.text) == ["kept-by-pin", "older"])
 }
 
 @MainActor
@@ -300,8 +331,8 @@ func clipboardStoreLoadKeepsPinsBeyondUnpinnedLimit() throws {
     writer.add("u1")
     writer.add("u2")
     writer.add("u3")
-    writer.pin(capturedAt: Date(timeIntervalSince1970: 1_000))
-    writer.pin(capturedAt: Date(timeIntervalSince1970: 1_001))
+    writer.pin(id: writer.id(of: "pin-a"))
+    writer.pin(id: writer.id(of: "pin-b"))
 
     let reader = ClipboardStore(storage: fixture.storage, limit: 2)
     #expect(reader.entries.filter { $0.pinnedAt != nil }.map(\.text) == ["pin-b", "pin-a"])
@@ -321,11 +352,91 @@ func clipboardStoreUnpinRestoresCaptureOrder() throws {
 
     store.add("A")
     store.add("B")
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_000))
-    store.unpin(capturedAt: Date(timeIntervalSince1970: 1_000))
+    store.pin(id: store.id(of: "A"))
+    store.unpin(id: store.id(of: "A"))
 
     #expect(store.entries.map(\.text) == ["B", "A"])
     #expect(store.entries.allSatisfy { $0.pinnedAt == nil })
+}
+
+/// Unpinning returns an entry to the unpinned pool, which can push that pool
+/// past `limit` — every other mutation trims, and this one used to skip it.
+@MainActor
+@Test
+func clipboardStoreUnpinTrimsBackToLimit() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage, limit: 2) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+
+    store.add("pin-a")
+    store.add("pin-b")
+    store.pin(id: store.id(of: "pin-a"))
+    store.pin(id: store.id(of: "pin-b"))
+    store.add("u1")
+    store.add("u2")
+    #expect(store.entries.count == 4)
+
+    store.unpin(id: store.id(of: "pin-a"))
+
+    // pin-a rejoins the unpinned tail as the oldest of three; limit is 2.
+    #expect(store.entries.map(\.text) == ["pin-b", "u2", "u1"])
+    let reloaded = ClipboardStore(storage: fixture.storage, limit: 2)
+    #expect(reloaded.entries.map(\.text) == ["pin-b", "u2", "u1"])
+}
+
+/// Pins are exempt from `limit`, so an unbounded pin count would make the
+/// store, the file, and the per-keystroke provider work grow forever.
+@MainActor
+@Test
+func clipboardStoreDemotesOldestPinBeyondPinCap() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage, limit: 500) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+
+    let cap = ClipboardStore.maximumPinnedEntries
+    for index in 0...cap {
+        store.add("entry-\(index)")
+    }
+    for index in 0...cap {
+        store.pin(id: store.id(of: "entry-\(index)"))
+    }
+
+    #expect(store.entries.filter { $0.pinnedAt != nil }.count == cap)
+    // The demoted pin is the least recently pinned one — entry-0 — and it
+    // stays in history rather than being deleted.
+    #expect(store.entries.last?.text == "entry-0")
+    #expect(store.entries.last?.pinnedAt == nil)
+    #expect(store.entries.count == cap + 1)
+}
+
+/// Load runs the same cap policy as the mutations rather than a second copy
+/// of it, so a file written under a looser cap converges on reload.
+@MainActor
+@Test
+func clipboardStoreLoadAppliesBothCaps() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let writer = ClipboardStore(storage: fixture.storage, limit: 10) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+    for text in ["p1", "u1", "u2", "u3"] {
+        writer.add(text)
+    }
+    writer.pin(id: writer.id(of: "p1"))
+
+    let reader = ClipboardStore(storage: fixture.storage, limit: 1)
+
+    #expect(reader.entries.map(\.text) == ["p1", "u3"])
 }
 
 @MainActor
@@ -359,8 +470,8 @@ func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
         "Clear Clipboard History"
     ])
     #expect(firstResults.map(\.id) == [
-        "clip:1001.0",
-        "clip:1000.0",
+        "clip:\(store.id(of: "newer").uuidString)",
+        "clip:\(store.id(of: "older").uuidString)",
         "clip:clear"
     ])
     #expect(secondResults.map(\.id) == firstResults.map(\.id))
@@ -368,12 +479,13 @@ func clipboardProviderReturnsOnlyClipboardModeEntries() async throws {
     #expect(firstResults.map(\.badge) == ["Clipboard", "Clipboard", "Clipboard"])
     #expect(firstResults[0].icon == .symbol("doc.on.clipboard"))
     #expect(firstResults[0].secondaryActions == [
-        .pinClipboard(Date(timeIntervalSince1970: 1_001))
+        .pinClipboard(store.id(of: "newer"))
     ])
     #expect(firstResults[1].secondaryActions == [
-        .pinClipboard(Date(timeIntervalSince1970: 1_000))
+        .pinClipboard(store.id(of: "older"))
     ])
     #expect(firstResults.last?.icon == .symbol("trash"))
+    #expect(firstResults.last?.subtitle == nil)
     #expect(firstResults.last?.keywords == ["clear", "delete"])
     #expect(firstResults.last?.action == .clearClipboardHistory)
     #expect(firstResults.last?.secondaryActions == [])
@@ -391,7 +503,7 @@ func clipboardProviderShowsPinIconAndUnpinActionForPinned() async throws {
     }
     store.add("older")
     store.add("newer")
-    store.pin(capturedAt: Date(timeIntervalSince1970: 1_000))
+    store.pin(id: store.id(of: "older"))
     let provider = ClipboardProvider(store: store)
 
     let results = try await provider.results(
@@ -401,9 +513,36 @@ func clipboardProviderShowsPinIconAndUnpinActionForPinned() async throws {
     #expect(results.map(\.title) == ["older", "newer", "Clear Clipboard History"])
     #expect(results[0].icon == .symbol("pin.fill"))
     #expect(results[0].secondaryActions == [
-        .unpinClipboard(Date(timeIntervalSince1970: 1_000))
+        .unpinClipboard(store.id(of: "older"))
     ])
     #expect(results[1].icon == .symbol("doc.on.clipboard"))
+    // Clear keeps pins, so the row says what it will leave behind.
+    #expect(results.last?.subtitle == "Keeps 1 pinned item")
+}
+
+/// With nothing left for Clear to drop, offering it would be a row that
+/// hides the palette and changes nothing.
+@MainActor
+@Test
+func clipboardProviderOmitsClearRowWhenEveryEntryIsPinned() async throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) {
+        defer { currentDate.addTimeInterval(1) }
+        return currentDate
+    }
+    store.add("a")
+    store.add("b")
+    store.pin(id: store.id(of: "a"))
+    store.pin(id: store.id(of: "b"))
+    let provider = ClipboardProvider(store: store)
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .clipboard, term: "")
+    )
+
+    #expect(results.map(\.title) == ["b", "a"])
 }
 
 @MainActor
@@ -429,9 +568,54 @@ func clipboardStoreLoadsLegacyEntriesWithoutPinnedAt() throws {
     try data.write(to: fixture.storage.clipboardFileURL)
 
     let store = ClipboardStore(storage: fixture.storage)
-    #expect(store.entries == [
-        ClipboardEntry(text: "legacy", capturedAt: capturedAt, pinnedAt: nil)
-    ])
+    #expect(store.entries.count == 1)
+    #expect(store.entries.first?.text == "legacy")
+    #expect(store.entries.first?.capturedAt == capturedAt)
+    #expect(store.entries.first?.pinnedAt == nil)
+}
+
+/// `id` was added after v1 shipped. Bumping the storage version quarantines
+/// the file (see `Storage.load`), so pre-`id` entries must decode in place
+/// with a freshly minted one instead of costing the user their history.
+@MainActor
+@Test
+func clipboardStoreLoadsLegacyEntriesWithoutIDAndKeepsThemAddressable() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    struct LegacyEntry: Codable {
+        let text: String
+        let capturedAt: Date
+        let pinnedAt: Date?
+    }
+    struct LegacyEnvelope: Codable {
+        let version: Int
+        let payload: [LegacyEntry]
+    }
+    let data = try JSONEncoder().encode(
+        LegacyEnvelope(
+            version: 1,
+            payload: [
+                LegacyEntry(
+                    text: "legacy-pin",
+                    capturedAt: Date(timeIntervalSince1970: 1_000),
+                    pinnedAt: Date(timeIntervalSince1970: 1_500)
+                ),
+                LegacyEntry(
+                    text: "legacy-plain",
+                    capturedAt: Date(timeIntervalSince1970: 1_001),
+                    pinnedAt: nil
+                )
+            ]
+        )
+    )
+    try data.write(to: fixture.storage.clipboardFileURL)
+
+    let store = ClipboardStore(storage: fixture.storage)
+    #expect(store.entries.map(\.text) == ["legacy-pin", "legacy-plain"])
+    #expect(Set(store.entries.map(\.id)).count == 2)
+
+    store.unpin(id: store.id(of: "legacy-pin"))
+    #expect(store.entries.allSatisfy { $0.pinnedAt == nil })
 }
 
 @MainActor
@@ -540,4 +724,16 @@ func clipboardCapturePolicyAllowsNormalCopy() {
 private func clipboardPermissions(at url: URL) throws -> Int {
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
     return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
+}
+
+private extension ClipboardStore {
+    /// The store keys entries by an opaque `ClipboardEntry.id`; these tests
+    /// know them by their text.
+    @MainActor
+    func id(of text: String) -> UUID {
+        guard let entry = entries.first(where: { $0.text == text }) else {
+            fatalError("no clipboard entry with text \(text)")
+        }
+        return entry.id
+    }
 }
