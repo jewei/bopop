@@ -315,8 +315,15 @@ private final class UpdateRecorder {
         updates.append(update)
     }
 
+    /// The timeout only bounds FAILURE — a passing wait returns as soon as the
+    /// predicate matches, so a generous deadline costs nothing. It needs to be
+    /// generous: none of these tests mean to assert latency, and under the full
+    /// suite's parallel load a CI runner stretches waits that take a
+    /// millisecond locally out past a second (same scheduler contention the
+    /// concurrency test above documents at length). A 1 s deadline made
+    /// `queryEngineDebounceCancelsEarlierSleep` flaky there.
     func waitForUpdate(
-        timeout: Duration = .seconds(1),
+        timeout: Duration = .seconds(20),
         matching predicate: (QueryEngine.Update) -> Bool
     ) async -> QueryEngine.Update? {
         let clock = ContinuousClock()
