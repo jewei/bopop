@@ -6,16 +6,16 @@
         <description>Bopop release feed</description>
         <language>en</language>
         <item>
-            <title>Version 0.1.2</title>
-            <pubDate>Fri, 24 Jul 2026 02:52:46 +0000</pubDate>
-            <sparkle:version>128</sparkle:version>
-            <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+            <title>Version 0.1.3</title>
+            <pubDate>Mon, 27 Jul 2026 06:37:44 +0000</pubDate>
+            <sparkle:version>138</sparkle:version>
+            <sparkle:shortVersionString>0.1.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://github.com/jewei/bopop/releases/tag/v0.1.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://github.com/jewei/bopop/releases/tag/v0.1.3</sparkle:releaseNotesLink>
             <enclosure
-                url="https://github.com/jewei/bopop/releases/download/v0.1.2/Bopop-0.1.2.dmg"
-                sparkle:edSignature="YUoRz4k++9uCfoH8m9AIY9F8ODPXJlF2FFKP+os3m3GbZVbToGtoz1Hywj2LfH7uUJmVGyEpcLTE0+0vAaYgAA=="
-                length="2829710"
+                url="https://github.com/jewei/bopop/releases/download/v0.1.3/Bopop-0.1.3.dmg"
+                sparkle:edSignature="sr4dhmGq/o2cZEUh4HVl9sdYQVq8mbpSLX080Hcucx8XVWdxv1g7FM3FlABW2hbjvHRB38T4cD/2USWyI69NAw=="
+                length="2845377"
                 type="application/octet-stream"
             />
         </item>
