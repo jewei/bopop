@@ -18,8 +18,22 @@ enum SpotlightConflict {
         return SpotlightShortcut.isEnabled(inSymbolicHotkeys: symbolicHotkeys)
     }
 
-    static func warnIfConflicting(with config: HotkeyConfig) {
-        guard isConflicting(with: config) else {
+    static let suppressWarningKey = "suppressSpotlightConflictWarning"
+
+    /// Bopop launches at login, so an unsuppressable modal here meant a
+    /// dialog on every boot for anyone who keeps ⌘Space on both — "Later"
+    /// dismissed it for exactly one launch. Suppressing only silences this
+    /// alert: Settings still shows the conflict banner and its "Re-check"
+    /// button, so the information stays reachable.
+    static func isSuppressed(in defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: suppressWarningKey)
+    }
+
+    static func warnIfConflicting(
+        with config: HotkeyConfig,
+        defaults: UserDefaults = .standard
+    ) {
+        guard isConflicting(with: config), !isSuppressed(in: defaults) else {
             return
         }
 
@@ -28,9 +42,15 @@ enum SpotlightConflict {
         alert.informativeText = "Bopop's shortcut won't fire until Spotlight's \"Show Spotlight search\" shortcut is disabled in System Settings → Keyboard → Keyboard Shortcuts."
         alert.addButton(withTitle: "Open Keyboard Settings")
         alert.addButton(withTitle: "Later")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't warn me again"
 
         NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else {
+        let response = alert.runModal()
+        if alert.suppressionButton?.state == .on {
+            defaults.set(true, forKey: suppressWarningKey)
+        }
+        guard response == .alertFirstButtonReturn else {
             return
         }
 

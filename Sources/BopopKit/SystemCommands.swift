@@ -13,6 +13,33 @@ public nonisolated enum SystemCommandInvocation: Equatable, Sendable {
 public nonisolated enum SystemCommand: String, CaseIterable, Sendable {
     case lockScreen, sleep, screenSaver, logOut, restart, shutDown, emptyTrash, ejectAll
 
+    /// Copy for a Bopop-side confirmation, for destructive commands macOS
+    /// does NOT reliably confirm itself. Log Out/Restart/Shut Down are
+    /// deliberately absent: loginwindow always presents its own dialog (see
+    /// `SystemCommandInvocation.loginwindowAppleEvent`), which is what their
+    /// "…" titles promise. Emptying the Trash only warns when Finder's "Show
+    /// warning before emptying the Trash" preference is on — a setting this
+    /// app can't read and users commonly turn off — so one Return could
+    /// irreversibly delete everything in it.
+    public nonisolated struct Confirmation: Equatable, Sendable {
+        public let message: String
+        public let informative: String
+        public let confirmTitle: String
+    }
+
+    public var confirmation: Confirmation? {
+        switch self {
+        case .emptyTrash:
+            return Confirmation(
+                message: "Empty the Trash?",
+                informative: "Everything in the Trash will be deleted immediately. You can't undo this.",
+                confirmTitle: "Empty Trash"
+            )
+        default:
+            return nil
+        }
+    }
+
     public var title: String {
         switch self {
         case .lockScreen: return "Lock Screen"
@@ -21,7 +48,7 @@ public nonisolated enum SystemCommand: String, CaseIterable, Sendable {
         case .logOut: return "Log Out…"
         case .restart: return "Restart…"
         case .shutDown: return "Shut Down…"
-        case .emptyTrash: return "Empty Trash"
+        case .emptyTrash: return "Empty Trash…"
         case .ejectAll: return "Eject All Disks"
         }
     }

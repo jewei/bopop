@@ -123,10 +123,31 @@ final class ActionRunner {
         case .downloadTranslation:
             onDownloadTranslation?()
         case .systemCommand(let command):
+            guard confirmed(command) else {
+                return
+            }
             run(command.invocation)
         case let .revealFile(path):
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
+    }
+
+    /// True when the command needs no confirmation, or the user gave it.
+    /// The palette is already hidden by the time `execute` runs, so this
+    /// alert stands alone — and an accessory app has to activate itself for
+    /// a modal to come to the front (same as `SpotlightConflict`).
+    private func confirmed(_ command: SystemCommand) -> Bool {
+        guard let confirmation = command.confirmation else {
+            return true
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = confirmation.message
+        alert.informativeText = confirmation.informative
+        alert.addButton(withTitle: confirmation.confirmTitle)
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func run(_ invocation: SystemCommandInvocation) {

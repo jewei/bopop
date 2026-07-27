@@ -32,6 +32,41 @@ import Testing
     } else { Issue.record("ejectAll must be a Finder script") }
 }
 
+/// Every command that destroys something must either be confirmed by macOS
+/// itself (the loginwindow events) or carry Bopop-side confirmation copy.
+/// Emptying the Trash is the one that macOS only *sometimes* confirms — it
+/// depends on a Finder preference this app can't read — so it needs its own.
+@Test func destructiveCommandsAreConfirmedSomewhere() throws {
+    let trash = try #require(SystemCommand.emptyTrash.confirmation)
+    #expect(!trash.message.isEmpty)
+    #expect(!trash.informative.isEmpty)
+    #expect(!trash.confirmTitle.isEmpty)
+
+    // loginwindow presents its own dialog, so these must NOT double-confirm.
+    for command in [SystemCommand.logOut, .restart, .shutDown] {
+        #expect(command.confirmation == nil)
+    }
+    // Non-destructive commands run straight through.
+    for command in [SystemCommand.lockScreen, .sleep, .screenSaver, .ejectAll] {
+        #expect(command.confirmation == nil)
+    }
+}
+
+/// "…" is the app's signal that a confirmation follows. Every command that
+/// confirms — via macOS or via Bopop — carries it, and no other does.
+@Test func ellipsisTitlesMatchConfirmingCommands() {
+    for command in SystemCommand.allCases {
+        let confirmsViaMacOS = command.invocation == .loginwindowAppleEvent(code: "logo")
+            || command.invocation == .loginwindowAppleEvent(code: "rrst")
+            || command.invocation == .loginwindowAppleEvent(code: "rsdn")
+        let confirms = confirmsViaMacOS || command.confirmation != nil
+        #expect(
+            command.title.hasSuffix("…") == confirms,
+            "\(command.title) should\(confirms ? "" : " not") end in an ellipsis"
+        )
+    }
+}
+
 @MainActor
 @Test func systemCommandsProviderMatchesInGeneralModeOnly() async throws {
     let provider = SystemCommandsProvider()

@@ -37,6 +37,44 @@ enum FocusLossCheck {
     }
 }
 
+/// Bopop is an LSUIElement (`.accessory`) app that gets promoted to
+/// `.regular` whenever something needs Dock/Cmd-Tab presence — Sparkle's
+/// update UI, the Settings window. Both promoters have to drop it back when
+/// no window needs that any more: leaving it `.regular` strands a Dock icon
+/// for a background agent, and dropping it while a window is still up
+/// strands that window without focus.
+///
+/// This is the single answer to "does anything still need focus presence?".
+/// It previously existed twice, with different criteria — `AppUpdater`
+/// matched a window by the literal title "Bopop Settings" (so a rename would
+/// silently reintroduce the stranded-window bug the check exists to prevent),
+/// while `SettingsWindowController` used a structural test.
+enum ActivationPolicy {
+    /// Deferred one runloop turn because every caller runs *while* a window
+    /// is closing: at the moment of the call it can still be in
+    /// `NSApp.windows` and still report `isVisible`.
+    ///
+    /// `excluding` is the window the caller is itself closing, for callers
+    /// that run before it leaves the list.
+    static func restoreAccessoryWhenNothingNeedsFocus(excluding excluded: NSWindow? = nil) {
+        Task { @MainActor in
+            let needsFocus = NSApp.windows.contains { window in
+                window !== excluded
+                    && window.isVisible
+                    // Overlays (palette, large type, actions) are panels and
+                    // never justify Dock presence.
+                    && !(window is NSPanel)
+                    // Excludes the offscreen, alpha-0 AppleTranslator host,
+                    // which is borderless and so can't become key.
+                    && window.canBecomeKey
+            }
+            if !needsFocus {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+    }
+}
+
 extension NSPanel {
     /// Shared chrome for Bopop's borderless, status-level overlay panels
     /// (palette + large-type): floats above everything, joins every Space

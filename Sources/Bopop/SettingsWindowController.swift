@@ -20,19 +20,12 @@ final class SettingsWindowController {
             object: window,
             queue: .main
         ) { _ in
-            // A Sparkle update session may have promoted the app to .regular
-            // while Settings was open (see AppUpdater); dropping back here
-            // keeps the LSUIElement app out of the Dock once no window needs
-            // Cmd-Tab presence. Sparkle windows are not titled "Bopop
-            // Settings", so check for any other visible regular window,
-            // excluding non-key-capable windows like the offscreen
-            // AppleTranslator host (a borderless, alpha-0 window kept
-            // ordered in for the app's lifetime).
-            Task { @MainActor in
-                let otherVisible = NSApp.windows.contains {
-                    $0.isVisible && $0 !== window && !($0 is NSPanel) && $0.canBecomeKey
-                }
-                if !otherVisible { NSApp.setActivationPolicy(.accessory) }
+            // Opening Settings promotes the app to .regular, and a Sparkle
+            // update session may have too (see AppUpdater) — drop back once
+            // nothing else needs Cmd-Tab presence. This window is still in
+            // NSApp.windows while it closes, hence `excluding`.
+            MainActor.assumeIsolated {
+                ActivationPolicy.restoreAccessoryWhenNothingNeedsFocus(excluding: window)
             }
         }
 
