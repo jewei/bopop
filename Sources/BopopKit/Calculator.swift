@@ -1,33 +1,62 @@
 import Foundation
 
 public nonisolated enum CalculatorFormatter {
+    private static let posixLocale = Locale(identifier: "en_US_POSIX")
+
     public static func string(from value: Double) -> String {
         if value == 0 {
             return "0"
         }
 
-        let locale = Locale(identifier: "en_US_POSIX")
         if value.rounded(.towardZero) == value, abs(value) < 1e15 {
-            return String(format: "%.0f", locale: locale, value)
+            return String(format: "%.0f", locale: posixLocale, value)
         }
 
-        var formatted = String(format: "%.10f", locale: locale, value)
+        var formatted = String(format: "%.10f", locale: posixLocale, value)
         while formatted.last == "0" {
             formatted.removeLast()
         }
         if formatted.last == "." {
             formatted.removeLast()
         }
+        // Ten decimal places round every magnitude below 5e-11 to all zeros,
+        // which reported a nonzero answer as a flat "0" — and that "0" is
+        // also the copy payload and the ⇥ autocomplete text. Fall back to
+        // significant-digit notation instead of lying about the value.
+        guard formatted != "0", formatted != "-0" else {
+            return String(format: "%g", locale: posixLocale, value)
+        }
         return formatted
     }
 
-    public static func grouped(from value: Double) -> String {
+    /// Built once and locked rather than constructed per call: this runs on
+    /// every keystroke of a calculator query, the same hot path that made
+    /// CurrencyProvider hoist its own formatters. NumberFormatter is not
+    /// thread-safe and providers now run off the main actor, so `FormatterBox`
+    /// supplies the serialization the actor used to.
+    private static let groupingFormatter: FormatterBox<NumberFormatter> = {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.maximumFractionDigits = 10
-        return formatter.string(from: NSNumber(value: value)) ?? string(from: value)
+        return FormatterBox(formatter)
+    }()
+
+    public static func grouped(from value: Double) -> String {
+        guard value != 0 else {
+            return "0"
+        }
+        let formatted = groupingFormatter.withLock {
+            $0.string(from: NSNumber(value: value))
+        }
+        // Same all-zeros trap as above: maximumFractionDigits 10 renders
+        // ±4e-11 as "0"/"-0". `string(from:)` has the significant-digit
+        // fallback for magnitudes this can't represent.
+        guard let formatted, formatted != "0", formatted != "-0" else {
+            return string(from: value)
+        }
+        return formatted
     }
 }
 
@@ -119,15 +148,24 @@ public final class CalculatorProvider: ResultProvider {
         }
     }
 
+    /// Hoisted for the same reason as `CalculatorFormatter.groupingFormatter`
+    /// — and more so here, since `.spellOut` is the most expensive style to
+    /// construct and this ran once per keystroke.
+    private nonisolated static let spellOutFormatter: FormatterBox<NumberFormatter> = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .spellOut
+        return FormatterBox(formatter)
+    }()
+
     private nonisolated static func spellOutBadge(_ value: Double) -> String? {
         guard value.rounded(.towardZero) == value, abs(value) < 1e9 else {
             return nil
         }
 
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "en_US")
-        formatter.numberStyle = .spellOut
-        guard let spelled = formatter.string(from: NSNumber(value: value)) else {
+        guard let spelled = spellOutFormatter.withLock({
+            $0.string(from: NSNumber(value: value))
+        }) else {
             return nil
         }
         return spelled.capitalized

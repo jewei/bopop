@@ -1,20 +1,81 @@
 import AppKit
 import BopopKit
+import Carbon.HIToolbox
 import SwiftUI
+
+/// Resolves a virtual key code to the character it produces on the user's
+/// CURRENT keyboard layout, so a saved hotkey still displays correctly after
+/// relaunch — when the captured `charactersIgnoringModifiers` is long gone —
+/// and on layouts where the US-QWERTY position table is simply wrong.
+enum KeyCodeNaming {
+    private static let functionKeyCodes: [UInt32: String] = [
+        122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
+        98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
+        105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17",
+        79: "F18", 80: "F19", 90: "F20"
+    ]
+
+    static func functionKeyName(for keyCode: UInt32) -> String? {
+        functionKeyCodes[keyCode]
+    }
+
+    static func characterName(for keyCode: UInt32) -> String? {
+        guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?
+            .takeRetainedValue(),
+            let layoutPointer = TISGetInputSourceProperty(
+                source,
+                kTISPropertyUnicodeKeyLayoutData
+            )
+        else {
+            return nil
+        }
+        let layoutData = Unmanaged<CFData>.fromOpaque(layoutPointer)
+            .takeUnretainedValue() as Data
+
+        return layoutData.withUnsafeBytes { buffer -> String? in
+            guard let header = buffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self)
+            else {
+                return nil
+            }
+            var deadKeyState: UInt32 = 0
+            var characters = [UniChar](repeating: 0, count: 4)
+            var length = 0
+            let status = UCKeyTranslate(
+                header,
+                UInt16(keyCode),
+                UInt16(kUCKeyActionDisplay),
+                0, // no modifiers: the bare character this key produces
+                UInt32(LMGetKbdType()),
+                OptionBits(kUCKeyTranslateNoDeadKeysBit),
+                &deadKeyState,
+                characters.count,
+                &length,
+                &characters
+            )
+            guard status == noErr, length > 0 else {
+                return nil
+            }
+            let name = String(utf16CodeUnits: characters, count: length)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? nil : name.uppercased()
+        }
+    }
+}
 
 struct HotkeyRecorderView: NSViewRepresentable {
     @Binding var hotkey: HotkeyConfig
     @Binding var isRecording: Bool
 
-    private static let keyNames: [UInt32: String] = [
-        0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G",
-        6: "Z", 7: "X", 8: "C", 9: "V", 11: "B", 12: "Q",
-        13: "W", 14: "E", 15: "R", 16: "Y", 17: "T",
-        18: "1", 19: "2", 20: "3", 21: "4", 22: "6", 23: "5",
-        25: "9", 26: "7", 28: "8", 29: "0", 31: "O", 32: "U",
-        34: "I", 35: "P", 37: "L", 38: "J", 40: "K", 45: "N",
-        46: "M", 36: "Return", 48: "Tab", 49: "Space", 51: "Delete",
-        53: "Esc", 123: "←", 124: "→", 125: "↓", 126: "↑"
+    /// Keys with no printable character, which no keyboard layout renames.
+    /// Everything else is resolved through the CURRENT layout by
+    /// `KeyCodeNaming` — a hardcoded table here was US-QWERTY only (so keyCode
+    /// 0 read "A" on a Dvorak or AZERTY layout, where it isn't) and covered
+    /// neither punctuation nor the function keys, which fell back to the raw
+    /// "Key 96".
+    private static let unmappedKeyNames: [UInt32: String] = [
+        36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "Esc",
+        115: "Home", 116: "Page Up", 117: "Forward Delete", 119: "End",
+        121: "Page Down", 123: "←", 124: "→", 125: "↓", 126: "↑"
     ]
 
     func makeCoordinator() -> Coordinator {
@@ -36,6 +97,10 @@ struct HotkeyRecorderView: NSViewRepresentable {
         nsView.update(config: hotkey, isRecording: isRecording)
     }
 
+    static func unmappedKeyName(for keyCode: UInt32) -> String? {
+        unmappedKeyNames[keyCode]
+    }
+
     static func displayString(
         for config: HotkeyConfig,
         capturedKeyName: String? = nil
@@ -53,7 +118,11 @@ struct HotkeyRecorderView: NSViewRepresentable {
         if config.modifiers.contains(.command) {
             result += "⌘"
         }
-        result += capturedKeyName ?? keyNames[config.keyCode] ?? "Key \(config.keyCode)"
+        result += capturedKeyName
+            ?? unmappedKeyNames[config.keyCode]
+            ?? KeyCodeNaming.functionKeyName(for: config.keyCode)
+            ?? KeyCodeNaming.characterName(for: config.keyCode)
+            ?? "Key \(config.keyCode)"
         return result
     }
 
@@ -206,23 +275,21 @@ final class RecorderNSView: NSView {
         }
     }
 
+    /// Nil falls back to `HotkeyRecorderView.displayString`'s own resolution,
+    /// which is what a relaunch uses anyway — so capture-time and
+    /// restored-from-defaults naming agree.
     private static func keyName(for event: NSEvent) -> String? {
-        switch event.keyCode {
-        case 49: return "Space"
-        case 36: return "Return"
-        case 48: return "Tab"
-        case 51: return "Delete"
-        case 53: return "Esc"
-        case 123: return "←"
-        case 124: return "→"
-        case 125: return "↓"
-        case 126: return "↑"
-        default:
-            guard let characters = event.charactersIgnoringModifiers,
-                  !characters.isEmpty else {
-                return nil
-            }
-            return characters.uppercased()
+        let keyCode = UInt32(event.keyCode)
+        if let name = HotkeyRecorderView.unmappedKeyName(for: keyCode) {
+            return name
         }
+        if let name = KeyCodeNaming.functionKeyName(for: keyCode) {
+            return name
+        }
+        guard let characters = event.charactersIgnoringModifiers,
+              !characters.isEmpty else {
+            return nil
+        }
+        return characters.uppercased()
     }
 }

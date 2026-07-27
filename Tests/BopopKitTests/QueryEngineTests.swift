@@ -77,6 +77,37 @@ func queryEngineIsolatesThrowingProvider() async {
     #expect(final?.results.map(\.id) == ["app:good"])
 }
 
+/// A provider that reports cancellation must not strand `isFinal`. The
+/// `.cancelled` branch used to `continue` past the emit, so when the cancelled
+/// provider was the LAST one outstanding no final update was ever published
+/// and File mode's footer sat on "Searching…" until the next keystroke.
+@MainActor
+@Test
+func queryEngineStillFinalizesWhenLastProviderReportsCancellation() async {
+    let gate = Gate()
+    let quick = FakeProvider(id: .apps) { _ in
+        [engineResult(id: "app:good", title: "Good")]
+    }
+    // Finishes last, and finishes by throwing CancellationError.
+    let cancelling = FakeProvider(id: .files) { _ in
+        await gate.wait()
+        throw CancellationError()
+    }
+    let engine = QueryEngine(
+        providers: [.general: [quick, cancelling]],
+        debounce: [:]
+    )
+    let recorder = UpdateRecorder()
+    engine.onUpdate = recorder.record
+
+    engine.update(raw: "good", stickyMode: .general)
+    await gate.waitUntilStarted()
+    await gate.release()
+
+    let final = await recorder.waitForUpdate(matching: \.isFinal)
+    #expect(final?.results.map(\.id) == ["app:good"])
+}
+
 @MainActor
 @Test
 func queryEnginePublishesIncrementally() async {
@@ -284,8 +315,15 @@ private final class UpdateRecorder {
         updates.append(update)
     }
 
+    /// The timeout only bounds FAILURE — a passing wait returns as soon as the
+    /// predicate matches, so a generous deadline costs nothing. It needs to be
+    /// generous: none of these tests mean to assert latency, and under the full
+    /// suite's parallel load a CI runner stretches waits that take a
+    /// millisecond locally out past a second (same scheduler contention the
+    /// concurrency test above documents at length). A 1 s deadline made
+    /// `queryEngineDebounceCancelsEarlierSleep` flaky there.
     func waitForUpdate(
-        timeout: Duration = .seconds(1),
+        timeout: Duration = .seconds(20),
         matching predicate: (QueryEngine.Update) -> Bool
     ) async -> QueryEngine.Update? {
         let clock = ContinuousClock()

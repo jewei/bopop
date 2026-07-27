@@ -38,6 +38,11 @@ let package = Package(
         .testTarget(
             name: "BopopKitTests",
             dependencies: ["BopopKit"]
+        ),
+        .testTarget(
+            name: "BopopTests",
+            dependencies: ["Bopop"],
+            swiftSettings: [.defaultIsolation(MainActor.self)]
         )
     ],
     swiftLanguageModes: [.v6]

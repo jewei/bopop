@@ -33,7 +33,14 @@ public nonisolated enum QueryParser {
 
     public static func parse(raw: String, stickyMode: Mode) -> ParsedQuery {
         guard stickyMode == .general else {
-            return ParsedQuery(mode: stickyMode, term: raw)
+            // Trimmed exactly like every general-mode branch below. Ranker
+            // folds case and diacritics but never trims, so an untrimmed term
+            // made a single trailing space tier-mismatch every candidate and
+            // blank the whole list — mid-word, while the user was still typing.
+            return ParsedQuery(
+                mode: stickyMode,
+                term: raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
 
         if raw.first == ":", raw.count > 1 {

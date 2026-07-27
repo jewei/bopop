@@ -35,7 +35,7 @@ The global shortcut is configurable.
 
 ## Build
 
-Requires macOS 15+, Xcode 26, and Swift 6.2. Bopop has no third-party dependencies.
+Requires macOS 15+, Xcode 26, and Swift 6.2. Bopop's only dependency is Sparkle (updates).
 
 ```sh
 make test   # swift test — full suite
@@ -43,6 +43,10 @@ make app    # assemble + ad-hoc sign dist/Bopop.app
 make run    # build, kill old instance, run inside the bundle (logs in terminal)
 make open   # build and launch via Finder/LaunchServices
 ```
+
+The suite covers both targets — `BopopKitTests` for parsing, ranking, storage,
+and providers; `BopopTests` for the app layer. GitHub Actions runs it on every
+push to `main` and every pull request (`.github/workflows/ci.yml`).
 
 Bopop runs as a background agent with no Dock icon or menu-bar item. Open Settings, Scripts, or Quit from the gear button in the launcher.
 

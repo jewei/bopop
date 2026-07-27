@@ -78,8 +78,11 @@ func fileSearcherReadsScopeProviderPerSearchAndSkipsMissingPaths() async {
     // synchronous call was — poll instead of assuming a fixed scheduling
     // shape, up to a generous timeout, before falling back to the gathering
     // notification wait.
+    // Bounds failure only — the loop exits as soon as the query is built, so
+    // the deadline just needs to outlast CI's parallel-load scheduling delays
+    // (see UpdateRecorder.waitForUpdate, where 1 s proved too tight).
     let clock = ContinuousClock()
-    let deadline = clock.now + .seconds(1)
+    let deadline = clock.now + .seconds(20)
     while !searcher.didBuildQuery, clock.now < deadline {
         await Task.yield()
     }

@@ -22,8 +22,8 @@ public final class SnippetStore {
 
     public init(storage: Storage) {
         self.storage = storage
-        snippets = storage.load(
-            [Snippet].self,
+        snippets = storage.loadElements(
+            Snippet.self,
             expectedVersion: Self.version,
             from: storage.snippetsFileURL
         ) ?? []

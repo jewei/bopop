@@ -126,21 +126,29 @@ final class LargeTypeWindowController: NSObject {
         return NSFont(descriptor: rounded, size: size) ?? base
     }
 
+    /// Unclipped: the shrink loop needs the TRUE number of lines the text
+    /// would occupy in order to decide whether this size fits.
     private static func lineCount(for text: String, font: NSFont, maxWidth: CGFloat) -> Int {
-        layout(for: text, font: font, maxWidth: maxWidth).lines
+        layout(for: text, font: font, maxWidth: maxWidth, lineLimit: 0).lines
     }
 
+    /// Clipped to `maxLines`, matching what the label actually renders.
+    /// Measuring unclipped sized the panel to every line the text would
+    /// occupy — 644 of them, and an 18,000-point frame, for a max-size
+    /// clipboard entry — while only three were ever drawn.
     private static func measuredSize(for text: String, font: NSFont, maxWidth: CGFloat) -> NSSize {
-        layout(for: text, font: font, maxWidth: maxWidth).size
+        layout(for: text, font: font, maxWidth: maxWidth, lineLimit: maxLines).size
     }
 
     /// Lays `text` out in an offscreen `NSLayoutManager` at `maxWidth` to
     /// get both the number of wrapped line fragments and the used bounding
     /// size — the two facts the shrink loop and final sizing need.
+    /// `lineLimit` is NSTextContainer's convention: 0 means no limit.
     private static func layout(
         for text: String,
         font: NSFont,
-        maxWidth: CGFloat
+        maxWidth: CGFloat,
+        lineLimit: Int
     ) -> (lines: Int, size: NSSize) {
         let textStorage = NSTextStorage(string: text, attributes: [.font: font])
         let layoutManager = NSLayoutManager()
@@ -149,6 +157,7 @@ final class LargeTypeWindowController: NSObject {
             size: NSSize(width: maxWidth, height: .greatestFiniteMagnitude)
         )
         textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = lineLimit
         layoutManager.addTextContainer(textContainer)
 
         var lines = 0

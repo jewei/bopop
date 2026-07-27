@@ -119,7 +119,12 @@ public final class QueryEngine {
                         "Provider \(providerID.rawValue, privacy: .public) failed: \(message, privacy: .private)"
                     )
                 case .cancelled:
-                    continue
+                    // Falls through to the emit below rather than `continue`:
+                    // `remaining` is already decremented, so skipping it when
+                    // the LAST provider is the cancelled one would strand
+                    // `isFinal` at false forever and pin File mode's footer
+                    // on "Searching…" until the next keystroke.
+                    break
                 }
 
                 let ranked = Ranker.rank(

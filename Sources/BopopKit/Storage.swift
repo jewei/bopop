@@ -106,6 +106,47 @@ public nonisolated struct Storage {
         }
     }
 
+    /// Element-wise variant of `load` for array payloads: one unreadable
+    /// element is dropped and logged instead of costing the user every record
+    /// in the file. `load`'s all-or-nothing decode meant a single entry with a
+    /// missing key — a partial write from a crash mid-`save`, a hand-edit, a
+    /// field added without `decodeIfPresent` care — quarantined the whole of
+    /// clipboard history or every snippet. Only an unreadable envelope
+    /// (truncated JSON, wrong version) still quarantines.
+    public func loadElements<Element: Codable>(
+        _ elementType: Element.Type,
+        expectedVersion: Int,
+        from url: URL
+    ) -> [Element]? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let envelope = try JSONDecoder().decode(
+                DecodingEnvelope<[Lenient<Element>]>.self,
+                from: data
+            )
+            guard envelope.version == expectedVersion else {
+                quarantine(url, using: fileManager)
+                return nil
+            }
+            let elements = envelope.payload.compactMap(\.value)
+            let dropped = envelope.payload.count - elements.count
+            if dropped > 0 {
+                Self.logger.error(
+                    "Dropped \(dropped, privacy: .public) unreadable element(s) from \(url.lastPathComponent, privacy: .public)"
+                )
+            }
+            return elements
+        } catch {
+            quarantine(url, using: fileManager)
+            return nil
+        }
+    }
+
     public func appendScriptLog(_ line: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let entry = "\(timestamp) \(line)\n"
@@ -186,5 +227,25 @@ public nonisolated struct Storage {
     private struct Envelope<Payload: Codable>: Codable {
         let version: Int
         let payload: Payload
+    }
+
+    /// Decode-only twin of `Envelope`, needed because `Lenient` is
+    /// deliberately Decodable-but-not-Encodable — nothing should ever write a
+    /// payload back through it.
+    private struct DecodingEnvelope<Payload: Decodable>: Decodable {
+        let version: Int
+        let payload: Payload
+    }
+
+    /// Decodes to nil instead of throwing, so one bad element in an array
+    /// doesn't abort the whole payload. JSONDecoder gives each element of an
+    /// unkeyed container its own sub-decoder, so a failure here consumes that
+    /// element and leaves the rest of the array intact.
+    private struct Lenient<Value: Decodable>: Decodable {
+        let value: Value?
+
+        init(from decoder: any Decoder) throws {
+            value = try? Value(from: decoder)
+        }
     }
 }

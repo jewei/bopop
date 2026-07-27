@@ -64,7 +64,10 @@ final class PasteboardWatcher {
         timer = nil
     }
 
-    private func pollPasteboard() {
+    /// Internal rather than private so tests can drive one poll directly
+    /// instead of waiting on the timer — the capture/clear dispatch below is
+    /// the part worth pinning down, not the scheduling around it.
+    func pollPasteboard() {
         let changeCount = pasteboard.changeCount
         guard changeCount != lastChangeCount else {
             return

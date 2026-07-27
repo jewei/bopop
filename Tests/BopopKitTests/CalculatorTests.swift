@@ -12,6 +12,28 @@ func calculatorFormatterFormats(value: Double, expected: String) {
     #expect(CalculatorFormatter.string(from: value) == expected)
 }
 
+/// Ten decimal places round anything below 5e-11 to all zeros, which reported
+/// a nonzero answer as a flat "0" — and that "0" was also the copy payload
+/// and the ⇥ autocomplete text.
+@Test
+func calculatorFormatterDoesNotFlattenSmallValuesToZero() {
+    let tiny = 1.0 / 25_000_000_000.0 // 4e-11
+    #expect(CalculatorFormatter.string(from: tiny) != "0")
+    #expect(Double(CalculatorFormatter.string(from: tiny)) == tiny)
+    #expect(CalculatorFormatter.grouped(from: tiny) != "0")
+
+    // Negatives round to "-0" rather than "0", so they need their own guard.
+    #expect(CalculatorFormatter.string(from: -tiny) != "-0")
+    #expect(Double(CalculatorFormatter.string(from: -tiny)) == -tiny)
+    #expect(CalculatorFormatter.grouped(from: -tiny) != "-0")
+
+    // A real zero still formats as plain "0".
+    #expect(CalculatorFormatter.string(from: 0) == "0")
+    #expect(CalculatorFormatter.grouped(from: 0) == "0")
+    // And the ordinary cases keep their grouped presentation.
+    #expect(CalculatorFormatter.grouped(from: 1_234_567) == "1,234,567")
+}
+
 @Test(arguments: [
     ("2015", false),
     ("2+2", true),
