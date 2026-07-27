@@ -32,10 +32,10 @@ BUILD="${2:-$(git -C "$PROJECT_DIR" rev-list --count HEAD)}"
 DMG_NAME="$APP_NAME-$VERSION.dmg"
 TAG="v$VERSION"
 
-if git -C "$PROJECT_DIR" ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-    echo "error: tag $TAG already exists on origin — bump CFBundleShortVersionString first." >&2
-    exit 1
-fi
+# Branch, clean tree, up-to-date with origin, and tag availability — all
+# read-only, all before anything is built or submitted. See
+# Support/preflight-release.sh.
+"$SCRIPT_DIR/preflight-release.sh" "$VERSION"
 
 echo "▶ Releasing $APP_NAME $VERSION (build $BUILD)"
 
@@ -162,6 +162,18 @@ XML
 # (uploaded below), so publishing the commit first never exposes a dangling
 # appcast — clients fetch the new feed only after the asset is live or 404
 # harmlessly for the moment in between.
+
+# Write the shipped version back to the source plist, so it tracks reality
+# rather than drifting behind (it sat at 0.1.1 through the 0.1.2 and 0.1.3
+# releases, which made the no-argument default useless — it would resolve to
+# an already-tagged version and fail preflight). Deliberately last: everything
+# above is read-only with respect to the repo, so a run that dies during
+# build, notarization, or validation leaves the tree exactly as it found it.
+PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST_SRC")"
+if [[ "$PLIST_VERSION" != "$VERSION" ]]; then
+    echo "▶ Updating Support/Info.plist $PLIST_VERSION → $VERSION…"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST_SRC"
+fi
 
 echo "▶ Committing appcast.xml + version…"
 git -C "$PROJECT_DIR" add appcast.xml Support/Info.plist
