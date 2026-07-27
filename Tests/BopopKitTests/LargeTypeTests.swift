@@ -33,3 +33,36 @@ import Testing
         secondaryActions: [.copyText("the definition")], sortHint: 0)
     #expect(LargeType.text(for: result) == "the definition")
 }
+
+/// The overlay renders at most 3 lines, but it used to size itself by laying
+/// out the whole copy payload — up to a 100 KB clipboard entry — which cost
+/// 0.34 s of main-thread layout and produced an 18,000-point panel frame.
+@Test func largeTypeCapsRunawayCopyPayloads() throws {
+    // ClipboardStore.maximumTextSize — a max-size clipboard entry.
+    let huge = String(repeating: "x", count: 100_000)
+    let result = SearchResult(
+        id: "c", providerID: .clipboard, title: "Text",
+        action: .copyText(huge), sortHint: 0)
+
+    let text = try #require(LargeType.text(for: result))
+    #expect(text.count == LargeType.characterLimit + 1) // + the ellipsis
+    #expect(text.hasSuffix("…"))
+
+    // Text that fits is returned untouched, ellipsis and all.
+    let short = SearchResult(
+        id: "s", providerID: .clipboard, title: "Text",
+        action: .copyText("still short"), sortHint: 0)
+    #expect(LargeType.text(for: short) == "still short")
+}
+
+/// A hero pane can carry provider-built text too (translations especially).
+@Test func largeTypeCapsHeroText() throws {
+    let long = String(repeating: "translated ", count: 500)
+    let result = SearchResult(
+        id: "t", providerID: .translation, title: "T",
+        action: .enterMode(.general),
+        hero: HeroContent(left: "source", right: long), sortHint: 0)
+
+    let text = try #require(LargeType.text(for: result))
+    #expect(text.count == LargeType.characterLimit + 1)
+}

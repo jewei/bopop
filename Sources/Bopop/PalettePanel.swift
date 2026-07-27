@@ -182,16 +182,22 @@ final class BlockCursorTextView: NSTextView {
         guard selection.length == 0 else {
             return nil
         }
+        // A fixed length of 1 splits any character that isn't one UTF-16 unit
+        // — an emoji, a flag, a combining sequence — leaving the block sized
+        // to half a surrogate pair and drawing a broken glyph over it. Ask the
+        // string for the whole composed sequence instead.
         if let textStorage, textStorage.length > 0, selection.location < textStorage.length {
-            return textStorage.attributedSubstring(
-                from: NSRange(location: selection.location, length: 1)
-            )
+            let range = (textStorage.string as NSString)
+                .rangeOfComposedCharacterSequence(at: selection.location)
+            return textStorage.attributedSubstring(from: range)
         }
         if string.isEmpty,
            let field = delegate as? NSTextField,
            let placeholder = field.placeholderAttributedString,
            placeholder.length > 0 {
-            return placeholder.attributedSubstring(from: NSRange(location: 0, length: 1))
+            let range = (placeholder.string as NSString)
+                .rangeOfComposedCharacterSequence(at: 0)
+            return placeholder.attributedSubstring(from: range)
         }
         return nil
     }
