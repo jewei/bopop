@@ -61,13 +61,8 @@ private final class UpdaterDelegate: NSObject, @preconcurrency SPUStandardUserDr
 
     func standardUserDriverWillFinishUpdateSession() {
         settingsModel?.updateAvailable = false
-        // Keep the app activatable while our Settings window is open —
-        // dropping an LSUIElement app to .accessory with a visible window
-        // strands it without Cmd-Tab focus. Sparkle's own windows are
-        // closing at this point; match ours by title.
-        let settingsOpen = NSApp.windows.contains {
-            $0.isVisible && $0.title == "Bopop Settings"
-        }
-        if !settingsOpen { NSApp.setActivationPolicy(.accessory) }
+        // Sparkle's own windows are closing at this point, which is why the
+        // shared helper defers a turn before looking.
+        ActivationPolicy.restoreAccessoryWhenNothingNeedsFocus()
     }
 }
