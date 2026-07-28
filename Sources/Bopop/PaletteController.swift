@@ -597,6 +597,15 @@ final class PaletteController: NSObject {
             actionsPanel.hide()
             return true
         }
+        return presentActionsPanel()
+    }
+
+    /// Show semantics rather than toggle: a right-click on a row should open
+    /// the panel for THAT row, never close a panel that's already up for a
+    /// different one.
+    @discardableResult
+    private func presentActionsPanel() -> Bool {
+        actionsPanel.hide()
         guard let result = selectedResult() else {
             return false
         }
@@ -628,6 +637,14 @@ final class PaletteController: NSObject {
         case .pin:
             if let result = selectedResult(), ResultActions.hasPinAction(result) {
                 actionRunner.performPin(result)
+            }
+        case .quit:
+            if let result = selectedResult() {
+                actionRunner.performQuit(result)
+            }
+        case .hide:
+            if let result = selectedResult() {
+                actionRunner.performHide(result)
             }
         case .reveal:
             _ = performSelectedReveal()
@@ -961,6 +978,15 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
         ) as? ResultRowView ?? ResultRowView()
         rowView.configure(with: results[row])
         rowView.setSelected(tableView.selectedRow == row)
+        rowView.onRightClick = { [weak self] in
+            guard let self, results.indices.contains(row) else {
+                return
+            }
+            selectedIndex = row
+            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            updateFooterActions()
+            presentActionsPanel()
+        }
         return rowView
     }
 

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @State private var showingCurrencyConsent = false
     @State private var newSearchName = ""
     @State private var newSearchKeyword = ""
     @State private var newSearchTemplate = ""
@@ -58,6 +59,50 @@ struct SettingsView: View {
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            }
+
+            if !model.hiddenResultIDs.isEmpty {
+                Section("Hidden results") {
+                    ForEach(model.hiddenResultIDs, id: \.self) { id in
+                        HStack {
+                            // Ids are "app:<bundle id or path>" — show the
+                            // readable half rather than the storage key.
+                            Text(id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? id)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button("Unhide") { model.unhideResult(id) }
+                                .controlSize(.small)
+                        }
+                    }
+                    Text("Hide a result from the ⌘K actions panel to stop it appearing in search.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Currency") {
+                Toggle("Convert currencies", isOn: Binding(
+                    get: { model.currencyEnabled },
+                    set: { wantsOn in
+                        // Turning ON routes through the disclosure below;
+                        // turning OFF is immediate and clears cached rates.
+                        if wantsOn {
+                            showingCurrencyConsent = true
+                        } else {
+                            model.setCurrencyEnabled(false)
+                        }
+                    }
+                ))
+                Text("Off by default. When on, Bopop fetches exchange rates from frankfurter.dev — the only feature that contacts a server.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .alert("Fetch exchange rates?", isPresented: $showingCurrencyConsent) {
+                Button("Cancel", role: .cancel) {}
+                Button("Turn On") { model.setCurrencyEnabled(true) }
+            } message: {
+                Text("Bopop will request the daily rate table from frankfurter.dev when you type a conversion, and cache it locally.\n\nNo account, no identifiers, and nothing you type is sent — only a request for the table itself. Turning this off again deletes the cached rates.")
             }
 
             Section("Translation") {

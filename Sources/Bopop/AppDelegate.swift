@@ -7,8 +7,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let usageStore: UsageStore
     private let clipboardStore: ClipboardStore
     private let snippetStore: SnippetStore
+    private let visibilityStore: VisibilityStore
     private let pasteboardWatcher: PasteboardWatcher
     private let appCatalog: AppCatalog
+    private let emojiCatalog: EmojiCatalog
+    private let runningApplications: RunningApplicationsMonitor
     private let paletteController: PaletteController
     private let hotkeyManager: HotkeyManager
     private let settingsModel: SettingsModel
@@ -22,8 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let clipboardLimit = SettingsModel.storedClipboardLimit(in: defaults)
         let clipboardStore = ClipboardStore(storage: storage, limit: clipboardLimit)
         let snippetStore = SnippetStore(storage: storage)
+        let visibilityStore = VisibilityStore(storage: storage)
         let pasteboardWatcher = PasteboardWatcher(store: clipboardStore)
         let appCatalog = AppCatalog()
+        let emojiCatalog = EmojiCatalog()
         let hotkeyManager = HotkeyManager()
         // AppsProvider/EmojiProvider's frecency hook is invoked off the main
         // actor during concurrent provider ranking; UsageStore itself is
@@ -34,9 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let batchFrecencyFor: BatchFrecencyLookup = { ids in
             await MainActor.run { usageStore.scores(for: ids) }
         }
+        let runningApplications = RunningApplicationsMonitor()
         let appsProvider = AppsProvider(
             catalog: appCatalog,
-            frecencyFor: batchFrecencyFor
+            frecencyFor: batchFrecencyFor,
+            runningBundleIDs: { await MainActor.run { runningApplications.bundleIDs } },
+            hiddenIDs: { await MainActor.run { visibilityStore.hiddenIDs } }
         )
         let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
         // settingsModel is constructed AFTER this engine (it needs
@@ -66,7 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     appsProvider,
                     CalculatorProvider(),
                     ScriptsProvider(catalog: scriptCatalog),
-                    CurrencyProvider(store: RateStore(storage: storage), fetcher: LiveRateFetcher()),
+                    CurrencyProvider(
+                        store: RateStore(storage: storage),
+                        fetcher: LiveRateFetcher(),
+                        isEnabled: {
+                            await MainActor.run {
+                                SettingsModel.storedCurrencyEnabled(in: .standard)
+                            }
+                        }
+                    ),
                     TimeProvider(),
                     URLCleanProvider(),
                     WebSearchProvider(engine: searchEngineFor),
@@ -84,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ],
                 .clipboard: [ClipboardProvider(store: clipboardStore)],
                 .emoji: [
-                    EmojiProvider(catalog: EmojiCatalog(), frecencyFor: batchFrecencyFor)
+                    EmojiProvider(catalog: emojiCatalog, frecencyFor: batchFrecencyFor)
                 ],
                 .translation: [
                     TranslationProvider(
@@ -100,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let actionRunner = ActionRunner(
             storage: storage,
             clipboardStore: clipboardStore,
+            visibilityStore: visibilityStore,
             scriptFeedback: scriptFeedback
         )
         actionRunner.onExecuted = { result in
@@ -113,13 +130,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.usageStore = usageStore
         self.clipboardStore = clipboardStore
         self.snippetStore = snippetStore
+        self.visibilityStore = visibilityStore
         self.pasteboardWatcher = pasteboardWatcher
         self.appCatalog = appCatalog
+        self.emojiCatalog = emojiCatalog
+        self.runningApplications = runningApplications
         self.hotkeyManager = hotkeyManager
         let settingsModel = SettingsModel(
             hotkeyManager: hotkeyManager,
             clipboardStore: clipboardStore,
             snippetStore: snippetStore,
+            visibilityStore: visibilityStore,
             storage: storage,
             defaults: defaults
         )
@@ -150,7 +171,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? storage.ensureDirectories()
         pasteboardWatcher.start()
+        runningApplications.start()
         appCatalog.refreshIfStale()
+        // Warm the emoji catalog off-main now rather than decoding 174 KB on
+        // the main actor at the first keystroke in emoji mode.
+        Task { await emojiCatalog.load() }
 
         let hotkeyConfig = settingsModel.hotkey
         hotkeyManager.onHotkey = { [weak self] in

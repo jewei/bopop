@@ -14,13 +14,6 @@ final class PasteboardWatcher {
     // clearer), so this window is the only lever available.
     static let upstreamClearScrubWindow: TimeInterval = 120
 
-    private static let concealedType = NSPasteboard.PasteboardType(
-        "org.nspasteboard.ConcealedType"
-    )
-    private static let transientType = NSPasteboard.PasteboardType(
-        "org.nspasteboard.TransientType"
-    )
-
     private let store: ClipboardStore
     private let pasteboard: NSPasteboard
     private let interval: TimeInterval
@@ -82,10 +75,11 @@ final class PasteboardWatcher {
             store.forgetNewest(ifCapturedWithin: Self.upstreamClearScrubWindow)
             return
         }
-        guard !types.contains(Self.concealedType),
-              !types.contains(Self.transientType) else {
-            return
-        }
+        // The secrecy-marker check lives entirely in ClipboardCapturePolicy —
+        // this used to repeat two of the markers here, which meant the set of
+        // "never record this" types had two homes and only one of them was
+        // consulted for the third.
+        //
         // Heuristic: the frontmost app within one 0.5 s poll of a copy is almost
         // always the copier. This catches Apple Passwords, which sets no pasteboard
         // marker at all (verified on macOS 15.7).

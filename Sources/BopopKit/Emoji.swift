@@ -13,12 +13,49 @@ public nonisolated struct EmojiEntry: Codable, Equatable, Sendable {
 }
 
 public final class EmojiCatalog {
-    public private(set) lazy var entries: [EmojiEntry] = Self.loadEntries()
+    private var cached: [EmojiEntry]?
 
     public init() {}
 
+    /// Synchronous fallback: decodes on first touch if nothing warmed the
+    /// catalog first.
+    public var entries: [EmojiEntry] {
+        if let cached {
+            return cached
+        }
+        let decoded = Self.loadEntries()
+        cached = decoded
+        return decoded
+    }
+
+    /// Decodes the 174 KB catalog off the main actor and caches it. Reading
+    /// `entries` cold ran that decode ON the main actor — the first keystroke
+    /// in emoji mode paid for parsing ~1,900 entries before drawing anything.
+    /// `AppDelegate` warms this at launch; `EmojiProvider` awaits it, so a
+    /// query that arrives mid-decode joins the same work instead of racing it.
+    @discardableResult
+    public func load() async -> [EmojiEntry] {
+        if let cached {
+            return cached
+        }
+        // `Bundle.module` is main-actor isolated, so resolve the URL here and
+        // send only that across — the decode is the expensive half anyway.
+        let url = Bundle.module.url(forResource: "emoji", withExtension: "json")
+        let decoded = await Task.detached(priority: .utility) {
+            Self.decodeEntries(at: url)
+        }.value
+        if cached == nil {
+            cached = decoded
+        }
+        return cached ?? decoded
+    }
+
     private static func loadEntries() -> [EmojiEntry] {
-        guard let url = Bundle.module.url(forResource: "emoji", withExtension: "json"),
+        decodeEntries(at: Bundle.module.url(forResource: "emoji", withExtension: "json"))
+    }
+
+    private nonisolated static func decodeEntries(at url: URL?) -> [EmojiEntry] {
+        guard let url,
               let data = try? Data(contentsOf: url),
               let entries = try? JSONDecoder().decode([EmojiEntry].self, from: data)
         else {
@@ -44,10 +81,9 @@ public final class EmojiProvider: ResultProvider {
             return []
         }
 
-        // EmojiCatalog's `entries` is a lazy var — force it to initialize on
-        // MainActor (its home isolation) rather than racing a first access
-        // from this now off-main-actor body.
-        let catalogEntries = await MainActor.run { catalog.entries }
+        // Awaits the shared off-main decode rather than forcing it on the
+        // main actor (see EmojiCatalog.load).
+        let catalogEntries = await catalog.load()
         let indexedEntries = Array(catalogEntries.enumerated())
         let term = query.term.trimmingCharacters(in: .whitespacesAndNewlines)
 

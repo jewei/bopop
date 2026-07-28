@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class SettingsModel: ObservableObject {
     static let clipboardLimitKey = "clipboardLimit"
+    static let currencyEnabledKey = "currencyConversionEnabled"
     static let chineseVariantKey = "chineseVariant"
     static let searchEngineKey = "searchEngine"
     static let fileSearchFoldersKey = "fileSearchFolders"
@@ -46,6 +47,11 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    /// Read-only from the view's perspective: turning it ON goes through
+    /// `confirmCurrencyConsent()` so the disclosure can't be bypassed by
+    /// binding a toggle straight to it.
+    @Published private(set) var currencyEnabled: Bool
+
     @Published var launchAtLogin: Bool {
         didSet {
             updateLaunchAtLogin(from: oldValue)
@@ -80,6 +86,8 @@ final class SettingsModel: ObservableObject {
     }
 
     @Published private(set) var snippets: [Snippet]
+    /// Results hidden via the ⌘K panel. Settings is the only way back.
+    @Published private(set) var hiddenResultIDs: [String]
 
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
@@ -101,6 +109,7 @@ final class SettingsModel: ObservableObject {
     private let hotkeyManager: HotkeyManager
     private let clipboardStore: ClipboardStore
     private let snippetStore: SnippetStore
+    private let visibilityStore: VisibilityStore
     private let storage: Storage
     private let defaults: UserDefaults
     private var isRevertingLaunchAtLogin = false
@@ -109,6 +118,7 @@ final class SettingsModel: ObservableObject {
         hotkeyManager: HotkeyManager,
         clipboardStore: ClipboardStore,
         snippetStore: SnippetStore,
+        visibilityStore: VisibilityStore,
         storage: Storage,
         defaults: UserDefaults = .standard
     ) {
@@ -116,10 +126,12 @@ final class SettingsModel: ObservableObject {
         self.hotkeyManager = hotkeyManager
         self.clipboardStore = clipboardStore
         self.snippetStore = snippetStore
+        self.visibilityStore = visibilityStore
         self.storage = storage
         self.defaults = defaults
         self.hotkey = hotkey
         clipboardLimit = Self.storedClipboardLimit(in: defaults)
+        currencyEnabled = Self.storedCurrencyEnabled(in: defaults)
         launchAtLogin = SMAppService.mainApp.status == .enabled
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
         chineseVariant = Self.storedChineseVariant(in: defaults)
@@ -127,6 +139,7 @@ final class SettingsModel: ObservableObject {
         fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
         customSearches = Self.storedCustomSearches(in: defaults)
         snippets = snippetStore.snippets
+        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
         hasCustomBrandImage = FileManager.default.fileExists(atPath: storage.brandImageURL.path)
     }
 
@@ -135,6 +148,25 @@ final class SettingsModel: ObservableObject {
             return 100
         }
         return clampClipboardLimit(stored.intValue)
+    }
+
+    /// Absent means off. Currency conversion is the one feature that leaves
+    /// the machine, so it ships disabled and stays disabled until asked for.
+    static func storedCurrencyEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: currencyEnabledKey)
+    }
+
+    /// `enabled == true` is only ever reached from the consent dialog in
+    /// `SettingsView`. Turning it off deletes the cached rate table.
+    func setCurrencyEnabled(_ enabled: Bool) {
+        guard enabled != currencyEnabled else {
+            return
+        }
+        currencyEnabled = enabled
+        defaults.set(enabled, forKey: Self.currencyEnabledKey)
+        if !enabled {
+            RateStore(storage: storage).clearCache()
+        }
     }
 
     static func storedChineseVariant(in defaults: UserDefaults) -> TranslationTarget {
@@ -227,17 +259,25 @@ final class SettingsModel: ObservableObject {
             content: trimmedContent
         ))
         snippets = snippetStore.snippets
+        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
         return true
     }
 
     func updateSnippet(_ snippet: Snippet) {
         snippetStore.update(snippet)
         snippets = snippetStore.snippets
+        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
+    }
+
+    func unhideResult(_ id: String) {
+        visibilityStore.show(id)
+        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
     }
 
     func removeSnippet(id: UUID) {
         snippetStore.remove(id: id)
         snippets = snippetStore.snippets
+        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
     }
 
     /// Opens an NSOpenPanel (single image file) and imports the chosen

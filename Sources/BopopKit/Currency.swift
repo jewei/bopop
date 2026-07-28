@@ -156,6 +156,12 @@ public final class LiveRateFetcher: RateFetcher {
     public init() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
+        // The provider serves the rate table with a Cache-Control lifetime.
+        // Ephemeral already keeps any cache in memory rather than on disk, so
+        // this is belt-and-braces — but it means turning the feature off
+        // really does leave nothing behind, including for the process's
+        // remaining lifetime.
+        configuration.urlCache = nil
         session = URLSession(configuration: configuration)
     }
 
@@ -218,6 +224,13 @@ public final class RateStore {
         return loaded
     }
 
+    /// Opting out has to leave nothing behind, so the cached table goes too.
+    public func clearCache() {
+        memoryCache = nil
+        hasLoaded = true
+        try? FileManager.default.removeItem(at: storage.ratesFileURL)
+    }
+
     public func save(rates: [String: Double], fetchedAt: Date) {
         let cachedRates = CachedRates(rates: rates, fetchedAt: fetchedAt)
         try? storage.save(
@@ -246,6 +259,10 @@ public nonisolated final class CurrencyProvider: ResultProvider {
     private let store: RateStore
     private let fetcher: RateFetcher
     private let now: @Sendable () -> Date
+    /// Consent gate for the one feature in Bopop that reaches the network.
+    /// Defaults to "off" so that forgetting to wire it disables the fetch
+    /// rather than silently enabling it — the safe state is the default.
+    private let isEnabled: @Sendable () async -> Bool
     // Once this provider runs off the main actor, two overlapping generations
     // could format on this shared instance from different threads at once —
     // RelativeDateTimeFormatter is not thread-safe, so guard it with a lock
@@ -258,11 +275,13 @@ public nonisolated final class CurrencyProvider: ResultProvider {
     public init(
         store: RateStore,
         fetcher: RateFetcher,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        isEnabled: @escaping @Sendable () async -> Bool = { false }
     ) {
         self.store = store
         self.fetcher = fetcher
         self.now = now
+        self.isEnabled = isEnabled
         let formatter = RelativeDateTimeFormatter()
         formatter.dateTimeStyle = .named
         formatter.locale = Locale(identifier: "en_US")
@@ -272,6 +291,9 @@ public nonisolated final class CurrencyProvider: ResultProvider {
     public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, let parsed = CurrencyParser.parse(query.term) else {
             return []
+        }
+        guard await isEnabled() else {
+            return [Self.disabledResult(rawTerm: query.term)]
         }
 
         // RateStore stays MainActor-isolated (its memoryCache/hasLoaded are
@@ -287,6 +309,12 @@ public nonisolated final class CurrencyProvider: ResultProvider {
         guard let freshRates = try? await fetcher.fetchEURBaseRates() else {
             return [Self.unavailableResult()]
         }
+        // Consent can be withdrawn while the request is in flight, so it's
+        // re-checked on the far side of the await: a table fetched after the
+        // user said stop is neither shown nor written to disk.
+        guard await isEnabled() else {
+            return [Self.disabledResult(rawTerm: query.term)]
+        }
         let fetchedAt = now()
         await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
         return makeResults(
@@ -299,6 +327,22 @@ public nonisolated final class CurrencyProvider: ResultProvider {
     /// Cache is stale but still answerable — hand back the stale answer now
     /// and let this unstructured task refresh it for next time without
     /// blocking the current query.
+    /// Typing a conversion with the feature off should explain itself rather
+    /// than silently produce nothing. Inert action, like the other
+    /// informational rows.
+    private nonisolated static func disabledResult(rawTerm: String) -> SearchResult {
+        SearchResult(
+            id: "currency:disabled",
+            providerID: .currency,
+            title: "Currency conversion is off",
+            subtitle: "Turn it on in Settings → Currency to fetch exchange rates.",
+            icon: .symbol("wifi.slash"),
+            keywords: [rawTerm],
+            action: .enterMode(.general),
+            sortHint: 0
+        )
+    }
+
     private nonisolated func refreshInBackground() {
         // One refresh at a time — while the cache is stale, every keystroke of
         // the query re-enters here, and each must not become its own request.
@@ -316,7 +360,11 @@ public nonisolated final class CurrencyProvider: ResultProvider {
         }
         Task {
             defer { refreshInFlight.withLock { $0 = false } }
-            guard let freshRates = try? await fetcher.fetchEURBaseRates() else {
+            guard await isEnabled(),
+                  let freshRates = try? await fetcher.fetchEURBaseRates(),
+                  // Re-checked after the await for the same reason as in
+                  // `results(for:)` — consent can drop mid-request.
+                  await isEnabled() else {
                 return
             }
             let fetchedAt = now()

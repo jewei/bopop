@@ -8,12 +8,28 @@ public nonisolated struct Storage {
         self.baseDirectory = baseDirectory
     }
 
+    /// Directory name for a bundle identifier. Release keeps the historical
+    /// "Bopop" — deriving it from the identifier wholesale would orphan every
+    /// existing user's clipboard, snippets, and usage data.
+    ///
+    /// A debug build is stamped with a `.dev` identifier by the Makefile, and
+    /// gets its own directory so running from source can't read or clobber the
+    /// installed app's data. UserDefaults, the login-item registration, and
+    /// Sparkle's state are already keyed by bundle identifier, so separating
+    /// them falls out of the same rename.
+    static func directoryName(forBundleIdentifier identifier: String?) -> String {
+        (identifier?.hasSuffix(".dev") ?? false) ? "Bopop Dev" : "Bopop"
+    }
+
     public static func production() -> Storage {
         let applicationSupportDirectory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return Storage(
             baseDirectory: applicationSupportDirectory
-                .appendingPathComponent("Bopop", isDirectory: true)
+                .appendingPathComponent(
+                    directoryName(forBundleIdentifier: Bundle.main.bundleIdentifier),
+                    isDirectory: true
+                )
         )
     }
 
@@ -35,6 +51,10 @@ public nonisolated struct Storage {
 
     public var ratesFileURL: URL {
         baseDirectory.appendingPathComponent("rates.json")
+    }
+
+    public var hiddenResultsFileURL: URL {
+        baseDirectory.appendingPathComponent("hidden.json")
     }
 
     public var snippetsFileURL: URL {

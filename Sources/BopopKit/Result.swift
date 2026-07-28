@@ -33,6 +33,11 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case clearClipboardHistory
     case pinClipboard(UUID)
     case unpinClipboard(UUID)
+    /// Bundle identifier — `NSRunningApplication` is looked up by that, and a
+    /// path wouldn't survive an app being moved while running.
+    case quitApp(String)
+    /// `SearchResult.id` of a result to stop showing. See `VisibilityStore`.
+    case hideResult(String)
     case runScript(String)
     case enterMode(Mode)
     case openURL(String)

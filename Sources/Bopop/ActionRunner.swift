@@ -6,6 +6,7 @@ import Carbon
 final class ActionRunner {
     private let storage: Storage
     private let clipboardStore: ClipboardStore
+    private let visibilityStore: VisibilityStore
     private let scriptFeedback: ScriptFeedback
 
     var onModeChange: ((Mode) -> Void)?
@@ -18,10 +19,12 @@ final class ActionRunner {
     init(
         storage: Storage,
         clipboardStore: ClipboardStore,
+        visibilityStore: VisibilityStore,
         scriptFeedback: ScriptFeedback
     ) {
         self.storage = storage
         self.clipboardStore = clipboardStore
+        self.visibilityStore = visibilityStore
         self.scriptFeedback = scriptFeedback
     }
 
@@ -59,6 +62,27 @@ final class ActionRunner {
         hidePalette?()
         execute(copyAction)
         onExecuted?(result)
+    }
+
+    /// Quitting closes the palette like any other activation — the result the
+    /// user acted on is about to stop being runnable, so leaving the list up
+    /// showing a stale "running" row would be worse than dismissing.
+    func performQuit(_ result: SearchResult) {
+        guard let action = ResultActions.quitAction(in: result) else {
+            return
+        }
+        hidePalette?()
+        execute(action)
+    }
+
+    /// Hiding keeps the palette open and re-queries, like pin — the row the
+    /// user just hid should disappear from under them immediately.
+    func performHide(_ result: SearchResult) {
+        guard let action = ResultActions.hideAction(in: result) else {
+            return
+        }
+        execute(action)
+        onStayOpenRefresh?()
     }
 
     /// Pin/unpin keeps the palette open and refreshes the result list.
@@ -101,6 +125,16 @@ final class ActionRunner {
             clipboardStore.pin(id: id)
         case let .unpinClipboard(id):
             clipboardStore.unpin(id: id)
+        case let .hideResult(id):
+            visibilityStore.hide(id)
+        case let .quitApp(bundleID):
+            // `terminate()` rather than `forceTerminate()`: the app gets to run
+            // its own quit path, prompt to save, or refuse.
+            for application in NSRunningApplication.runningApplications(
+                withBundleIdentifier: bundleID
+            ) {
+                application.terminate()
+            }
         case let .runScript(path):
             let name = URL(fileURLWithPath: path)
                 .deletingPathExtension()

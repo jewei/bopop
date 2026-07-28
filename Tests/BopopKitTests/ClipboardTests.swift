@@ -737,3 +737,23 @@ private extension ClipboardStore {
         return entry.id
     }
 }
+
+/// Apple's own marker for autofill/password/OTP copies. A clip carrying only
+/// this one used to be captured and written to disk like any other.
+@Test
+func clipboardCapturePolicyRejectsAppleSensitiveMarker() {
+    #expect(!ClipboardCapturePolicy.shouldCapture(
+        types: ["public.utf8-plain-text", "com.apple.is-sensitive"],
+        frontmostBundleID: "com.apple.Safari",
+        denied: []
+    ))
+    // All three markers live in one set, consulted from one place.
+    #expect(ClipboardCapturePolicy.sensitiveTypes.count == 3)
+    for marker in ClipboardCapturePolicy.sensitiveTypes {
+        #expect(!ClipboardCapturePolicy.shouldCapture(
+            types: ["public.utf8-plain-text", marker],
+            frontmostBundleID: nil,
+            denied: []
+        ), "\(marker) must suppress capture")
+    }
+}

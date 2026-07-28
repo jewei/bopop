@@ -11,15 +11,26 @@ final class AppUpdater {
         set { delegate.settingsModel = newValue }
     }
 
+    /// A build from source carries a `.dev` identifier (see the Makefile).
+    /// The appcast advertises the released app, so letting a dev build check
+    /// it would offer to replace what you're actively working on with the
+    /// last shipped DMG.
+    private static var isDevChannel: Bool {
+        Bundle.main.bundleIdentifier?.hasSuffix(".dev") ?? false
+    }
+
     init() {
         controller = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: !Self.isDevChannel,
             updaterDelegate: nil,
             userDriverDelegate: delegate
         )
     }
 
     func checkForUpdates() {
+        guard !Self.isDevChannel else {
+            return
+        }
         // Sparkle's windows need Dock/Cmd-Tab presence while visible;
         // the delegate restores .accessory when the session ends.
         NSApp.setActivationPolicy(.regular)

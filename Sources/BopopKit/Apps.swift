@@ -222,13 +222,25 @@ public final class AppsProvider: ResultProvider {
 
     private let catalog: AppCatalog
     private let frecencyFor: BatchFrecencyLookup
+    /// Bundle ids of apps that can be quit right now. Injected because
+    /// `NSRunningApplication` is AppKit and this target is Foundation-only;
+    /// the app target filters out Bopop itself and Finder before this sees it.
+    /// Defaults to empty so the Quit row simply never appears if unwired.
+    private let runningBundleIDs: @Sendable () async -> Set<String>
+    /// `SearchResult.id`s the user has hidden. Same injection shape and same
+    /// safe default: unwired means nothing is hidden.
+    private let hiddenIDs: @Sendable () async -> Set<String>
 
     public init(
         catalog: AppCatalog,
-        frecencyFor: @escaping BatchFrecencyLookup
+        frecencyFor: @escaping BatchFrecencyLookup,
+        runningBundleIDs: @escaping @Sendable () async -> Set<String> = { [] },
+        hiddenIDs: @escaping @Sendable () async -> Set<String> = { [] }
     ) {
         self.catalog = catalog
         self.frecencyFor = frecencyFor
+        self.runningBundleIDs = runningBundleIDs
+        self.hiddenIDs = hiddenIDs
     }
 
     public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
@@ -240,13 +252,16 @@ public final class AppsProvider: ResultProvider {
         // from a background Task — snapshot it instead of touching it directly
         // from this now off-main-actor body.
         let catalogApps = await MainActor.run { catalog.apps }
-        let indexedApps = catalogApps.enumerated().map { index, app in
-            IndexedApp(
-                app: app,
-                id: resultID(for: app),
-                sortHint: index
-            )
-        }
+        // Filtered before scoring and matching: a hidden app should cost
+        // nothing downstream, and `sortHint` should number what's visible.
+        let hidden = await hiddenIDs()
+        let indexedApps = catalogApps
+            .map { (app: $0, id: resultID(for: $0)) }
+            .filter { !hidden.contains($0.id) }
+            .enumerated()
+            .map { index, entry in
+                IndexedApp(app: entry.app, id: entry.id, sortHint: index)
+            }
         let selectedApps: [IndexedApp]
         if query.term.isEmpty {
             // Scores for the whole catalog are snapshotted in a single
@@ -283,8 +298,20 @@ public final class AppsProvider: ResultProvider {
             }
         }
 
+        // Only asked for once the survivors are known, and only when there are
+        // any — an empty result set shouldn't pay for a running-apps snapshot.
+        let running = selectedApps.isEmpty ? [] : await runningBundleIDs()
+
         return selectedApps.map { indexedApp in
             let app = indexedApp.app
+            var secondaryActions: [ResultAction] = [
+                .copyText(app.path),
+                .revealFile(app.path)
+            ]
+            if let bundleID = app.bundleID, running.contains(bundleID) {
+                secondaryActions.append(.quitApp(bundleID))
+            }
+            secondaryActions.append(.hideResult(indexedApp.id))
             return SearchResult(
                 id: indexedApp.id,
                 providerID: .apps,
@@ -294,7 +321,7 @@ public final class AppsProvider: ResultProvider {
                 keywords: app.keywords,
                 badge: "Apps",
                 action: .openApp(app.path),
-                secondaryActions: [.copyText(app.path), .revealFile(app.path)],
+                secondaryActions: secondaryActions,
                 sortHint: indexedApp.sortHint
             )
         }

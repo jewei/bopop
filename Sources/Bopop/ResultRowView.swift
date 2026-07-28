@@ -66,6 +66,12 @@ final class ResultRowView: NSTableCellView {
     )
     private var selected = false
 
+    /// Right-click selects this row and opens the ⌘K actions panel — the
+    /// panel is already independent of how it was summoned, so this is just
+    /// the mouse-first route to the same list. Re-assigned on every
+    /// `configure` because rows are reused across results.
+    var onRightClick: (() -> Void)?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureView()
@@ -93,6 +99,16 @@ final class ResultRowView: NSTableCellView {
     func setSelected(_ isSelected: Bool) {
         selected = isSelected
         applySelectionStyle()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightClick?()
+    }
+
+    /// First right-click works even when Bopop isn't the active app, matching
+    /// how the actions panel's own rows accept a first mouse.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 
     private func configureView() {
@@ -200,15 +216,47 @@ private final class ResultIconView: NSView {
     // once per visible row per keystroke, since the table reloads/redraws
     // rows on every ranked-results update. Keyed by path since a path is
     // stable identity for what NSWorkspace hands back for that file.
-    private static let iconCache = NSCache<NSString, NSImage>()
+    ///
+    /// Bounded by real decoded cost, not entry count: file search walks an
+    /// unbounded set of paths, so an unbounded cache grew for as long as the
+    /// user kept browsing. Icons are also downsampled to the size actually
+    /// drawn — `NSWorkspace` hands back a multi-representation image far
+    /// larger than one 32pt row needs.
+    private static let iconCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 16 * 1024 * 1024
+        return cache
+    }()
+
+    /// Invalidates an in-flight async icon load when the row is reused for a
+    /// different result, so a slow decode can't paint the wrong icon into a
+    /// row that has since scrolled away.
+    private var iconLoadToken = UUID()
 
     func configure(with icon: BopopKit.IconRef) {
+        let token = UUID()
+        iconLoadToken = token
         switch icon {
         case let .appBundle(path), let .file(path):
             showsTile = false
-            imageView.image = Self.icon(forFile: path)
             imageView.contentTintColor = nil
             imageView.imageScaling = .scaleProportionallyUpOrDown
+            if let cached = Self.cachedIcon(forFile: path) {
+                imageView.image = cached
+            } else {
+                // Cold icons hit the disk inside `NSWorkspace.icon(forFile:)`.
+                // That used to run inline in cell configuration — i.e. on the
+                // render path, for every newly-visible row. Show the generic
+                // placeholder and swap in the real icon when it arrives.
+                imageView.image = Self.placeholderIcon
+                Task { [weak self] in
+                    let image = await Self.loadIcon(forFile: path)
+                    guard let self, iconLoadToken == token else {
+                        return
+                    }
+                    imageView.image = image
+                }
+            }
         case let .symbol(name):
             configureSymbol(named: name)
         case .none:
@@ -222,14 +270,40 @@ private final class ResultIconView: NSView {
         updateTileStyle()
     }
 
-    private static func icon(forFile path: String) -> NSImage {
-        let key = path as NSString
-        if let cached = iconCache.object(forKey: key) {
+    private static let placeholderIcon = NSWorkspace.shared.icon(
+        for: .data
+    )
+
+    private static func cachedIcon(forFile path: String) -> NSImage? {
+        iconCache.object(forKey: path as NSString)
+    }
+
+    /// The `NSWorkspace` lookup is the part that touches the disk, so it runs
+    /// off the main actor; the downsample and the cache write come back here
+    /// because `NSImage` drawing is main-actor work.
+    private static func loadIcon(forFile path: String) async -> NSImage {
+        if let cached = cachedIcon(forFile: path) {
             return cached
         }
-        let icon = NSWorkspace.shared.icon(forFile: path)
-        iconCache.setObject(icon, forKey: key)
+        let source = await Task.detached(priority: .userInitiated) {
+            NSWorkspace.shared.icon(forFile: path)
+        }.value
+        let (icon, cost) = downsampled(source)
+        iconCache.setObject(icon, forKey: path as NSString, cost: cost)
         return icon
+    }
+
+    /// Redraws at the size rows actually use, and reports the resulting
+    /// bitmap's byte cost so `totalCostLimit` bounds real memory rather than
+    /// a count of images whose sizes vary wildly.
+    private static func downsampled(_ source: NSImage) -> (NSImage, Int) {
+        let side = PaletteMetrics.iconSize * 2
+        let size = NSSize(width: side, height: side)
+        let image = NSImage(size: size, flipped: false) { rect in
+            source.draw(in: rect)
+            return true
+        }
+        return (image, Int(side * side * 4))
     }
 
     private func configureView() {
