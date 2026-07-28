@@ -8,6 +8,8 @@ public nonisolated enum ResultActions {
         case primary
         case copy
         case pin
+        case quit
+        case hide
         case reveal
         case quickLook
         case largeType
@@ -31,6 +33,8 @@ public nonisolated enum ResultActions {
         case .clearClipboardHistory: "clear"
         case .pinClipboard: "pin"
         case .unpinClipboard: "unpin"
+        case .quitApp: "quit"
+        case .hideResult: "hide"
         case .runScript, .systemCommand: "run"
         case .enterMode: "select"
         case .downloadTranslation: "download"
@@ -55,6 +59,15 @@ public nonisolated enum ResultActions {
         if hasCopyAction(result), !isCopyAction(result.action) {
             items.append(ActionItem(kind: .copy, title: "Copy", shortcut: "⌘C"))
         }
+        // Panel-only, with no chord of its own: ⌘⏎ is already Reveal in Finder
+        // for exactly the rows that can be quit, and quitting an app is not
+        // something to put one keystroke away from a typo.
+        if hasQuitAction(result) {
+            items.append(ActionItem(kind: .quit, title: "Quit", shortcut: nil))
+        }
+        if hideAction(in: result) != nil {
+            items.append(ActionItem(kind: .hide, title: "Hide from Results", shortcut: nil))
+        }
         if FilePayload.path(for: result) != nil {
             items.append(ActionItem(kind: .reveal, title: "Reveal in Finder", shortcut: "⌘⏎"))
             items.append(ActionItem(kind: .quickLook, title: "Quick Look", shortcut: "⌘Y"))
@@ -74,6 +87,28 @@ public nonisolated enum ResultActions {
 
     public static func hasPinAction(_ result: SearchResult) -> Bool {
         pinAction(in: result) != nil
+    }
+
+    public static func hasQuitAction(_ result: SearchResult) -> Bool {
+        quitAction(in: result) != nil
+    }
+
+    public static func hideAction(in result: SearchResult) -> ResultAction? {
+        result.secondaryActions.first { action in
+            if case .hideResult = action {
+                return true
+            }
+            return false
+        }
+    }
+
+    public static func quitAction(in result: SearchResult) -> ResultAction? {
+        result.secondaryActions.first { action in
+            if case .quitApp = action {
+                return true
+            }
+            return false
+        }
     }
 
     public static func pinAction(in result: SearchResult) -> ResultAction? {

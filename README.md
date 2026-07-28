@@ -6,12 +6,12 @@ Bopop is a fast, keyboard-first launcher for macOS. Open apps, search files on d
 
 ## Features
 
-- **Apps** — fuzzy search with usage-based ranking.
+- **Apps** — fuzzy search with usage-based ranking; quit a running app or hide one from results via ⌘K.
 - **Files** — search through Spotlight only when requested. Bopop does not build its own index or watch folders.
 - **Scripts** — place executables in the Scripts folder and run them explicitly.
 - **System commands** — lock, sleep, restart, empty Trash, and more.
 - **Calculator** — evaluate expressions and copy results.
-- **Currency** — convert currencies using cached ECB rates.
+- **Currency** — convert currencies using cached ECB rates. Off by default; it's the one feature that contacts a server, so it asks first.
 - **Time zones** — convert times and inspect local time around the world.
 - **Dictionary** — look up words on-device.
 - **Translation** — English and Chinese translation using Apple’s Translation framework.
@@ -28,7 +28,8 @@ Bopop is a fast, keyboard-first launcher for macOS. Open apps, search files on d
 | `⌘Space` | Open Bopop |
 | `⇥` / `⇧⇥` | Switch tabs |
 | `⏎` | Run selected result |
-| `⌘K` | Actions for the selected result — copy, pin/unpin, reveal in Finder, Quick Look, Large Type |
+| `⌘K` | Actions for the selected result — copy, pin/unpin, quit, hide, reveal in Finder, Quick Look, Large Type |
+| Right-click | Same actions panel as `⌘K`, for the row under the pointer |
 | `Esc` | Clear, exit mode, or close |
 
 The global shortcut is configurable.
@@ -48,6 +49,17 @@ The suite covers both targets — `BopopKitTests` for parsing, ranking, storage,
 and providers; `BopopTests` for the app layer. GitHub Actions runs it on every
 push to `main` and every pull request (`.github/workflows/ci.yml`).
 
+`make run` and `make open` build a separate dev channel (its own bundle
+identifier, preferences, and Application Support directory), so running from
+source never touches an installed Bopop's data.
+
+`Sources/BopopKit/Resources/emoji.json` is generated and committed — regenerate
+with `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json`
+(needs network access).
+
+Engineering invariants worth knowing before changing anything live in
+[`CLAUDE.md`](CLAUDE.md).
+
 Bopop runs as a background agent with no Dock icon or menu-bar item. Open Settings, Scripts, or Quit from the gear button in the launcher.
 
 Because macOS uses `⌘Space` for Spotlight by default, you may need to disable that shortcut in System Settings or choose another one for Bopop.
@@ -63,7 +75,8 @@ Bopop is local-first.
 - Scripts run only after explicit confirmation with `Return`.
 - Scripts use `Process` directly, without shell interpolation.
 - Accessibility permission is not required.
-- Currency conversion is the only network-backed feature and uses cached exchange rates.
+- Currency conversion is the only network-backed feature. It ships **off**, asks before its first fetch, names what it requests, and deletes its cached rates when you turn it off.
+- Copies marked secret by the source app or by macOS (password, one-time code, autofill) are never recorded.
 
 ## Architecture
 

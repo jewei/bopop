@@ -195,7 +195,7 @@ func currencyProviderIgnoresNonMatchingTerms() async throws {
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fetcher = MockRateFetcher(result: .success(["EUR": 1.0, "USD": 1.08]))
-    let provider = CurrencyProvider(store: store, fetcher: fetcher)
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, isEnabled: { true })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "hello world")
@@ -221,7 +221,7 @@ func currencyProviderFreshCacheAnswersWithoutFetching() async throws {
         fetchedAt: fixedNow.addingTimeInterval(-60)
     )
     let fetcher = MockRateFetcher(result: .success([:]))
-    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow })
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow }, isEnabled: { true })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "123myr to usd")
@@ -250,7 +250,7 @@ func currencyProviderNotesRelativeAgeWhenStaleEnough() async throws {
         fetchedAt: fixedNow.addingTimeInterval(-2 * 3_600)
     )
     let fetcher = MockRateFetcher(result: .success([:]))
-    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow })
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow }, isEnabled: { true })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "123myr to usd")
@@ -273,7 +273,7 @@ func currencyProviderStaleCacheAnswersImmediatelyThenRefreshesInBackground() asy
     let fetcher = MockRateFetcher(
         result: .success(["EUR": 1.0, "MYR": 4.9, "USD": 1.10])
     )
-    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow })
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow }, isEnabled: { true })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "123myr to usd")
@@ -297,7 +297,7 @@ func currencyProviderNoCacheFetchesInlineAndPersists() async throws {
     let fetcher = MockRateFetcher(
         result: .success(["EUR": 1.0, "MYR": 4.0, "USD": 1.0])
     )
-    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow })
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow }, isEnabled: { true })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "123myr to usd")
@@ -317,7 +317,7 @@ func currencyProviderNoCacheFetchFailureReturnsUnavailableRow() async throws {
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let store = RateStore(storage: fixture.storage)
     let fetcher = MockRateFetcher(result: .failure(FetchError.offline))
-    let provider = CurrencyProvider(store: store, fetcher: fetcher)
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, isEnabled: { true })
 
     let results = try await provider.results(
         for: ParsedQuery(mode: .general, term: "123myr to usd")
@@ -373,7 +373,7 @@ func currencyProviderStaleCacheRefreshesOnlyOnce() async throws {
         fetchedAt: fixedNow.addingTimeInterval(-13 * 3_600)
     )
     let fetcher = GatedRateFetcher(rates: ["EUR": 1.0, "MYR": 4.1, "USD": 1.0])
-    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow })
+    let provider = CurrencyProvider(store: store, fetcher: fetcher, now: { fixedNow }, isEnabled: { true })
 
     // Two rapid stale-cache queries must share one background refresh.
     _ = try await provider.results(for: ParsedQuery(mode: .general, term: "123myr to usd"))
@@ -413,4 +413,57 @@ private actor GatedRateFetcher: RateFetcher {
         gate?.resume()
         gate = nil
     }
+}
+
+/// Currency is the one feature that leaves the machine, so the gate defaults
+/// closed: a provider built without an explicit `isEnabled` must not fetch.
+@MainActor
+@Test
+func currencyProviderIsOffUnlessExplicitlyEnabled() async throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let fetcher = MockRateFetcher(result: .success(["EUR": 1.0, "USD": 1.08, "MYR": 5.1]))
+    let store = RateStore(storage: fixture.storage)
+    let provider = CurrencyProvider(store: store, fetcher: fetcher)
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .general, term: "123myr to usd")
+    )
+
+    #expect(results.first?.id == "currency:disabled")
+    #expect(results.count == 1)
+    #expect(await fetcher.callCount == 0)
+    #expect(store.cached() == nil)
+    // Informational row: no copy payload to activate, nothing recorded.
+    #expect(results.first?.action == .enterMode(.general))
+}
+
+/// Consent can be withdrawn while a request is in flight, so it is re-checked
+/// on the far side of the await — a table fetched after the user said stop is
+/// neither shown nor written to disk.
+@MainActor
+@Test
+func currencyProviderDiscardsRatesWhenConsentDropsMidFlight() async throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let fetcher = MockRateFetcher(result: .success(["EUR": 1.0, "USD": 1.08, "MYR": 5.1]))
+    let store = RateStore(storage: fixture.storage)
+    // True on the way in, false by the time the fetch returns.
+    nonisolated(unsafe) var calls = 0
+    let provider = CurrencyProvider(
+        store: store,
+        fetcher: fetcher,
+        isEnabled: {
+            calls += 1
+            return calls == 1
+        }
+    )
+
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .general, term: "123myr to usd")
+    )
+
+    #expect(results.first?.id == "currency:disabled")
+    #expect(results.count == 1)
+    #expect(store.cached() == nil)
 }

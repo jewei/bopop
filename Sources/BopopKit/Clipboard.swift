@@ -1,16 +1,24 @@
 import Foundation
 
 public nonisolated enum ClipboardCapturePolicy {
-    private static let concealedType = "org.nspasteboard.ConcealedType"
-    private static let transientType = "org.nspasteboard.TransientType"
+    /// Markers a source puts on a copy it considers secret — a password, a
+    /// one-time code, an autofill value. Never recorded, whatever app set
+    /// them. The two `org.nspasteboard.*` ones are the cross-app convention;
+    /// `com.apple.is-sensitive` is Apple's own, set by system autofill and by
+    /// browsers on password and OTP fields, and a copy carrying only that one
+    /// used to be captured and written to disk like any other.
+    public static let sensitiveTypes: Set<String> = [
+        "org.nspasteboard.ConcealedType",
+        "org.nspasteboard.TransientType",
+        "com.apple.is-sensitive"
+    ]
 
     public static func shouldCapture(
         types: [String],
         frontmostBundleID: String?,
         denied: Set<String>
     ) -> Bool {
-        guard !types.contains(concealedType),
-              !types.contains(transientType) else {
+        guard !types.contains(where: sensitiveTypes.contains) else {
             return false
         }
         guard let frontmostBundleID else {
@@ -223,6 +231,18 @@ public final class ClipboardStore {
         }
     }
 
+    /// Deliberately synchronous. Writing the whole array on every mutation is
+    /// O(n) work for an O(1) event, so this was tried as a background write —
+    /// but measurement said the trade is bad: a realistic history (150 entries
+    /// of a few hundred bytes) encodes and writes in ~1 ms, and even 150 × 2 KB
+    /// is ~1.4 ms. Only the pathological ceiling — 150 entries all at the
+    /// 100 KB `maximumTextSize`, i.e. 15 MB of clipboard text — reaches ~42 ms.
+    ///
+    /// Going async bought that ~1 ms and cost read-after-write: a store built
+    /// straight after a mutation saw stale data, and an unclean exit could drop
+    /// the newest capture or pin. Durability is worth more than a millisecond
+    /// here. If a profile ever shows this mattering, the fix is an incremental
+    /// store (one row per entry), not a deferred whole-file write.
     private func persist() {
         try? storage.save(
             entries,
