@@ -73,6 +73,102 @@ func currencyParserStillAcceptsSupportedSymbols() {
         == CurrencyQuery(amount: 100, from: "USD", to: "PHP"))
 }
 
+// MARK: - LiveRateFetcher
+
+@MainActor
+@Test
+func liveRateFetcherRejectsNonSuccessHTTPResponse() async {
+    let url = URL(string: "https://example.test/rates")!
+    let response = HTTPURLResponse(
+        url: url,
+        statusCode: 503,
+        httpVersion: nil,
+        headerFields: nil
+    )!
+    let fetcher = LiveRateFetcher(load: {
+        (Data(#"{"base":"EUR","rates":{"USD":1.08}}"#.utf8), response)
+    })
+
+    do {
+        _ = try await fetcher.fetchEURBaseRates()
+        Issue.record("Expected a non-success HTTP response to be rejected")
+    } catch let error as URLError {
+        #expect(error.code == .badServerResponse)
+    } catch {
+        Issue.record("Expected URLError.badServerResponse, got \(error)")
+    }
+}
+
+@MainActor
+@Test
+func liveRateFetcherKeepsOnlyPositiveRates() async throws {
+    let url = URL(string: "https://example.test/rates")!
+    let response = HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+    )!
+    let fetcher = LiveRateFetcher(load: {
+        (
+            Data(#"{"base":"EUR","rates":{"USD":-1,"MYR":0,"GBP":0.8}}"#.utf8),
+            response
+        )
+    })
+
+    let rates = try await fetcher.fetchEURBaseRates()
+
+    #expect(rates == ["EUR": 1, "GBP": 0.8])
+}
+
+@MainActor
+@Test
+func liveRateFetcherRejectsAResponseWithoutValidQuotes() async {
+    let url = URL(string: "https://example.test/rates")!
+    let response = HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+    )!
+    let fetcher = LiveRateFetcher(load: {
+        (Data(#"{"base":"EUR","rates":{"USD":-1,"MYR":0}}"#.utf8), response)
+    })
+
+    do {
+        _ = try await fetcher.fetchEURBaseRates()
+        Issue.record("Expected a rate table without valid quotes to be rejected")
+    } catch let error as URLError {
+        #expect(error.code == .cannotParseResponse)
+    } catch {
+        Issue.record("Expected URLError.cannotParseResponse, got \(error)")
+    }
+}
+
+@MainActor
+@Test
+func liveRateFetcherRejectsUnexpectedBaseCurrency() async {
+    let url = URL(string: "https://example.test/rates")!
+    let response = HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+    )!
+    let fetcher = LiveRateFetcher(load: {
+        (Data(#"{"base":"USD","rates":{"EUR":0.9}}"#.utf8), response)
+    })
+
+    do {
+        _ = try await fetcher.fetchEURBaseRates()
+        Issue.record("Expected a non-EUR rate table to be rejected")
+    } catch let error as URLError {
+        #expect(error.code == .cannotParseResponse)
+    } catch {
+        Issue.record("Expected URLError.cannotParseResponse, got \(error)")
+    }
+}
+
 // MARK: - CachedRates
 
 @Test
@@ -92,6 +188,18 @@ func cachedRatesConvertReturnsNilForUnknownCode() {
     let rates = CachedRates(rates: ["EUR": 1.0], fetchedAt: Date(timeIntervalSince1970: 0))
     let query = CurrencyQuery(amount: 10, from: "MYR", to: "EUR")
     #expect(rates.convert(query) == nil)
+}
+
+@Test
+func cachedRatesRejectsInvalidPersistedQuotes() {
+    let rates = CachedRates(
+        rates: ["EUR": 1, "USD": -1, "MYR": 0, "GBP": .infinity],
+        fetchedAt: Date(timeIntervalSince1970: 0)
+    )
+
+    #expect(rates.convert(CurrencyQuery(amount: 10, from: "USD", to: "EUR")) == nil)
+    #expect(rates.convert(CurrencyQuery(amount: 10, from: "EUR", to: "MYR")) == nil)
+    #expect(rates.convert(CurrencyQuery(amount: 10, from: "EUR", to: "GBP")) == nil)
 }
 
 @Test

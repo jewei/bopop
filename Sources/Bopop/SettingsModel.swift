@@ -110,6 +110,7 @@ final class SettingsModel: ObservableObject {
     private let clipboardStore: ClipboardStore
     private let snippetStore: SnippetStore
     private let visibilityStore: VisibilityStore
+    private let rateStore: RateStore
     private let storage: Storage
     private let defaults: UserDefaults
     private var isRevertingLaunchAtLogin = false
@@ -119,6 +120,7 @@ final class SettingsModel: ObservableObject {
         clipboardStore: ClipboardStore,
         snippetStore: SnippetStore,
         visibilityStore: VisibilityStore,
+        rateStore: RateStore,
         storage: Storage,
         defaults: UserDefaults = .standard
     ) {
@@ -127,6 +129,7 @@ final class SettingsModel: ObservableObject {
         self.clipboardStore = clipboardStore
         self.snippetStore = snippetStore
         self.visibilityStore = visibilityStore
+        self.rateStore = rateStore
         self.storage = storage
         self.defaults = defaults
         self.hotkey = hotkey
@@ -165,7 +168,7 @@ final class SettingsModel: ObservableObject {
         currencyEnabled = enabled
         defaults.set(enabled, forKey: Self.currencyEnabledKey)
         if !enabled {
-            RateStore(storage: storage).clearCache()
+            rateStore.clearCache()
         }
     }
 

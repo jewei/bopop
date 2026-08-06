@@ -144,6 +144,7 @@ public protocol RateFetcher: Sendable {
 
 public final class LiveRateFetcher: RateFetcher {
     private struct Response: Decodable {
+        let base: String
         let rates: [String: Double]
     }
 
@@ -151,7 +152,7 @@ public final class LiveRateFetcher: RateFetcher {
         string: "https://api.frankfurter.dev/v1/latest?base=EUR"
     )!
 
-    private let session: URLSession
+    private let load: @Sendable () async throws -> (Data, URLResponse)
 
     public init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -162,13 +163,32 @@ public final class LiveRateFetcher: RateFetcher {
         // really does leave nothing behind, including for the process's
         // remaining lifetime.
         configuration.urlCache = nil
-        session = URLSession(configuration: configuration)
+        let session = URLSession(configuration: configuration)
+        load = {
+            try await session.data(from: Self.endpoint)
+        }
+    }
+
+    init(load: @escaping @Sendable () async throws -> (Data, URLResponse)) {
+        self.load = load
     }
 
     public func fetchEURBaseRates() async throws -> [String: Double] {
-        let (data, _) = try await session.data(from: Self.endpoint)
-        let response = try JSONDecoder().decode(Response.self, from: data)
-        var rates = response.rates
+        let (data, response) = try await load()
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let decoded = try JSONDecoder().decode(Response.self, from: data)
+        guard decoded.base.uppercased() == "EUR" else {
+            throw URLError(.cannotParseResponse)
+        }
+        var rates = decoded.rates.filter { _, rate in
+            rate > 0 && rate.isFinite
+        }
+        guard !rates.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
         rates["EUR"] = 1.0
         return rates
     }
@@ -185,7 +205,8 @@ public nonisolated struct CachedRates: Codable, Equatable, Sendable {
 
     public func convert(_ query: CurrencyQuery) -> Double? {
         guard let fromRate = rates[query.from], let toRate = rates[query.to],
-              fromRate != 0 else {
+              fromRate > 0, fromRate.isFinite,
+              toRate > 0, toRate.isFinite else {
             return nil
         }
         return query.amount / fromRate * toRate

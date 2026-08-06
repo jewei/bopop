@@ -70,8 +70,15 @@ public nonisolated enum Ranker {
         frecency: Double,
         providerWeight: Double
     ) -> Double {
-        let tier = bestTier(for: result, query: query)
-        return Double(tier.rawValue * 10_000) + providerWeight + min(frecency, 999)
+        score(
+            tier: bestTier(
+                for: result,
+                query: query,
+                foldedQuery: folded(query)
+            ),
+            frecency: frecency,
+            providerWeight: providerWeight
+        )
     }
 
     public static func rank(
@@ -80,16 +87,20 @@ public nonisolated enum Ranker {
         frecencyFor: (String) -> Double,
         providerWeights: [ProviderID: Double]
     ) -> [SearchResult] {
+        let foldedQuery = folded(query)
         let ranked = results.compactMap { result -> RankedResult? in
-            let tier = bestTier(for: result, query: query)
+            let tier = bestTier(
+                for: result,
+                query: query,
+                foldedQuery: foldedQuery
+            )
             guard query.isEmpty || tier != .none || result.isFallback else {
                 return nil
             }
             return RankedResult(
                 result: result,
                 score: score(
-                    result,
-                    query: query,
+                    tier: tier,
                     frecency: frecencyFor(result.id),
                     providerWeight: providerWeights[result.providerID, default: 0]
                 )
@@ -128,12 +139,23 @@ public nonisolated enum Ranker {
         }.map(\.result)
     }
 
-    private static func bestTier(for result: SearchResult, query: String) -> MatchTier {
+    private static func score(
+        tier: MatchTier,
+        frecency: Double,
+        providerWeight: Double
+    ) -> Double {
+        Double(tier.rawValue * 10_000) + providerWeight + min(frecency, 999)
+    }
+
+    private static func bestTier(
+        for result: SearchResult,
+        query: String,
+        foldedQuery: String
+    ) -> MatchTier {
         guard !query.isEmpty else {
             return .exact
         }
 
-        let foldedQuery = folded(query)
         return ([result.title] + result.keywords)
             .map { tier(foldedQuery: foldedQuery, candidate: $0) }
             .max() ?? .none

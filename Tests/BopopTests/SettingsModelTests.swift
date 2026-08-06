@@ -57,3 +57,36 @@ private func makeDefaults() -> UserDefaults {
     defaults.set(try? JSONEncoder().encode([search]), forKey: SettingsModel.customSearchesKey)
     #expect(SettingsModel.storedCustomSearches(in: defaults) == [search])
 }
+
+@MainActor
+@Test func disablingCurrencyClearsTheProvidersLiveRateStore() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("bopop-settings-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+    let rateStore = RateStore(storage: storage)
+    rateStore.save(
+        rates: ["EUR": 1, "USD": 1.08],
+        fetchedAt: Date(timeIntervalSince1970: 1_000)
+    )
+    _ = rateStore.cached()
+
+    let defaults = makeDefaults()
+    defaults.set(true, forKey: SettingsModel.currencyEnabledKey)
+    let model = SettingsModel(
+        hotkeyManager: HotkeyManager(),
+        clipboardStore: ClipboardStore(storage: storage),
+        snippetStore: SnippetStore(storage: storage),
+        visibilityStore: VisibilityStore(storage: storage),
+        rateStore: rateStore,
+        storage: storage,
+        defaults: defaults
+    )
+
+    model.setCurrencyEnabled(false)
+
+    #expect(rateStore.cached() == nil)
+    #expect(!FileManager.default.fileExists(atPath: storage.ratesFileURL.path))
+}

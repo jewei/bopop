@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let clipboardStore = ClipboardStore(storage: storage, limit: clipboardLimit)
         let snippetStore = SnippetStore(storage: storage)
         let visibilityStore = VisibilityStore(storage: storage)
+        let rateStore = RateStore(storage: storage)
         let pasteboardWatcher = PasteboardWatcher(store: clipboardStore)
         let appCatalog = AppCatalog()
         let emojiCatalog = EmojiCatalog()
@@ -75,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     CalculatorProvider(),
                     ScriptsProvider(catalog: scriptCatalog),
                     CurrencyProvider(
-                        store: RateStore(storage: storage),
+                        store: rateStore,
                         fetcher: LiveRateFetcher(),
                         isEnabled: {
                             await MainActor.run {
@@ -141,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardStore: clipboardStore,
             snippetStore: snippetStore,
             visibilityStore: visibilityStore,
+            rateStore: rateStore,
             storage: storage,
             defaults: defaults
         )
