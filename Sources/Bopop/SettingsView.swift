@@ -64,15 +64,20 @@ struct SettingsView: View {
             if !model.hiddenResultIDs.isEmpty {
                 Section("Hidden results") {
                     ForEach(model.hiddenResultIDs, id: \.self) { id in
+                        // Ids are "app:<bundle id or path>" — show the
+                        // readable half rather than the storage key.
+                        let readable = id.split(separator: ":", maxSplits: 1)
+                            .last.map(String.init) ?? id
                         HStack {
-                            // Ids are "app:<bundle id or path>" — show the
-                            // readable half rather than the storage key.
-                            Text(id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? id)
+                            Text(readable)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer()
                             Button("Unhide") { model.unhideResult(id) }
                                 .controlSize(.small)
+                                // Every row's button reads "Unhide" otherwise,
+                                // so VoiceOver can't tell them apart.
+                                .accessibilityLabel("Unhide \(readable)")
                         }
                     }
                     Text("Hide a result from the ⌘K actions panel to stop it appearing in search.")
@@ -131,15 +136,25 @@ struct SettingsView: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
+                        .help("Remove this search")
+                        .accessibilityLabel("Remove search \(search.name)")
                     }
                 }
 
                 TextField("Name", text: $newSearchName)
+                    .onChange(of: newSearchName) { model.clearCustomSearchError() }
                 TextField("Keyword", text: $newSearchKeyword)
+                    .onChange(of: newSearchKeyword) { model.clearCustomSearchError() }
                 Text("\"f\", \"t\", and keywords starting with \":\" are reserved.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 TextField("URL with {query}", text: $newSearchTemplate)
+                    .onChange(of: newSearchTemplate) { model.clearCustomSearchError() }
+                if let error = model.customSearchError {
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 Button {
                     let added = model.addCustomSearch(
                         name: newSearchName,
@@ -168,6 +183,12 @@ struct SettingsView: View {
                             Text((folder as NSString).abbreviatingWithTildeInPath)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                            if model.isFileSearchFolderMissing(folder) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .help("This folder is missing, so it is skipped when searching.")
+                                    .accessibilityLabel("Missing folder")
+                            }
                             Spacer()
                             Button {
                                 model.removeFileSearchFolder(folder)
@@ -175,6 +196,10 @@ struct SettingsView: View {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.borderless)
+                            .help("Remove this folder")
+                            .accessibilityLabel(
+                                "Remove folder \((folder as NSString).lastPathComponent)"
+                            )
                         }
                     }
                 }
@@ -205,6 +230,8 @@ struct SettingsView: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
+                        .help("Remove this snippet")
+                        .accessibilityLabel("Remove snippet \(snippet.name)")
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -216,6 +243,7 @@ struct SettingsView: View {
                 }
 
                 TextField("Name", text: $snippetName)
+                    .onChange(of: snippetName) { model.clearSnippetError() }
                 TextField("Keyword (optional)", text: $snippetKeyword)
                 TextEditor(text: $snippetContent)
                     .frame(height: 80)
@@ -224,6 +252,12 @@ struct SettingsView: View {
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Color.secondary.opacity(0.3))
                     )
+                    .onChange(of: snippetContent) { model.clearSnippetError() }
+                if let error = model.snippetError {
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
 
                 HStack {
                     Button {

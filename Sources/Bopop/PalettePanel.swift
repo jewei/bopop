@@ -8,6 +8,8 @@ final class PalettePanel: NSPanel {
     var onToggleQuickLook: (() -> Bool)?
     var onToggleLargeType: (() -> Bool)?
     var onCommandK: (() -> Bool)?
+    var onCommandComma: (() -> Bool)?
+    var onCommandW: (() -> Bool)?
 
     /// Set by `PaletteController` (which implements both protocols) so this
     /// panel — the key window while the palette is visible, and thus first
@@ -96,6 +98,16 @@ final class PalettePanel: NSPanel {
                 }
             case "k":
                 if onCommandK?() == true {
+                    return true
+                }
+            // ⌘, and ⌘W are muscle memory everywhere else in macOS, and with
+            // no menu bar nothing else would ever deliver them.
+            case ",":
+                if onCommandComma?() == true {
+                    return true
+                }
+            case "w":
+                if onCommandW?() == true {
                     return true
                 }
             default:

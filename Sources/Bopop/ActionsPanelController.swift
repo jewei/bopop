@@ -190,6 +190,7 @@ private final class ActionsPanelRowView: NSView {
         }
         super.init(frame: .zero)
         configureView()
+        configureAccessibility(for: item)
     }
 
     required init?(coder: NSCoder) {
@@ -199,7 +200,29 @@ private final class ActionsPanelRowView: NSView {
     func setSelected(_ isSelected: Bool) {
         selected = isSelected
         titleLabel.textColor = NSColor.white.withAlphaComponent(isSelected ? 1 : 0.85)
+        setAccessibilitySelected(isSelected)
         refreshBackground()
+    }
+
+    /// A bare NSView with two child labels is invisible to VoiceOver as a
+    /// control: it reads the title and the keycap as loose text with no hint
+    /// that the row does anything. Present the row itself as one button, hide
+    /// the children behind it, and route a press to the same handler a click
+    /// uses.
+    private func configureAccessibility(for item: ResultActions.ActionItem) {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(item.title)
+        if let shortcut = item.shortcut {
+            setAccessibilityHelp("Shortcut \(shortcut)")
+        }
+        titleLabel.setAccessibilityElement(false)
+        keycap?.setAccessibilityElement(false)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
     }
 
     override func updateTrackingAreas() {

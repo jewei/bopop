@@ -32,7 +32,7 @@ public nonisolated struct CustomWebSearch: Codable, Equatable, Sendable, Identif
     /// "t " → translation) and a leading ":" is the emoji prefix — none of
     /// these keywords can ever reach CustomSearchProvider in .general mode,
     /// so a custom search saved under one would be permanently dead.
-    static func isReservedKeyword(_ keyword: String) -> Bool {
+    public static func isReservedKeyword(_ keyword: String) -> Bool {
         if keyword.hasPrefix(":") {
             return true
         }

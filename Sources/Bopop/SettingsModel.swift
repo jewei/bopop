@@ -7,6 +7,48 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class SettingsModel: ObservableObject {
+    /// Why an add was refused. The form used to just return `false` and clear
+    /// nothing, so a rejected entry looked identical to a slow one.
+    enum CustomSearchError: Equatable {
+        case nameMissing
+        case keywordMissing
+        case keywordHasWhitespace
+        case keywordReserved
+        case keywordTaken
+        case templateMissingQueryToken
+
+        var message: String {
+            switch self {
+            case .nameMissing:
+                "Give the search a name."
+            case .keywordMissing:
+                "Give the search a keyword."
+            case .keywordHasWhitespace:
+                "Keywords can't contain spaces."
+            case .keywordReserved:
+                "\"f\", \"t\", and keywords starting with \":\" are reserved."
+            case .keywordTaken:
+                "That keyword is already used by another search."
+            case .templateMissingQueryToken:
+                "The URL needs a {query} placeholder."
+            }
+        }
+    }
+
+    enum SnippetError: Equatable {
+        case nameMissing
+        case contentMissing
+
+        var message: String {
+            switch self {
+            case .nameMissing:
+                "Give the snippet a name."
+            case .contentMissing:
+                "Give the snippet some content."
+            }
+        }
+    }
+
     @Published var hotkey: HotkeyConfig {
         didSet {
             hotkeyManager.register(hotkey)
@@ -84,6 +126,8 @@ final class SettingsModel: ObservableObject {
 
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
+    @Published private(set) var customSearchError: CustomSearchError?
+    @Published private(set) var snippetError: SnippetError?
 
     /// The presence of `storage.brandImageURL` IS the flag — no separate
     /// defaults key, one source of truth (see design doc).
@@ -219,18 +263,60 @@ final class SettingsModel: ObservableObject {
         fileSearchFolders.removeAll { $0 == path }
     }
 
+    /// A renamed folder or an unmounted drive is skipped silently at query
+    /// time (deliberately — see the design doc), which leaves Settings as the
+    /// only place that can tell the user a scope has gone dead.
+    func isFileSearchFolderMissing(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        return !(exists && isDirectory.boolValue)
+    }
+
     /// Appends a new custom search if it's valid and its keyword isn't
     /// already taken by an existing one (case-insensitive, matching
-    /// `CustomWebSearch.match`'s lookup). Returns whether it was added.
+    /// `CustomWebSearch.match`'s lookup). Returns whether it was added, and
+    /// publishes `customSearchError` describing any refusal.
     @discardableResult
     func addCustomSearch(name: String, keyword: String, urlTemplate: String) -> Bool {
         let search = CustomWebSearch(id: UUID(), name: name, keyword: keyword, urlTemplate: urlTemplate)
-        guard search.isValid,
-              !customSearches.contains(where: { $0.keyword.caseInsensitiveCompare(search.keyword) == .orderedSame }) else {
+        if let error = Self.validate(search, against: customSearches) {
+            customSearchError = error
             return false
         }
+        customSearchError = nil
         customSearches.append(search)
         return true
+    }
+
+    func clearCustomSearchError() {
+        customSearchError = nil
+    }
+
+    /// Mirrors `CustomWebSearch.isValid`'s conditions one at a time so the
+    /// form can say which one failed. Keep the two in step.
+    private static func validate(
+        _ search: CustomWebSearch,
+        against existing: [CustomWebSearch]
+    ) -> CustomSearchError? {
+        if search.name.trimmingCharacters(in: .whitespaces).isEmpty {
+            return .nameMissing
+        }
+        if search.keyword.isEmpty {
+            return .keywordMissing
+        }
+        if search.keyword.contains(where: \.isWhitespace) {
+            return .keywordHasWhitespace
+        }
+        if CustomWebSearch.isReservedKeyword(search.keyword) {
+            return .keywordReserved
+        }
+        if !search.urlTemplate.contains("{query}") {
+            return .templateMissingQueryToken
+        }
+        let isTaken = existing.contains {
+            $0.keyword.caseInsensitiveCompare(search.keyword) == .orderedSame
+        }
+        return isTaken ? .keywordTaken : nil
     }
 
     func removeCustomSearch(id: UUID) {
@@ -239,14 +325,21 @@ final class SettingsModel: ObservableObject {
 
     /// Adds a new snippet if name and content are both non-empty once
     /// trimmed. Keyword is optional and stored trimmed; an empty keyword is
-    /// stored as `nil`. Returns whether it was added.
+    /// stored as `nil`. Returns whether it was added, and publishes
+    /// `snippetError` describing any refusal.
     @discardableResult
     func addSnippet(name: String, keyword: String, content: String) -> Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, !trimmedContent.isEmpty else {
+        guard !trimmedName.isEmpty else {
+            snippetError = .nameMissing
             return false
         }
+        guard !trimmedContent.isEmpty else {
+            snippetError = .contentMissing
+            return false
+        }
+        snippetError = nil
         let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         snippetStore.add(Snippet(
             id: UUID(),
@@ -257,6 +350,10 @@ final class SettingsModel: ObservableObject {
         snippets = snippetStore.snippets
         hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
         return true
+    }
+
+    func clearSnippetError() {
+        snippetError = nil
     }
 
     func updateSnippet(_ snippet: Snippet) {
@@ -322,7 +419,7 @@ final class SettingsModel: ObservableObject {
         }
     }
 
-    private func addFileSearchFolders(_ paths: [String]) {
+    func addFileSearchFolders(_ paths: [String]) {
         var updated = fileSearchFolders
         for path in paths where !updated.contains(path) {
             updated.append(path)

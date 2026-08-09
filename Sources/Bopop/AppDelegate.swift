@@ -206,10 +206,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// palette directly. `show()` is idempotent, so this is safe even if
     /// the palette is already visible. Returning false tells AppKit there
     /// is no standard window to reveal, since this is an accessory app.
+    ///
+    /// Settings takes priority when it's already open: reopening the app is
+    /// a request to see Bopop, and throwing a nonactivating palette over the
+    /// window the user is already working in is not that.
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows: Bool
     ) -> Bool {
+        if settingsWindowController.isVisible {
+            settingsWindowController.focusExisting()
+            return false
+        }
         paletteController.show()
         return false
     }

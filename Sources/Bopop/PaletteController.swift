@@ -310,6 +310,23 @@ final class PaletteController: NSObject {
         panel.onCommandK = { [weak self] in
             self?.toggleActionsPanel() ?? false
         }
+        panel.onCommandComma = { [weak self] in
+            guard let self else {
+                return false
+            }
+            hide()
+            onShowSettings()
+            return true
+        }
+        // ⌘W closes "the window"; for the palette that is the same dismissal
+        // Escape performs, including any overlay it has open.
+        panel.onCommandW = { [weak self] in
+            guard let self else {
+                return false
+            }
+            hide()
+            return true
+        }
         actionsPanel.onRun = { [weak self] kind in
             self?.runAction(kind)
         }
@@ -393,6 +410,7 @@ final class PaletteController: NSObject {
         let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
         lastParsedMode = query.mode
         tabsView.setActive(query.mode)
+        updateQueryFieldAccessibility(for: query.mode)
 
         // View swap on the same `results`/`selectedIndex` model: the grid
         // and table never show simultaneously (hero rule untouched — emoji
@@ -502,7 +520,21 @@ final class PaletteController: NSObject {
         queryField.stringValue = ""
         lastParsedMode = mode
         tabsView.setActive(mode)
+        updateQueryFieldAccessibility(for: mode)
         updateQuery()
+    }
+
+    /// The tab row shows which mode is active; VoiceOver users get that
+    /// context from the field's label instead, since the pills are decoration
+    /// as far as the query field is concerned.
+    private func updateQueryFieldAccessibility(for mode: Mode) {
+        let tabs = PaletteTabsView.orderedTabs + PaletteTabsView.transientTabs
+        guard let title = tabs.first(where: { $0.0 == mode })?.1 else {
+            return
+        }
+        queryField.setAccessibilityLabel(
+            mode == .general ? "Search Bopop" : "Search \(title)"
+        )
     }
 
     /// ⇥ / ⇧⇥ cycles through the ordered tab list from the current

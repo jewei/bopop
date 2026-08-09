@@ -62,6 +62,143 @@ private func makeDefaults() -> UserDefaults {
 }
 
 @MainActor
+private func makeModel(defaults: UserDefaults, storage: Storage) -> SettingsModel {
+    SettingsModel(
+        hotkeyManager: HotkeyManager(),
+        clipboardStore: ClipboardStore(storage: storage),
+        snippetStore: SnippetStore(storage: storage),
+        visibilityStore: VisibilityStore(storage: storage),
+        rateStore: RateStore(storage: storage),
+        storage: storage,
+        defaults: defaults
+    )
+}
+
+@MainActor
+private func withModel(_ body: (SettingsModel) throws -> Void) throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("bopop-settings-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+    try body(makeModel(defaults: makeDefaults(), storage: storage))
+}
+
+/// A rejected custom search used to return `false` and vanish — the row stayed
+/// on screen with no indication of what was wrong with it.
+@MainActor
+@Test func rejectedCustomSearchReportsWhyItWasRejected() throws {
+    try withModel { model in
+        model.addCustomSearch(name: " ", keyword: "j", urlTemplate: "https://x/?q={query}")
+        #expect(model.customSearchError == .nameMissing)
+        #expect(model.customSearches.isEmpty)
+
+        model.addCustomSearch(name: "Jira", keyword: "", urlTemplate: "https://x/?q={query}")
+        #expect(model.customSearchError == .keywordMissing)
+
+        model.addCustomSearch(name: "Jira", keyword: "a b", urlTemplate: "https://x/?q={query}")
+        #expect(model.customSearchError == .keywordHasWhitespace)
+
+        model.addCustomSearch(name: "Jira", keyword: "f", urlTemplate: "https://x/?q={query}")
+        #expect(model.customSearchError == .keywordReserved)
+
+        model.addCustomSearch(name: "Jira", keyword: "j", urlTemplate: "https://x/?q=term")
+        #expect(model.customSearchError == .templateMissingQueryToken)
+
+        model.addCustomSearch(name: "Jira", keyword: "j", urlTemplate: "https://x/?q={query}")
+        #expect(model.customSearchError == nil)
+        #expect(model.customSearches.count == 1)
+
+        model.addCustomSearch(name: "Jira 2", keyword: "J", urlTemplate: "https://y/?q={query}")
+        #expect(model.customSearchError == .keywordTaken)
+        #expect(model.customSearches.count == 1)
+    }
+}
+
+/// The per-field messages restate `CustomWebSearch.isValid`'s conditions one at
+/// a time, so the two can drift: the form would accept a search the provider
+/// then treats as invalid, or reject one it would have accepted.
+@MainActor
+@Test func validationAgreesWithCustomWebSearchIsValid() throws {
+    let cases: [(String, String, String)] = [
+        ("Jira", "j", "https://x/?q={query}"),
+        ("", "j", "https://x/?q={query}"),
+        ("   ", "j", "https://x/?q={query}"),
+        ("Jira", "", "https://x/?q={query}"),
+        ("Jira", "a b", "https://x/?q={query}"),
+        ("Jira", "f", "https://x/?q={query}"),
+        ("Jira", "T", "https://x/?q={query}"),
+        ("Jira", ":smile", "https://x/?q={query}"),
+        ("Jira", "j", "https://x/?q=term"),
+        ("Jira", "j", "")
+    ]
+
+    for (name, keyword, template) in cases {
+        try withModel { model in
+            model.addCustomSearch(name: name, keyword: keyword, urlTemplate: template)
+            let search = CustomWebSearch(
+                id: UUID(), name: name, keyword: keyword, urlTemplate: template
+            )
+            #expect(
+                (model.customSearchError == nil) == search.isValid,
+                "disagreement for name=\(name) keyword=\(keyword) template=\(template)"
+            )
+        }
+    }
+}
+
+@MainActor
+@Test func rejectedSnippetReportsWhyItWasRejected() throws {
+    try withModel { model in
+        model.addSnippet(name: "  ", keyword: "", content: "body")
+        #expect(model.snippetError == .nameMissing)
+        #expect(model.snippets.isEmpty)
+
+        model.addSnippet(name: "Sig", keyword: "", content: "   ")
+        #expect(model.snippetError == .contentMissing)
+
+        model.addSnippet(name: "Sig", keyword: "", content: "body")
+        #expect(model.snippetError == nil)
+        #expect(model.snippets.count == 1)
+    }
+}
+
+/// The error has to clear once the offending value changes, or a stale message
+/// sits under a form the user has already corrected.
+@MainActor
+@Test func validationErrorsClearOnTheNextSuccessfulAdd() throws {
+    try withModel { model in
+        model.addSnippet(name: "", keyword: "", content: "")
+        #expect(model.snippetError != nil)
+        model.clearSnippetError()
+        #expect(model.snippetError == nil)
+
+        model.addCustomSearch(name: "", keyword: "", urlTemplate: "")
+        #expect(model.customSearchError != nil)
+        model.clearCustomSearchError()
+        #expect(model.customSearchError == nil)
+    }
+}
+
+/// A folder that has been renamed or unmounted is silently skipped at query
+/// time, so Settings is the only place that can tell the user it is dead.
+@MainActor
+@Test func missingFileSearchFoldersAreFlagged() throws {
+    try withModel { model in
+        let existing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bopop-folder-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: existing) }
+        let missing = existing.appendingPathComponent("gone", isDirectory: true)
+
+        model.addFileSearchFolders([existing.path, missing.path])
+
+        #expect(!model.isFileSearchFolderMissing(existing.path))
+        #expect(model.isFileSearchFolderMissing(missing.path))
+    }
+}
+
+@MainActor
 @Test func disablingCurrencyClearsTheProvidersLiveRateStore() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("bopop-settings-\(UUID().uuidString)", isDirectory: true)
