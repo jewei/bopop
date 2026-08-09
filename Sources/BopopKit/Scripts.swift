@@ -17,6 +17,12 @@ public nonisolated final class ScriptCatalog: Sendable {
     }
 
     public func scripts() -> [ScriptInfo] {
+        PerformanceSignposts.catalog.interval("Script Catalog Scan") {
+            scanDirectory()
+        }
+    }
+
+    private func scanDirectory() -> [ScriptInfo] {
         let fileManager = FileManager.default
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey]
         guard let contents = try? fileManager.contentsOfDirectory(

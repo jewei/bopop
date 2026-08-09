@@ -16,6 +16,8 @@ Signposts contain no query text, clipboard content, result titles, paths, or URL
 | Query | `Query Providers` | Provider fan-out through final completion, after mode debounce |
 | Query | `Rank Results` | One incremental ranking pass |
 | Provider | `Provider Results` | One provider invocation; concurrent intervals may overlap |
+| Provider | `Clipboard Results Build` | Building clipboard rows from a history snapshot |
+| Catalog | `Script Catalog Scan` | One scripts-directory scan; runs per keystroke in General mode |
 
 `Palette Show` is CPU/control-flow duration, not literal hotkey-to-first-photon latency.
 `Query Providers` excludes debounce sleep because it begins inside `runProviders`.
@@ -117,6 +119,71 @@ optimising, which retires several speculative ideas. The interesting numbers are
 `App Construction`, the first `Palette Show` (one-time panel construction), and
 `App Catalog Refresh`. Confirm each against several warm runs before acting —
 one cold run cannot separate one-time setup from per-summon cost.
+
+## Microbenchmarks, and two rejected optimisations
+
+Debug build, same machine. Recorded with throwaway harnesses that were deleted
+afterwards; re-create them if you want to re-measure. Debug overstates absolute
+values, but the comparisons below are like for like.
+
+### Script catalog scan
+
+`ScriptsProvider` runs on every keystroke in General mode, and `ScriptCatalog`
+scans the directory on every call.
+
+| Scripts on disk | Per scan |
+|---:|---:|
+| 1 | 55 µs |
+| 10 | 316 µs |
+| 100 | 3223 µs |
+
+**Decision: no snapshot for now.** A real installation has one or two scripts,
+where the scan is 2% of a 2.7 ms query. The cost is linear in file count and
+each file costs a `stat` plus an executable check, so revisit this if anyone
+keeps tens of scripts. `Script Catalog Scan` is instrumented, so the next
+person can check rather than guess.
+
+### Clipboard search
+
+Whole keystroke path, provider plus ranker, for a narrow term:
+
+| Entries | Provider + Ranker |
+|---:|---:|
+| 50 | 4.8 ms |
+| 500 | 47.5 ms |
+
+**Decision: no provider-side pre-filter.** Filtering before building rows —
+the shape `AppsProvider` uses — was implemented and measured at 4.5 ms and
+45.5 ms, a 4-5% gain. It only moves the folding work out of `Ranker` and into
+the provider, while adding a semantic coupling that needs its own test to stop
+the two drifting apart. Not worth it.
+
+**The real cost is folding.** Each entry contributes up to 1000 characters of
+searchable text, and every keystroke folds all of it for case and diacritics.
+That dominates both paths and scales with history size. The default limit is
+100 entries; the maximum is 500.
+
+Fixing it properly means one of:
+
+- cache the folded searchable text per entry, since entry text never changes
+  after capture — this needs `Ranker` to accept pre-folded candidates;
+- shorten the 1000-character searchable prefix, which is a product decision:
+  it would stop matching text deep inside a long clip.
+
+Neither is a small change, and neither should start without a release-build
+measurement.
+
+## Known gap: release-configuration tests
+
+`swift test -c release` does not build:
+
+```
+error: deinit is marked isolated, but containing class 'HotkeyManager' is not
+isolated to an actor
+```
+
+`swift build -c release` and `make app` are unaffected, so shipping works. It
+does mean the numbers above are debug-build numbers.
 
 ## Recording template
 

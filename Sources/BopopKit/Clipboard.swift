@@ -281,6 +281,20 @@ public final class ClipboardProvider: ResultProvider {
             return []
         }
 
+        return PerformanceSignposts.provider.interval("Clipboard Results Build") {
+            buildResults(from: entries)
+        }
+    }
+
+    private nonisolated func buildResults(
+        from entries: [ClipboardEntry]
+    ) -> [SearchResult] {
+        // No pre-filter here, unlike AppsProvider. Measured: filtering first
+        // only moves the folding work out of Ranker and into this method, and
+        // buys 4-5% end to end. The cost that matters is folding the 1000-char
+        // searchable text once per entry per keystroke, which both paths pay.
+        // See docs/performance-baseline.md.
+        let now = Date()
         var results = entries.enumerated().map { index, entry in
             let pinAction: ResultAction = entry.pinnedAt == nil
                 ? .pinClipboard(entry.id)
@@ -290,7 +304,7 @@ public final class ClipboardProvider: ResultProvider {
                 providerID: .clipboard,
                 title: DisplayTruncation.firstLine(entry.text, limit: 60),
                 subtitle: relativeDateFormatter.withLock { formatter in
-                    formatter.localizedString(for: entry.capturedAt, relativeTo: Date())
+                    formatter.localizedString(for: entry.capturedAt, relativeTo: now)
                 },
                 icon: .symbol(entry.pinnedAt == nil ? "doc.on.clipboard" : "pin.fill"),
                 // Cap searchable text so Ranker never folds 100 KB per keystroke.
