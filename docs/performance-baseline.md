@@ -120,7 +120,7 @@ optimising, which retires several speculative ideas. The interesting numbers are
 `App Catalog Refresh`. Confirm each against several warm runs before acting —
 one cold run cannot separate one-time setup from per-summon cost.
 
-## Microbenchmarks, and two rejected optimisations
+## Microbenchmarks: two rejected optimisations, one adopted
 
 Debug build, same machine. Recorded with throwaway harnesses that were deleted
 afterwards; re-create them if you want to re-measure. Debug overstates absolute
@@ -172,6 +172,36 @@ Fixing it properly means one of:
 
 Neither is a small change, and neither should start without a release-build
 measurement.
+
+### App catalog scan
+
+The catalog rescans on every palette summon. Splitting that scan on a real
+machine with 119 applications:
+
+| Part | Time |
+|---|---:|
+| Directory walk | 0.4 ms |
+| `Bundle` / `Info.plist` reads | 9.2 ms |
+| Whole scan | 13.3 ms |
+
+**Decision: cache the metadata.** `AppCatalog.MetadataCache` keys `AppInfo` by
+bundle path and holds it while that bundle's `Info.plist` keeps the
+modification date it was read at. After:
+
+| Scan | Time |
+|---|---:|
+| Uncached (first summon of a launch) | 15.8-17.6 ms |
+| Cached (every summon after) | 4.9-5.0 ms |
+
+The uncached path costs about 3 ms more than before, because every app now also
+gets a `stat` on its `Info.plist`. That is paid once per launch and repaid by
+the second summon.
+
+The date comes from `Info.plist` rather than the bundle directory, because an
+in-place edit to the plist need not touch the enclosing directory's timestamp.
+A bundle whose date cannot be read is re-read every scan rather than cached
+against a date that cannot be compared. The cache is rebuilt from each pass, so
+uninstalled apps fall out.
 
 ## Known gap: release-configuration tests
 

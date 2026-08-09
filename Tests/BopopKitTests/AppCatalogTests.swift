@@ -183,7 +183,7 @@ func forcedRefreshReportsNoChangeForIdenticalSnapshot() async {
     let catalog = AppCatalog(
         directories: [],
         extraApplicationPaths: [],
-        scanner: { _, _ in [app] }
+        scanner: { _, _, _ in ([app], AppCatalog.MetadataCache()) }
     )
 
     let firstChanged = await catalog.refreshNow()
@@ -212,7 +212,7 @@ func forcedRefreshDuringInFlightScanQueuesFollowUpScan() async {
     let catalog = AppCatalog(
         directories: [],
         extraApplicationPaths: [],
-        scanner: { _, _ in await probe.scan() }
+        scanner: { _, _, _ in (await probe.scan(), AppCatalog.MetadataCache()) }
     )
 
     catalog.refreshIfStale()
