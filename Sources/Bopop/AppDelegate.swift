@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runningApplications: RunningApplicationsMonitor
     private let paletteController: PaletteController
     private let hotkeyManager: HotkeyManager
+    private let messageHUD: MessageHUDController
     private let settingsModel: SettingsModel
     private let settingsWindowController: SettingsWindowController
     private let appUpdater: AppUpdater
@@ -113,13 +114,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ],
             frecencyFor: usageStore.score
         )
+        let messageHUD = MessageHUDController()
+        self.messageHUD = messageHUD
         let scriptFeedback = ScriptFeedback(storage: storage)
+        scriptFeedback.present = { message, isFailure in
+            messageHUD.show(message, isFailure: isFailure)
+        }
         let actionRunner = ActionRunner(
             storage: storage,
             clipboardStore: clipboardStore,
             visibilityStore: visibilityStore,
             scriptFeedback: scriptFeedback
         )
+        // The palette is already hidden when an action fails, so the HUD is the
+        // only place left to say so.
+        actionRunner.onFailure = { failure in
+            messageHUD.show(failure.message, isFailure: true)
+        }
         actionRunner.onExecuted = { result in
             guard result.action != .clearClipboardHistory else {
                 return

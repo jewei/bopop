@@ -8,6 +8,7 @@ final class ActionRunner {
     private let clipboardStore: ClipboardStore
     private let visibilityStore: VisibilityStore
     private let scriptFeedback: ScriptFeedback
+    private let effects: ActionEffects
 
     var onModeChange: ((Mode) -> Void)?
     var onExecuted: ((SearchResult) -> Void)?
@@ -15,17 +16,23 @@ final class ActionRunner {
     var onDownloadTranslation: (() -> Void)?
     /// Fired after a mutation that must keep the palette open and re-query.
     var onStayOpenRefresh: (() -> Void)?
+    /// Fired when an action could not do what its row promised. Wired to the
+    /// message HUD in `AppDelegate`; the palette is already hidden by then, so
+    /// there is nowhere else for the user to learn this.
+    var onFailure: ((ActionFailure) -> Void)?
 
     init(
         storage: Storage,
         clipboardStore: ClipboardStore,
         visibilityStore: VisibilityStore,
-        scriptFeedback: ScriptFeedback
+        scriptFeedback: ScriptFeedback,
+        effects: ActionEffects = .live
     ) {
         self.storage = storage
         self.clipboardStore = clipboardStore
         self.visibilityStore = visibilityStore
         self.scriptFeedback = scriptFeedback
+        self.effects = effects
     }
 
     func perform(_ result: SearchResult) {
@@ -107,18 +114,36 @@ final class ActionRunner {
         return url
     }
 
+    /// Every branch that can fail now reports why. The app-open and file-open
+    /// paths in particular used to discard a completion error and a Bool: an
+    /// app moved since the last catalog scan just did nothing at all.
     private func execute(_ action: ResultAction) {
         switch action {
         case let .openApp(path):
-            NSWorkspace.shared.openApplication(
-                at: URL(fileURLWithPath: path),
-                configuration: .init()
-            )
+            guard effects.fileExists(path) else {
+                onFailure?(.applicationMissing(path: path))
+                return
+            }
+            Task { [effects, onFailure] in
+                if case let .failure(error) = await effects.openApplication(
+                    URL(fileURLWithPath: path)
+                ) {
+                    onFailure?(.applicationDidNotOpen(
+                        path: path,
+                        reason: error.localizedDescription
+                    ))
+                }
+            }
         case let .openFile(path):
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            guard effects.fileExists(path) else {
+                onFailure?(.fileMissing(path: path))
+                return
+            }
+            if !effects.openFile(URL(fileURLWithPath: path)) {
+                onFailure?(.fileDidNotOpen(path: path))
+            }
         case let .copyText(text):
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            effects.copyText(text)
         case .clearClipboardHistory:
             clipboardStore.clear()
         case let .pinClipboard(id):
@@ -128,12 +153,8 @@ final class ActionRunner {
         case let .hideResult(id):
             visibilityStore.hide(id)
         case let .quitApp(bundleID):
-            // `terminate()` rather than `forceTerminate()`: the app gets to run
-            // its own quit path, prompt to save, or refuse.
-            for application in NSRunningApplication.runningApplications(
-                withBundleIdentifier: bundleID
-            ) {
-                application.terminate()
+            if effects.terminateApplications(bundleID) == 0 {
+                onFailure?(.applicationNotRunning(bundleID: bundleID))
             }
         case let .runScript(path):
             let name = URL(fileURLWithPath: path)
@@ -151,18 +172,25 @@ final class ActionRunner {
             break
         case let .openURL(string):
             guard let url = Self.allowedURL(from: string) else {
+                onFailure?(.urlRejected(string))
                 return
             }
-            NSWorkspace.shared.open(url)
+            if !effects.openURL(url) {
+                onFailure?(.urlDidNotOpen(string))
+            }
         case .downloadTranslation:
             onDownloadTranslation?()
         case .systemCommand(let command):
             guard confirmed(command) else {
                 return
             }
-            run(command.invocation)
+            run(command)
         case let .revealFile(path):
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            guard effects.fileExists(path) else {
+                onFailure?(.fileMissing(path: path))
+                return
+            }
+            effects.revealFile(URL(fileURLWithPath: path))
         }
     }
 
@@ -184,39 +212,37 @@ final class ActionRunner {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func run(_ invocation: SystemCommandInvocation) {
-        switch invocation {
+    /// A failed launch used to be `try?`: locking the screen or emptying the
+    /// Trash simply did nothing, with no way to tell that from success.
+    private func run(_ command: SystemCommand) {
+        switch command.invocation {
         case .process(let executable, let arguments):
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            try? process.run()
+            if case let .failure(error) = effects.runProcess(executable, arguments) {
+                onFailure?(.commandFailed(
+                    title: command.title,
+                    reason: error.localizedDescription
+                ))
+            }
         case .loginwindowAppleEvent(let code):
-            sendLoginwindowEvent(fourCharCode(code))
+            if !effects.sendLoginwindowEvent(code) {
+                onFailure?(.commandFailed(
+                    title: command.title,
+                    reason: "macOS refused the request."
+                ))
+            }
         case .finderScript(let source):
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", source]
-            try? process.run()
+            // Automation permission is the usual reason this fails, and it is
+            // denied silently — osascript exits nonzero long after `run()`
+            // returns, so a launch success is all this can check.
+            if case let .failure(error) = effects.runProcess(
+                "/usr/bin/osascript",
+                ["-e", source]
+            ) {
+                onFailure?(.commandFailed(
+                    title: command.title,
+                    reason: error.localizedDescription
+                ))
+            }
         }
-    }
-
-    private func fourCharCode(_ code: String) -> AEEventID {
-        code.utf8.reduce(0) { ($0 << 8) + AEEventID($1) }
-    }
-
-    private func sendLoginwindowEvent(_ eventID: AEEventID) {
-        var psn = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: UInt32(kSystemProcess))
-        var target = AEAddressDesc()
-        guard AECreateDesc(typeProcessSerialNumber, &psn,
-                           MemoryLayout.size(ofValue: psn), &target) == noErr else { return }
-        defer { AEDisposeDesc(&target) }
-        var event = AppleEvent()
-        guard AECreateAppleEvent(kCoreEventClass, eventID, &target,
-                                 AEReturnID(kAutoGenerateReturnID),
-                                 AETransactionID(kAnyTransactionID), &event) == noErr else { return }
-        defer { AEDisposeDesc(&event) }
-        var reply = AppleEvent()
-        AESendMessage(&event, &reply, AESendMode(kAENoReply), kAEDefaultTimeout)
     }
 }

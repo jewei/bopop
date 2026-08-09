@@ -1,11 +1,14 @@
 import BopopKit
 import Foundation
-import UserNotifications
 
 @MainActor
 final class ScriptFeedback {
     private let storage: Storage
-    private var requestedNotificationAuthorization = false
+    /// Wired to the message HUD by `AppDelegate`. This used to post a user
+    /// notification, which meant asking for the Notifications permission the
+    /// first time a script finished — and losing every result thereafter if the
+    /// user said no. The full output still goes to `scripts.log` either way.
+    var present: ((String, Bool) -> Void)?
 
     init(storage: Storage) {
         self.storage = storage
@@ -13,7 +16,25 @@ final class ScriptFeedback {
 
     func report(name: String, result: ScriptRunResult) {
         storage.appendScriptLog(logEntry(name: name, result: result))
-        postNotification(name: name, result: result)
+        let succeeded = result.launchFailure == nil && result.exitCode == 0
+        present?(summary(name: name, result: result, succeeded: succeeded), !succeeded)
+    }
+
+    private func summary(
+        name: String,
+        result: ScriptRunResult,
+        succeeded: Bool
+    ) -> String {
+        let output = succeeded ? result.stdout : result.stderr
+        let excerpt = String(output.prefix(120))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if succeeded {
+            return excerpt.isEmpty ? "\(name) finished." : "\(name): \(excerpt)"
+        }
+        let status = result.exitCode.map { "exited \($0)" } ?? "didn't start"
+        return excerpt.isEmpty
+            ? "\(name) \(status)."
+            : "\(name) \(status): \(excerpt)"
     }
 
     private func logEntry(name: String, result: ScriptRunResult) -> String {
@@ -37,46 +58,4 @@ final class ScriptFeedback {
         entry += "--- end \(label) ---"
     }
 
-    private func postNotification(name: String, result: ScriptRunResult) {
-        guard Bundle.main.bundleIdentifier != nil else {
-            return
-        }
-
-        let succeeded = result.launchFailure == nil && result.exitCode == 0
-        let content = UNMutableNotificationContent()
-        content.title = succeeded ? "Script succeeded" : "Script failed"
-        content.subtitle = name
-        content.body = notificationBody(result: result, succeeded: succeeded)
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        let notificationCenter = UNUserNotificationCenter.current()
-        let shouldRequestAuthorization = !requestedNotificationAuthorization
-        requestedNotificationAuthorization = true
-
-        Task {
-            if shouldRequestAuthorization {
-                _ = try? await notificationCenter.requestAuthorization(options: [.alert])
-            }
-            try? await notificationCenter.add(request)
-        }
-    }
-
-    private func notificationBody(
-        result: ScriptRunResult,
-        succeeded: Bool
-    ) -> String {
-        let status: String
-        if let exitCode = result.exitCode {
-            status = "Exit \(exitCode)"
-        } else {
-            status = "Launch failed"
-        }
-        let output = succeeded ? result.stdout : result.stderr
-        let excerpt = String(output.prefix(120))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return excerpt.isEmpty ? status : "\(status): \(excerpt)"
-    }
 }
