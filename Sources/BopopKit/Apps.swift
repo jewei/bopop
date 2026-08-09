@@ -120,7 +120,11 @@ public final class AppCatalog {
 
             while !Task.isCancelled {
                 let forcedGenerationAtStart = forcedRefreshGeneration
-                let scannedApps = await scanner(directories, extraApplicationPaths)
+                let scannedApps = await PerformanceSignposts.catalog.interval(
+                    "App Catalog Refresh"
+                ) {
+                    await scanner(directories, extraApplicationPaths)
+                }
                 guard !Task.isCancelled else {
                     return false
                 }

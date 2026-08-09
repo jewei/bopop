@@ -58,7 +58,8 @@ with `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json
 (needs network access).
 
 Engineering invariants worth knowing before changing anything live in
-[`CLAUDE.md`](CLAUDE.md).
+[`CLAUDE.md`](CLAUDE.md). Instruments signposts and measurement procedure live in
+[`docs/performance-baseline.md`](docs/performance-baseline.md).
 
 Bopop runs as a background agent with no Dock icon or menu-bar item. Open Settings, Scripts, or Quit from the gear button in the launcher.
 

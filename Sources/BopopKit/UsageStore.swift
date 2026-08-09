@@ -19,16 +19,31 @@ public final class UsageStore {
         self.storage = storage
         self.now = now
         self.maxEntries = max(0, maxEntries)
-        entries = storage.load(
+        let loadedEntries = storage.load(
             [String: Entry].self,
             expectedVersion: Self.version,
             from: storage.usageFileURL
         ) ?? [:]
+        entries = Self.sanitized(loadedEntries)
+        evictEntriesIfNeeded(at: now())
+        // Write the cleaned table back rather than only holding it in memory:
+        // otherwise a rejected or evicted record stays on disk and a later
+        // launch with a larger cap resurrects it into the ranking.
+        if entries != loadedEntries {
+            try? storage.save(
+                entries,
+                version: Self.version,
+                to: storage.usageFileURL
+            )
+        }
     }
 
     public func record(_ id: String) {
         let currentDate = now()
-        let hits = min((entries[id]?.hits ?? 0) + 1, Self.maximumHits)
+        let previousHits = entries[id]?.hits ?? 0
+        let hits = previousHits >= Self.maximumHits
+            ? Self.maximumHits
+            : previousHits + 1
         entries[id] = Entry(hits: hits, lastUsed: currentDate)
         evictEntriesIfNeeded(at: currentDate)
         try? storage.save(
@@ -81,14 +96,29 @@ public final class UsageStore {
     }
 
     private func score(_ entry: Entry, at date: Date) -> Double {
-        let ageInDays = date.timeIntervalSince(entry.lastUsed) / Self.secondsPerDay
+        let ageInDays = max(
+            0,
+            date.timeIntervalSince(entry.lastUsed) / Self.secondsPerDay
+        )
         return Double(entry.hits) * pow(
             0.5,
             ageInDays / Self.halfLifeInDays
         )
     }
 
-    private struct Entry: Codable {
+    private static func sanitized(_ loadedEntries: [String: Entry]) -> [String: Entry] {
+        loadedEntries.reduce(into: [:]) { result, item in
+            guard item.value.hits > 0 else {
+                return
+            }
+            result[item.key] = Entry(
+                hits: min(item.value.hits, maximumHits),
+                lastUsed: item.value.lastUsed
+            )
+        }
+    }
+
+    private struct Entry: Codable, Equatable {
         let hits: Int
         let lastUsed: Date
     }

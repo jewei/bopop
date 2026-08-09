@@ -5,6 +5,7 @@ import SwiftUI
 final class SettingsWindowController {
     private let model: SettingsModel
     private var hasCenteredWindow = false
+    private var windowCloseObserver: NotificationToken?
 
     private lazy var window: NSWindow = {
         let hostingController = NSHostingController(
@@ -15,18 +16,15 @@ final class SettingsWindowController {
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
 
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { _ in
+        windowCloseObserver = NotificationToken(
+            name: NSWindow.willCloseNotification,
+            object: window
+        ) {
             // Opening Settings promotes the app to .regular, and a Sparkle
             // update session may have too (see AppUpdater) — drop back once
             // nothing else needs Cmd-Tab presence. This window is still in
             // NSApp.windows while it closes, hence `excluding`.
-            MainActor.assumeIsolated {
-                ActivationPolicy.restoreAccessoryWhenNothingNeedsFocus(excluding: window)
-            }
+            ActivationPolicy.restoreAccessoryWhenNothingNeedsFocus(excluding: window)
         }
 
         return window

@@ -18,15 +18,20 @@ final class PasteboardWatcher {
     private let pasteboard: NSPasteboard
     private let interval: TimeInterval
     private let deniedSourceBundleIDs: Set<String>
+    private let workspaceNotificationCenter: NotificationCenter
     private let frontmostBundleID: () -> String?
     private var lastChangeCount = 0
     private var timer: Timer?
+    private var sessionObservers: [NotificationToken] = []
+    private var isStarted = false
+    private var isSessionActive = true
 
     init(
         store: ClipboardStore,
         pasteboard: NSPasteboard = .general,
         interval: TimeInterval = 0.5,
         deniedSourceBundleIDs: Set<String> = PasteboardWatcher.defaultDeniedSources,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         frontmostBundleID: @escaping () -> String? = {
             NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         }
@@ -35,13 +40,28 @@ final class PasteboardWatcher {
         self.pasteboard = pasteboard
         self.interval = interval
         self.deniedSourceBundleIDs = deniedSourceBundleIDs
+        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.frontmostBundleID = frontmostBundleID
     }
 
     func start() {
+        isStarted = true
+        isSessionActive = true
         lastChangeCount = pasteboard.changeCount
-        timer?.invalidate()
+        observeSessionChangesIfNeeded()
+        startTimer()
+    }
 
+    func stop() {
+        isStarted = false
+        isSessionActive = false
+        timer?.invalidate()
+        timer = nil
+        sessionObservers.removeAll()
+    }
+
+    private func startTimer() {
+        timer?.invalidate()
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.pollPasteboard()
@@ -52,15 +72,53 @@ final class PasteboardWatcher {
         self.timer = timer
     }
 
-    func stop() {
+    private func observeSessionChangesIfNeeded() {
+        guard sessionObservers.isEmpty else {
+            return
+        }
+        sessionObservers = [
+            NotificationToken(
+                center: workspaceNotificationCenter,
+                name: NSWorkspace.sessionDidResignActiveNotification
+            ) { [weak self] in
+                self?.sessionDidResignActive()
+            },
+            NotificationToken(
+                center: workspaceNotificationCenter,
+                name: NSWorkspace.sessionDidBecomeActiveNotification
+            ) { [weak self] in
+                self?.sessionDidBecomeActive()
+            }
+        ]
+    }
+
+    /// Fast user switching: another login session owns the screen, so polling
+    /// there is two wakeups a second spent on a pasteboard we must not read.
+    private func sessionDidResignActive() {
+        isSessionActive = false
         timer?.invalidate()
         timer = nil
+    }
+
+    /// Re-baseline BEFORE the first poll resumes. `changeCount` is global, so
+    /// whatever the other user copied while we were away looks like a brand new
+    /// change to us — capturing it would put their clipboard in our history.
+    private func sessionDidBecomeActive() {
+        guard isStarted else {
+            return
+        }
+        lastChangeCount = pasteboard.changeCount
+        isSessionActive = true
+        startTimer()
     }
 
     /// Internal rather than private so tests can drive one poll directly
     /// instead of waiting on the timer — the capture/clear dispatch below is
     /// the part worth pinning down, not the scheduling around it.
     func pollPasteboard() {
+        guard isSessionActive else {
+            return
+        }
         let changeCount = pasteboard.changeCount
         guard changeCount != lastChangeCount else {
             return

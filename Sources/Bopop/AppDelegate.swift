@@ -162,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             engine: engine,
             actionRunner: actionRunner,
             brandImageURL: storage.brandImageURL,
+            defaults: defaults,
             refreshAppsOnShow: appCatalog.refreshNow,
             onShowSettings: { settingsWindowController.show() },
             onOpenScriptsFolder: { NSWorkspace.shared.open(storage.scriptsDirectory) },
@@ -171,28 +172,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        try? storage.ensureDirectories()
-        pasteboardWatcher.start()
-        runningApplications.start()
-        appCatalog.refreshIfStale()
-        // Warm the emoji catalog off-main now rather than decoding 174 KB on
-        // the main actor at the first keystroke in emoji mode.
-        Task { await emojiCatalog.load() }
+        PerformanceSignposts.lifecycle.interval("Application Did Finish Launching") {
+            try? storage.ensureDirectories()
+            pasteboardWatcher.start()
+            runningApplications.start()
+            appCatalog.refreshIfStale()
+            // Warm the emoji catalog off-main now rather than decoding 174 KB on
+            // the main actor at the first keystroke in emoji mode.
+            Task { await emojiCatalog.load() }
 
-        let hotkeyConfig = settingsModel.hotkey
-        hotkeyManager.onHotkey = { [weak self] in
-            self?.paletteController.toggle()
-        }
-        hotkeyManager.register(hotkeyConfig)
-        DispatchQueue.main.async {
-            SpotlightConflict.warnIfConflicting(with: hotkeyConfig)
-        }
-        // Headless smoke hook: BOPOP_DEBUG_AUTOSHOW=1 opens the palette
-        // shortly after launch so UI regressions are reproducible without
-        // a keyboard (used to catch the row-init exception in 2720f0c-era).
-        if ProcessInfo.processInfo.environment["BOPOP_DEBUG_AUTOSHOW"] == "1" {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            let hotkeyConfig = settingsModel.hotkey
+            hotkeyManager.onHotkey = { [weak self] in
                 self?.paletteController.toggle()
+            }
+            hotkeyManager.register(hotkeyConfig)
+            DispatchQueue.main.async {
+                SpotlightConflict.warnIfConflicting(with: hotkeyConfig)
+            }
+            // Headless smoke hook: BOPOP_DEBUG_AUTOSHOW=1 opens the palette
+            // shortly after launch so UI regressions are reproducible without
+            // a keyboard (used to catch the row-init exception in 2720f0c-era).
+            if ProcessInfo.processInfo.environment["BOPOP_DEBUG_AUTOSHOW"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.paletteController.toggle()
+                }
             }
         }
     }

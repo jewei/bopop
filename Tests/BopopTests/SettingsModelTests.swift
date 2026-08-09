@@ -15,16 +15,16 @@ private func makeDefaults() -> UserDefaults {
     let defaults = makeDefaults()
     #expect(SettingsModel.storedClipboardLimit(in: defaults) == 100)
 
-    defaults.set(9_999, forKey: SettingsModel.clipboardLimitKey)
+    defaults.set(9_999, for: PersistedPreferenceKeys.clipboardLimit)
     #expect(SettingsModel.storedClipboardLimit(in: defaults) == 500)
 
-    defaults.set(1, forKey: SettingsModel.clipboardLimitKey)
+    defaults.set(1, for: PersistedPreferenceKeys.clipboardLimit)
     #expect(SettingsModel.storedClipboardLimit(in: defaults) == 10)
 
-    defaults.set(-40, forKey: SettingsModel.clipboardLimitKey)
+    defaults.set(-40, for: PersistedPreferenceKeys.clipboardLimit)
     #expect(SettingsModel.storedClipboardLimit(in: defaults) == 10)
 
-    defaults.set(250, forKey: SettingsModel.clipboardLimitKey)
+    defaults.set(250, for: PersistedPreferenceKeys.clipboardLimit)
     #expect(SettingsModel.storedClipboardLimit(in: defaults) == 250)
 }
 
@@ -33,28 +33,31 @@ private func makeDefaults() -> UserDefaults {
     #expect(SettingsModel.storedChineseVariant(in: defaults) == .chineseSimplified)
     #expect(SettingsModel.storedSearchEngine(in: defaults) == .google)
 
-    defaults.set("not-a-variant", forKey: SettingsModel.chineseVariantKey)
-    defaults.set("not-an-engine", forKey: SettingsModel.searchEngineKey)
+    defaults.set("not-a-variant", for: PersistedPreferenceKeys.chineseVariant)
+    defaults.set("not-an-engine", for: PersistedPreferenceKeys.searchEngine)
     #expect(SettingsModel.storedChineseVariant(in: defaults) == .chineseSimplified)
     #expect(SettingsModel.storedSearchEngine(in: defaults) == .google)
 
-    defaults.set(TranslationTarget.chineseTraditional.rawValue, forKey: SettingsModel.chineseVariantKey)
-    defaults.set(SearchEngine.duckDuckGo.rawValue, forKey: SettingsModel.searchEngineKey)
+    defaults.set(TranslationTarget.chineseTraditional.rawValue, for: PersistedPreferenceKeys.chineseVariant)
+    defaults.set(SearchEngine.duckDuckGo.rawValue, for: PersistedPreferenceKeys.searchEngine)
     #expect(SettingsModel.storedChineseVariant(in: defaults) == .chineseTraditional)
     #expect(SettingsModel.storedSearchEngine(in: defaults) == .duckDuckGo)
 }
 
-@Test func storedCustomSearchesSurvivesGarbageWithoutThrowing() {
+@Test func storedCustomSearchesSurvivesGarbageWithoutThrowing() throws {
     let defaults = makeDefaults()
     #expect(SettingsModel.storedCustomSearches(in: defaults).isEmpty)
 
-    defaults.set(Data("not json".utf8), forKey: SettingsModel.customSearchesKey)
+    defaults.set(Data("not json".utf8), for: PersistedPreferenceKeys.customSearchesData)
     #expect(SettingsModel.storedCustomSearches(in: defaults).isEmpty)
 
     let search = CustomWebSearch(
         id: UUID(), name: "Docs", keyword: "d", urlTemplate: "https://example.com/?q={query}"
     )
-    defaults.set(try? JSONEncoder().encode([search]), forKey: SettingsModel.customSearchesKey)
+    defaults.set(
+        try JSONEncoder().encode([search]),
+        for: PersistedPreferenceKeys.customSearchesData
+    )
     #expect(SettingsModel.storedCustomSearches(in: defaults) == [search])
 }
 
@@ -74,7 +77,7 @@ private func makeDefaults() -> UserDefaults {
     _ = rateStore.cached()
 
     let defaults = makeDefaults()
-    defaults.set(true, forKey: SettingsModel.currencyEnabledKey)
+    defaults.set(true, for: PersistedPreferenceKeys.currencyEnabled)
     let model = SettingsModel(
         hotkeyManager: HotkeyManager(),
         clipboardStore: ClipboardStore(storage: storage),

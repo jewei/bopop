@@ -84,6 +84,20 @@ public final class QueryEngine {
         query: ParsedQuery,
         generation taskGeneration: Int
     ) async {
+        await PerformanceSignposts.query.interval("Query Providers") {
+            await collectProviderResults(
+                providers,
+                query: query,
+                generation: taskGeneration
+            )
+        }
+    }
+
+    private func collectProviderResults(
+        _ providers: [any ResultProvider],
+        query: ParsedQuery,
+        generation taskGeneration: Int
+    ) async {
         var accumulated: [SearchResult] = []
         var remaining = providers.count
 
@@ -91,15 +105,17 @@ public final class QueryEngine {
             for provider in providers {
                 let providerID = provider.id
                 group.addTask {
-                    do {
-                        return .results(
-                            providerID,
-                            try await provider.results(for: query)
-                        )
-                    } catch is CancellationError {
-                        return .cancelled
-                    } catch {
-                        return .failure(providerID, String(describing: error))
+                    await PerformanceSignposts.provider.interval("Provider Results") {
+                        do {
+                            return .results(
+                                providerID,
+                                try await provider.results(for: query)
+                            )
+                        } catch is CancellationError {
+                            return .cancelled
+                        } catch {
+                            return .failure(providerID, String(describing: error))
+                        }
                     }
                 }
             }
@@ -127,12 +143,14 @@ public final class QueryEngine {
                     break
                 }
 
-                let ranked = Ranker.rank(
-                    accumulated,
-                    query: query.term,
-                    frecencyFor: frecencyFor,
-                    providerWeights: providerWeights
-                )
+                let ranked = PerformanceSignposts.query.interval("Rank Results") {
+                    Ranker.rank(
+                        accumulated,
+                        query: query.term,
+                        frecencyFor: frecencyFor,
+                        providerWeights: providerWeights
+                    )
+                }
                 emit(
                     results: ranked,
                     generation: taskGeneration,

@@ -58,8 +58,10 @@ final class PaletteController: NSObject {
     /// `PalettePanel`/`LargeTypePanel` there's no `resignKey` override to
     /// hook — `NSWindow.didResignKeyNotification` is the equivalent signal.
     /// See `observeQuickLookResign`.
-    private var quickLookResignObserver: NSObjectProtocol?
+    private var quickLookResignObserver: NotificationToken?
+    private var panelMoveObserver: NotificationToken?
     private let brandImageURL: URL
+    private let defaults: UserDefaults
     /// Modification date of `brandImageURL` as of the last successful stat,
     /// used to avoid re-decoding the image on every `show()` — only a
     /// changed (or newly missing) date triggers a reload. `nil` means "no
@@ -70,6 +72,7 @@ final class PaletteController: NSObject {
         engine: QueryEngine,
         actionRunner: ActionRunner,
         brandImageURL: URL = Storage.production().brandImageURL,
+        defaults: UserDefaults = .standard,
         refreshAppsOnShow: @escaping () async -> Bool = { false },
         onShowSettings: @escaping () -> Void = {},
         onOpenScriptsFolder: @escaping () -> Void = {},
@@ -78,6 +81,7 @@ final class PaletteController: NSObject {
         self.engine = engine
         self.actionRunner = actionRunner
         self.brandImageURL = brandImageURL
+        self.defaults = defaults
         self.refreshAppsOnShow = refreshAppsOnShow
         self.onShowSettings = onShowSettings
         self.onOpenScriptsFolder = onOpenScriptsFolder
@@ -126,6 +130,12 @@ final class PaletteController: NSObject {
         guard !(panel.isVisible && panel.isKeyWindow) else {
             return
         }
+        PerformanceSignposts.palette.interval("Palette Show") {
+            showMeasured()
+        }
+    }
+
+    private func showMeasured() {
         refreshBrandImage()
         let height = Self.panelHeight(
             resultCount: results.count,
@@ -321,17 +331,14 @@ final class PaletteController: NSObject {
         engine.onUpdate = { [weak self] update in
             self?.apply(update)
         }
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification,
-            object: panel,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, !self.isProgrammaticFrameChange else {
-                    return
-                }
-                self.userAdjustedPosition = true
+        panelMoveObserver = NotificationToken(
+            name: NSWindow.didMoveNotification,
+            object: panel
+        ) { [weak self] in
+            guard let self, !isProgrammaticFrameChange else {
+                return
             }
+            userAdjustedPosition = true
         }
         actionRunner.onModeChange = { [weak self] mode in
             self?.enterMode(mode)
@@ -362,21 +369,26 @@ final class PaletteController: NSObject {
     }
 
     private func apply(_ update: QueryEngine.Update) {
+        PerformanceSignposts.palette.interval("Results Apply") {
+            applyMeasured(update)
+        }
+    }
+
+    private func applyMeasured(_ update: QueryEngine.Update) {
         actionsPanel.hide()
         let split = HeroPresentation.split(update.results)
         heroResult = split.hero
         results = split.rows
         updateHeroPresentation()
 
-        // Incremental provider updates share one engine generation. Keep the
-        // id through all of them so a later completion cannot reset selection
-        // after an earlier completion restored it; the final update consumes it.
-        let restoredIndex = selectionToRestore.flatMap { id in
-            results.firstIndex { $0.id == id }
-        }
-        if update.isFinal {
-            selectionToRestore = nil
-        }
+        let selection = PaletteSelection.afterUpdate(
+            rowIDs: results.map(\.id),
+            hasHero: heroResult != nil,
+            restorationID: selectionToRestore,
+            isFinal: update.isFinal
+        )
+        selectedIndex = selection.index
+        selectionToRestore = selection.restorationID
 
         let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
         lastParsedMode = query.mode
@@ -392,39 +404,17 @@ final class PaletteController: NSObject {
         scrollView.isHidden = isGrid || results.isEmpty
         gridView.isHidden = !isGrid || results.isEmpty
 
-        if let restoredIndex {
-            selectedIndex = restoredIndex
-            if isGrid {
-                syncGridSelection()
-            } else {
-                tableView.selectRowIndexes(
-                    IndexSet(integer: selectedIndex),
-                    byExtendingSelection: false
-                )
-                tableView.scrollRowToVisible(selectedIndex)
-            }
-        } else if heroResult != nil {
-            // The hero card owns the default selection; the table starts
-            // deselected so Return/⌘C activate the hero until the user
-            // explicitly arrows down into the row list.
-            selectedIndex = -1
+        if selectedIndex == PaletteSelection.heroIndex || results.isEmpty {
             tableView.deselectAll(nil)
             gridView.collectionView.deselectAll(nil)
-        } else if results.isEmpty {
-            selectedIndex = 0
-            tableView.deselectAll(nil)
-            gridView.collectionView.deselectAll(nil)
+        } else if isGrid {
+            syncGridSelection()
         } else {
-            selectedIndex = 0
-            if isGrid {
-                syncGridSelection()
-            } else {
-                tableView.selectRowIndexes(
-                    IndexSet(integer: selectedIndex),
-                    byExtendingSelection: false
-                )
-                tableView.scrollRowToVisible(selectedIndex)
-            }
+            tableView.selectRowIndexes(
+                IndexSet(integer: selectedIndex),
+                byExtendingSelection: false
+            )
+            tableView.scrollRowToVisible(selectedIndex)
         }
 
         updateFooter(after: update, query: query)
@@ -487,11 +477,11 @@ final class PaletteController: NSObject {
         guard !results.isEmpty else {
             return
         }
-        selectedIndex = GridNavigation.move(
-            index: max(selectedIndex, 0),
+        selectedIndex = PaletteSelection.moveGrid(
+            index: selectedIndex,
             by: offset,
             columns: PaletteMetrics.gridColumns,
-            count: results.count
+            rowCount: results.count
         )
         syncGridSelection()
         updateFooterActions()
@@ -524,13 +514,16 @@ final class PaletteController: NSObject {
     }
 
     private func moveSelection(by offset: Int) {
-        let lowerBound = heroResult != nil ? -1 : 0
-        let upperBound = results.count - 1
-        guard upperBound >= lowerBound else {
+        guard !results.isEmpty || heroResult != nil else {
             return
         }
-        selectedIndex = min(max(selectedIndex + offset, lowerBound), upperBound)
-        if selectedIndex == -1 {
+        selectedIndex = PaletteSelection.moveTable(
+            index: selectedIndex,
+            by: offset,
+            rowCount: results.count,
+            hasHero: heroResult != nil
+        )
+        if selectedIndex == PaletteSelection.heroIndex {
             tableView.deselectAll(nil)
         } else {
             tableView.selectRowIndexes(
@@ -577,7 +570,7 @@ final class PaletteController: NSObject {
     /// `.shared()` — it can't be subclassed to override `resignKey` the way
     /// `PalettePanel`/`LargeTypePanel` do, so `NSWindow.didResignKeyNotification`
     /// is the equivalent hook. The singleton outlives any single preview
-    /// session, so the observer is registered once and left in place.
+    /// session, so the observer is registered once for this controller's lifetime.
     ///
     /// Mirrors the same deferred one-runloop-turn keyWindow check as
     /// `PalettePanel.resignKey`/`LargeTypePanel.resignKey`: the successor
@@ -588,16 +581,13 @@ final class PaletteController: NSObject {
         guard quickLookResignObserver == nil else {
             return
         }
-        quickLookResignObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: qlPanel,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                FocusLossCheck.runDeferred(ownPanel: self.panel) { [weak self] in
-                    self?.hide()
-                }
+        quickLookResignObserver = NotificationToken(
+            name: NSWindow.didResignKeyNotification,
+            object: qlPanel
+        ) { [weak self] in
+            guard let self else { return }
+            FocusLossCheck.runDeferred(ownPanel: panel) { [weak self] in
+                self?.hide()
             }
         }
     }
@@ -728,9 +718,6 @@ final class PaletteController: NSObject {
 
     // MARK: - Dragged-position memory
 
-    private static let positionXKey = "palettePositionTopLeftX"
-    private static let positionYKey = "palettePositionTopLeftY"
-
     private func setFrameProgrammatically(_ frame: NSRect) {
         isProgrammaticFrameChange = true
         defer { isProgrammaticFrameChange = false }
@@ -741,15 +728,19 @@ final class PaletteController: NSObject {
         guard userAdjustedPosition else {
             return
         }
-        let defaults = UserDefaults.standard
-        defaults.set(Double(panel.frame.origin.x), forKey: Self.positionXKey)
-        defaults.set(Double(panel.frame.maxY), forKey: Self.positionYKey)
+        defaults.set(
+            Double(panel.frame.origin.x),
+            for: PersistedPreferenceKeys.palettePositionX
+        )
+        defaults.set(
+            Double(panel.frame.maxY),
+            for: PersistedPreferenceKeys.palettePositionY
+        )
     }
 
     private func savedTopLeft() -> NSPoint? {
-        let defaults = UserDefaults.standard
-        guard let x = defaults.object(forKey: Self.positionXKey) as? NSNumber,
-              let y = defaults.object(forKey: Self.positionYKey) as? NSNumber else {
+        guard let x = defaults.number(for: PersistedPreferenceKeys.palettePositionX),
+              let y = defaults.number(for: PersistedPreferenceKeys.palettePositionY) else {
             return nil
         }
         return NSPoint(x: x.doubleValue, y: y.doubleValue)
@@ -762,7 +753,11 @@ final class PaletteController: NSObject {
     }
 
     private func updateQueryPreservingSelection() {
-        selectionToRestore = selectedResult()?.id
+        selectionToRestore = PaletteSelection.selectedID(
+            index: selectedIndex,
+            heroID: heroResult?.id,
+            rowIDs: results.map(\.id)
+        )
         // Full updateQuery(), not a bare engine.update() — every state mutation
         // must use the same refresh sequence and selection-restoration path.
         updateQuery(preservingSelection: true)

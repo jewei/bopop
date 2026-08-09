@@ -150,3 +150,67 @@ func watcherKeepsCaptureWhenUpstreamClearArrivesAfterWindow() throws {
 
     #expect(fixture.store.entries.map(\.text) == ["keep me"])
 }
+
+@MainActor
+@Test
+func watcherPausesAndRebaselinesAcrossInactiveSession() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let center = NotificationCenter()
+    let watcher = PasteboardWatcher(
+        store: fixture.store,
+        pasteboard: fixture.pasteboard,
+        interval: 3_600,
+        workspaceNotificationCenter: center,
+        frontmostBundleID: { "com.apple.TextEdit" }
+    )
+    watcher.start()
+    defer { watcher.stop() }
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("before", forType: .string)
+    watcher.pollPasteboard()
+
+    center.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("inactive", forType: .string)
+    watcher.pollPasteboard()
+
+    center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+    watcher.pollPasteboard()
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("after", forType: .string)
+    watcher.pollPasteboard()
+
+    #expect(fixture.store.entries.map(\.text) == ["after", "before"])
+}
+
+@MainActor
+@Test
+func watcherDoesNotScrubHistoryForInactiveSessionClear() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let center = NotificationCenter()
+    let watcher = PasteboardWatcher(
+        store: fixture.store,
+        pasteboard: fixture.pasteboard,
+        interval: 3_600,
+        workspaceNotificationCenter: center,
+        frontmostBundleID: { "com.apple.TextEdit" }
+    )
+    watcher.start()
+    defer { watcher.stop() }
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("keep", forType: .string)
+    watcher.pollPasteboard()
+
+    center.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+    fixture.pasteboard.clearContents()
+    watcher.pollPasteboard()
+    center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+    watcher.pollPasteboard()
+
+    #expect(fixture.store.entries.map(\.text) == ["keep"])
+}

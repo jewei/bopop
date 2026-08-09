@@ -84,3 +84,98 @@ func usageStorePersistsRecords() throws {
     #expect(abs(secondStore.score("app:foo") - 1) < 1e-9)
 }
 
+@MainActor
+@Test
+func usageStoreSanitizesLoadedHitCounts() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let date = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    try fixture.storage.save(
+        [
+            "app:negative": PersistedUsageEntry(hits: -1, lastUsed: date),
+            "app:zero": PersistedUsageEntry(hits: 0, lastUsed: date),
+            "app:huge": PersistedUsageEntry(hits: Int.max, lastUsed: date)
+        ],
+        version: 1,
+        to: fixture.storage.usageFileURL
+    )
+
+    let store = UsageStore(storage: fixture.storage, now: { date })
+
+    #expect(store.score("app:negative") == 0)
+    #expect(store.score("app:zero") == 0)
+    #expect(store.score("app:huge") == 999)
+    store.record("app:huge")
+    #expect(store.score("app:huge") == 999)
+}
+
+@MainActor
+@Test
+func usageStoreEvictsLowestScoreWhileLoading() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let date = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    try fixture.storage.save(
+        [
+            "app:low": PersistedUsageEntry(hits: 1, lastUsed: date),
+            "app:middle": PersistedUsageEntry(hits: 2, lastUsed: date),
+            "app:high": PersistedUsageEntry(hits: 3, lastUsed: date)
+        ],
+        version: 1,
+        to: fixture.storage.usageFileURL
+    )
+
+    let store = UsageStore(storage: fixture.storage, now: { date }, maxEntries: 2)
+
+    #expect(store.score("app:low") == 0)
+    #expect(store.score("app:middle") == 2)
+    #expect(store.score("app:high") == 3)
+}
+
+/// Sanitizing only in memory would leave the rejected rows on disk, so a later
+/// launch with a bigger cap — or a plain reopen — would rank them again.
+@MainActor
+@Test
+func usageStorePersistsSanitizedTableForLaterLaunches() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let date = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    try fixture.storage.save(
+        [
+            "app:bogus": PersistedUsageEntry(hits: 0, lastUsed: date),
+            "app:low": PersistedUsageEntry(hits: 1, lastUsed: date),
+            "app:high": PersistedUsageEntry(hits: 3, lastUsed: date)
+        ],
+        version: 1,
+        to: fixture.storage.usageFileURL
+    )
+
+    _ = UsageStore(storage: fixture.storage, now: { date }, maxEntries: 1)
+    let nextLaunch = UsageStore(storage: fixture.storage, now: { date }, maxEntries: 500)
+
+    #expect(nextLaunch.score("app:bogus") == 0)
+    #expect(nextLaunch.score("app:low") == 0)
+    #expect(nextLaunch.score("app:high") == 3)
+}
+
+@MainActor
+@Test
+func usageStoreDoesNotBoostScoresAfterClockMovesBackward() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let recordedAt = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    var currentDate = recordedAt
+    let store = UsageStore(storage: fixture.storage, now: { currentDate })
+    store.record("app:foo")
+
+    currentDate = recordedAt.addingTimeInterval(-14 * 86_400)
+
+    #expect(store.score("app:foo") == 1)
+    #expect(store.scores(for: ["app:foo"])["app:foo"] == 1)
+}
+
+private struct PersistedUsageEntry: Codable {
+    let hits: Int
+    let lastUsed: Date
+}
+

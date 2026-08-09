@@ -42,14 +42,14 @@ public nonisolated struct HotkeyConfig: Equatable, Codable, Sendable {
     }
 
     public func save(to defaults: UserDefaults) {
-        defaults.set(keyCode, forKey: "hotkeyKeyCode")
-        defaults.set(modifiers.rawValue, forKey: "hotkeyModifiers")
+        defaults.set(keyCode, for: PersistedPreferenceKeys.hotkeyKeyCode)
+        defaults.set(modifiers.rawValue, for: PersistedPreferenceKeys.hotkeyModifiers)
     }
 
     public static func load(from defaults: UserDefaults) -> HotkeyConfig {
         guard
-            let keyCode = defaults.object(forKey: "hotkeyKeyCode") as? NSNumber,
-            let modifiers = defaults.object(forKey: "hotkeyModifiers") as? NSNumber
+            let keyCode = defaults.number(for: PersistedPreferenceKeys.hotkeyKeyCode),
+            let modifiers = defaults.number(for: PersistedPreferenceKeys.hotkeyModifiers)
         else {
             return .default
         }

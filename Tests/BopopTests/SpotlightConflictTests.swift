@@ -22,7 +22,7 @@ private func makeDefaults() -> UserDefaults {
 
     #expect(!SpotlightConflict.isSuppressed(in: defaults))
 
-    defaults.set(true, forKey: SpotlightConflict.suppressWarningKey)
+    defaults.set(true, for: PersistedPreferenceKeys.suppressSpotlightConflictWarning)
     #expect(SpotlightConflict.isSuppressed(in: defaults))
 
     // A separate reader of the same suite — what the next launch does.
@@ -34,7 +34,7 @@ private func makeDefaults() -> UserDefaults {
 /// Settings banner reads, and it must stay truthful regardless.
 @Test func suppressionDoesNotChangeConflictDetection() {
     let defaults = makeDefaults()
-    defaults.set(true, forKey: SpotlightConflict.suppressWarningKey)
+    defaults.set(true, for: PersistedPreferenceKeys.suppressSpotlightConflictWarning)
 
     // A non-default hotkey never conflicts, suppressed or not.
     let custom = HotkeyConfig(keyCode: 49, modifiers: [.control, .option])

@@ -7,13 +7,6 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class SettingsModel: ObservableObject {
-    static let clipboardLimitKey = "clipboardLimit"
-    static let currencyEnabledKey = "currencyConversionEnabled"
-    static let chineseVariantKey = "chineseVariant"
-    static let searchEngineKey = "searchEngine"
-    static let fileSearchFoldersKey = "fileSearchFolders"
-    static let customSearchesKey = "customSearches"
-
     @Published var hotkey: HotkeyConfig {
         didSet {
             hotkeyManager.register(hotkey)
@@ -42,7 +35,7 @@ final class SettingsModel: ObservableObject {
                 clipboardLimit = clamped
                 return
             }
-            defaults.set(clipboardLimit, forKey: Self.clipboardLimitKey)
+            defaults.set(clipboardLimit, for: PersistedPreferenceKeys.clipboardLimit)
             clipboardStore.setLimit(clipboardLimit)
         }
     }
@@ -60,19 +53,19 @@ final class SettingsModel: ObservableObject {
 
     @Published var chineseVariant: TranslationTarget {
         didSet {
-            defaults.set(chineseVariant.rawValue, forKey: Self.chineseVariantKey)
+            defaults.set(chineseVariant.rawValue, for: PersistedPreferenceKeys.chineseVariant)
         }
     }
 
     @Published var searchEngine: SearchEngine {
         didSet {
-            defaults.set(searchEngine.rawValue, forKey: Self.searchEngineKey)
+            defaults.set(searchEngine.rawValue, for: PersistedPreferenceKeys.searchEngine)
         }
     }
 
     @Published private(set) var fileSearchFolders: [String] {
         didSet {
-            defaults.set(fileSearchFolders, forKey: Self.fileSearchFoldersKey)
+            defaults.set(fileSearchFolders, for: PersistedPreferenceKeys.fileSearchFolders)
         }
     }
 
@@ -81,7 +74,7 @@ final class SettingsModel: ObservableObject {
             guard let data = try? JSONEncoder().encode(customSearches) else {
                 return
             }
-            defaults.set(data, forKey: Self.customSearchesKey)
+            defaults.set(data, for: PersistedPreferenceKeys.customSearchesData)
         }
     }
 
@@ -147,7 +140,7 @@ final class SettingsModel: ObservableObject {
     }
 
     static func storedClipboardLimit(in defaults: UserDefaults) -> Int {
-        guard let stored = defaults.object(forKey: clipboardLimitKey) as? NSNumber else {
+        guard let stored = defaults.number(for: PersistedPreferenceKeys.clipboardLimit) else {
             return 100
         }
         return clampClipboardLimit(stored.intValue)
@@ -156,7 +149,7 @@ final class SettingsModel: ObservableObject {
     /// Absent means off. Currency conversion is the one feature that leaves
     /// the machine, so it ships disabled and stays disabled until asked for.
     static func storedCurrencyEnabled(in defaults: UserDefaults) -> Bool {
-        defaults.bool(forKey: currencyEnabledKey)
+        defaults.bool(for: PersistedPreferenceKeys.currencyEnabled)
     }
 
     /// `enabled == true` is only ever reached from the consent dialog in
@@ -166,14 +159,14 @@ final class SettingsModel: ObservableObject {
             return
         }
         currencyEnabled = enabled
-        defaults.set(enabled, forKey: Self.currencyEnabledKey)
+        defaults.set(enabled, for: PersistedPreferenceKeys.currencyEnabled)
         if !enabled {
             rateStore.clearCache()
         }
     }
 
     static func storedChineseVariant(in defaults: UserDefaults) -> TranslationTarget {
-        guard let stored = defaults.string(forKey: chineseVariantKey),
+        guard let stored = defaults.string(for: PersistedPreferenceKeys.chineseVariant),
               let target = TranslationTarget(rawValue: stored) else {
             return .chineseSimplified
         }
@@ -181,7 +174,7 @@ final class SettingsModel: ObservableObject {
     }
 
     static func storedSearchEngine(in defaults: UserDefaults) -> SearchEngine {
-        guard let stored = defaults.string(forKey: searchEngineKey),
+        guard let stored = defaults.string(for: PersistedPreferenceKeys.searchEngine),
               let engine = SearchEngine(rawValue: stored) else {
             return .google
         }
@@ -189,11 +182,11 @@ final class SettingsModel: ObservableObject {
     }
 
     static func storedFileSearchFolders(in defaults: UserDefaults) -> [String] {
-        defaults.stringArray(forKey: fileSearchFoldersKey) ?? []
+        defaults.stringArray(for: PersistedPreferenceKeys.fileSearchFolders) ?? []
     }
 
     static func storedCustomSearches(in defaults: UserDefaults) -> [CustomWebSearch] {
-        guard let data = defaults.data(forKey: customSearchesKey),
+        guard let data = defaults.data(for: PersistedPreferenceKeys.customSearchesData),
               let searches = try? JSONDecoder().decode([CustomWebSearch].self, from: data) else {
             return []
         }
