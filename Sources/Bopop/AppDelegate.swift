@@ -151,7 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // so its `show()` can be captured by the closures below — self isn't
         // usable yet (we're still before super.init()), so PaletteController
         // must close over these locals directly rather than over self,
-        // mirroring appCatalog.refreshIfStale/emojiFrecencyFor above.
+        // mirroring appCatalog.refreshNow/emojiFrecencyFor above.
         let settingsWindowController = SettingsWindowController(model: settingsModel)
         self.settingsWindowController = settingsWindowController
         let appUpdater = AppUpdater()
@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             engine: engine,
             actionRunner: actionRunner,
             brandImageURL: storage.brandImageURL,
-            onWillShow: appCatalog.refreshIfStale,
+            refreshAppsOnShow: appCatalog.refreshNow,
             onShowSettings: { settingsWindowController.show() },
             onOpenScriptsFolder: { NSWorkspace.shared.open(storage.scriptsDirectory) },
             onQuit: { NSApp.terminate(nil) }

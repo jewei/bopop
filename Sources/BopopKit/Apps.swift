@@ -46,11 +46,15 @@ public final class AppCatalog {
 
     public private(set) var apps: [AppInfo] = []
 
+    private typealias Scanner = @Sendable ([URL], [String]) async -> [AppInfo]
+
     private let directories: [URL]
     private let extraApplicationPaths: [String]
     private let staleAfter: TimeInterval
+    private let scanner: Scanner
     private var lastScan: Date?
-    private var refreshTask: Task<Void, Never>?
+    private var refreshTask: Task<Bool, Never>?
+    private(set) var forcedRefreshGeneration = 0
 
     public init(
         directories: [URL] = AppCatalog.defaultDirectories,
@@ -60,6 +64,24 @@ public final class AppCatalog {
         self.directories = directories
         self.extraApplicationPaths = extraApplicationPaths
         self.staleAfter = staleAfter
+        scanner = { directories, extraApplicationPaths in
+            await AppCatalog.scan(
+                directories: directories,
+                extraApplicationPaths: extraApplicationPaths
+            )
+        }
+    }
+
+    init(
+        directories: [URL],
+        extraApplicationPaths: [String],
+        staleAfter: TimeInterval = 300,
+        scanner: @escaping @Sendable ([URL], [String]) async -> [AppInfo]
+    ) {
+        self.directories = directories
+        self.extraApplicationPaths = extraApplicationPaths
+        self.staleAfter = staleAfter
+        self.scanner = scanner
     }
 
     public func refreshIfStale() {
@@ -72,30 +94,48 @@ public final class AppCatalog {
             return
         }
 
-        let directories = directories
-        let extraApplicationPaths = extraApplicationPaths
-        refreshTask = Task { [weak self] in
-            let scannedApps = await Self.scan(
-                directories: directories,
-                extraApplicationPaths: extraApplicationPaths
-            )
-            guard let self, !Task.isCancelled else {
-                return
-            }
-            apps = scannedApps
-            lastScan = Date()
-            refreshTask = nil
-        }
+        _ = startRefresh()
     }
 
-    public func refreshNow() async {
-        refreshTask?.cancel()
-        refreshTask = nil
-        apps = await Self.scan(
-            directories: directories,
-            extraApplicationPaths: extraApplicationPaths
-        )
-        lastScan = Date()
+    @discardableResult
+    public func refreshNow() async -> Bool {
+        forcedRefreshGeneration += 1
+        return await startRefresh().value
+    }
+
+    private func startRefresh() -> Task<Bool, Never> {
+        if let refreshTask {
+            return refreshTask
+        }
+
+        let initialApps = apps
+        let directories = directories
+        let extraApplicationPaths = extraApplicationPaths
+        let scanner = scanner
+        let task = Task { [weak self] in
+            guard let self else {
+                return false
+            }
+            defer { refreshTask = nil }
+
+            while !Task.isCancelled {
+                let forcedGenerationAtStart = forcedRefreshGeneration
+                let scannedApps = await scanner(directories, extraApplicationPaths)
+                guard !Task.isCancelled else {
+                    return false
+                }
+                guard forcedGenerationAtStart == forcedRefreshGeneration else {
+                    continue
+                }
+
+                apps = scannedApps
+                lastScan = Date()
+                return scannedApps != initialApps
+            }
+            return false
+        }
+        refreshTask = task
+        return task
     }
 
     public static nonisolated func scan(

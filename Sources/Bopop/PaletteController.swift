@@ -9,7 +9,7 @@ final class PaletteController: NSObject {
 
     private let engine: QueryEngine
     private let actionRunner: ActionRunner
-    private let onWillShow: () -> Void
+    private let refreshAppsOnShow: () async -> Bool
     private let onShowSettings: () -> Void
     private let onOpenScriptsFolder: () -> Void
     private let onQuit: () -> Void
@@ -49,6 +49,7 @@ final class PaletteController: NSObject {
     /// the pinned block, so `apply(_:)`'s default snap back to row 0 would
     /// silently retarget ⏎ at whatever slid into that slot.
     private var selectionToRestore: String?
+    private var appRefreshTask: Task<Void, Never>?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
     private var userAdjustedPosition = false
@@ -69,7 +70,7 @@ final class PaletteController: NSObject {
         engine: QueryEngine,
         actionRunner: ActionRunner,
         brandImageURL: URL = Storage.production().brandImageURL,
-        onWillShow: @escaping () -> Void = {},
+        refreshAppsOnShow: @escaping () async -> Bool = { false },
         onShowSettings: @escaping () -> Void = {},
         onOpenScriptsFolder: @escaping () -> Void = {},
         onQuit: @escaping () -> Void = {}
@@ -77,7 +78,7 @@ final class PaletteController: NSObject {
         self.engine = engine
         self.actionRunner = actionRunner
         self.brandImageURL = brandImageURL
-        self.onWillShow = onWillShow
+        self.refreshAppsOnShow = refreshAppsOnShow
         self.onShowSettings = onShowSettings
         self.onOpenScriptsFolder = onOpenScriptsFolder
         self.onQuit = onQuit
@@ -125,7 +126,6 @@ final class PaletteController: NSObject {
         guard !(panel.isVisible && panel.isKeyWindow) else {
             return
         }
-        onWillShow()
         refreshBrandImage()
         let height = Self.panelHeight(
             resultCount: results.count,
@@ -160,6 +160,7 @@ final class PaletteController: NSObject {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(queryField)
         updateQuery()
+        refreshAppsAfterShowing()
     }
 
     func hide() {
@@ -169,6 +170,8 @@ final class PaletteController: NSObject {
 
         isHiding = true
         defer { isHiding = false }
+        appRefreshTask?.cancel()
+        appRefreshTask = nil
         actionsPanel.hide()
         engine.cancel()
         persistPositionIfUserAdjusted()
@@ -193,6 +196,31 @@ final class PaletteController: NSObject {
         lastParsedMode = .general
         tabsView.setActive(.general)
         resizePanel()
+    }
+
+    private func refreshAppsAfterShowing() {
+        appRefreshTask?.cancel()
+        let refreshAppsOnShow = refreshAppsOnShow
+        appRefreshTask = Task { [weak self] in
+            guard !Task.isCancelled else {
+                return
+            }
+            let changed = await refreshAppsOnShow()
+            guard let self,
+                  changed,
+                  !Task.isCancelled,
+                  panel.isVisible else {
+                return
+            }
+            let mode = QueryParser.parse(
+                raw: queryField.stringValue,
+                stickyMode: stickyMode
+            ).mode
+            guard mode == .general || mode == .apps else {
+                return
+            }
+            updateQueryPreservingSelection()
+        }
     }
 
     /// Cheap stat-and-compare: only decodes `brandImageURL` when its
@@ -312,14 +340,7 @@ final class PaletteController: NSObject {
             self?.hide()
         }
         actionRunner.onStayOpenRefresh = { [weak self] in
-            guard let self else {
-                return
-            }
-            self.selectionToRestore = self.selectedResult()?.id
-            // Full updateQuery(), not a bare engine.update() — the pin path
-            // shouldn't be a third partial copy of the refresh sequence that
-            // silently misses whatever gets added to it next.
-            self.updateQuery()
+            self?.updateQueryPreservingSelection()
         }
         tabsView.onSelect = { [weak self] mode in
             self?.enterMode(mode)
@@ -347,12 +368,15 @@ final class PaletteController: NSObject {
         results = split.rows
         updateHeroPresentation()
 
-        // Consumed by this update whether or not the row survived it, so a
-        // stale id can never steer a later, unrelated one.
+        // Incremental provider updates share one engine generation. Keep the
+        // id through all of them so a later completion cannot reset selection
+        // after an earlier completion restored it; the final update consumes it.
         let restoredIndex = selectionToRestore.flatMap { id in
             results.firstIndex { $0.id == id }
         }
-        selectionToRestore = nil
+        if update.isFinal {
+            selectionToRestore = nil
+        }
 
         let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
         lastParsedMode = query.mode
@@ -368,7 +392,18 @@ final class PaletteController: NSObject {
         scrollView.isHidden = isGrid || results.isEmpty
         gridView.isHidden = !isGrid || results.isEmpty
 
-        if heroResult != nil {
+        if let restoredIndex {
+            selectedIndex = restoredIndex
+            if isGrid {
+                syncGridSelection()
+            } else {
+                tableView.selectRowIndexes(
+                    IndexSet(integer: selectedIndex),
+                    byExtendingSelection: false
+                )
+                tableView.scrollRowToVisible(selectedIndex)
+            }
+        } else if heroResult != nil {
             // The hero card owns the default selection; the table starts
             // deselected so Return/⌘C activate the hero until the user
             // explicitly arrows down into the row list.
@@ -380,7 +415,7 @@ final class PaletteController: NSObject {
             tableView.deselectAll(nil)
             gridView.collectionView.deselectAll(nil)
         } else {
-            selectedIndex = restoredIndex ?? 0
+            selectedIndex = 0
             if isGrid {
                 syncGridSelection()
             } else {
@@ -726,7 +761,17 @@ final class PaletteController: NSObject {
         }
     }
 
-    private func updateQuery() {
+    private func updateQueryPreservingSelection() {
+        selectionToRestore = selectedResult()?.id
+        // Full updateQuery(), not a bare engine.update() — every state mutation
+        // must use the same refresh sequence and selection-restoration path.
+        updateQuery(preservingSelection: true)
+    }
+
+    private func updateQuery(preservingSelection: Bool = false) {
+        if !preservingSelection {
+            selectionToRestore = nil
+        }
         actionsPanel.hide()
         if let editor = queryField.currentEditor() as? NSTextView {
             PaletteLayout.configureFieldEditor(editor)

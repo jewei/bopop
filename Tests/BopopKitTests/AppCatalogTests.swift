@@ -108,6 +108,130 @@ func appCatalogIncludesExistingExtraApplicationPaths() async throws {
 
 @MainActor
 @Test
+func newlyInstalledAppAppearsAfterPresentationRefresh() async throws {
+    let root = try makeAppFixtureDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try makeFakeBundle(
+        at: root.appendingPathComponent("Existing.app", isDirectory: true),
+        bundleID: "existing",
+        bundleName: "Existing"
+    )
+    let catalog = AppCatalog(
+        directories: [root],
+        extraApplicationPaths: [],
+        staleAfter: 300
+    )
+    await catalog.refreshNow()
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in [:] })
+    let lateURL = root.appendingPathComponent("LateArrival.app", isDirectory: true)
+    try makeFakeBundle(
+        at: lateURL,
+        bundleID: "late-arrival",
+        bundleName: "LateArrival"
+    )
+
+    let changed = await catalog.refreshNow()
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .apps, term: "LateArrival")
+    )
+
+    #expect(changed)
+    #expect(results.count == 1)
+    #expect(results.first?.id == "app:late-arrival")
+    #expect(results.first?.title == "LateArrival")
+    if case .openApp(let path) = results.first?.action {
+        #expect(path.hasSuffix("/LateArrival.app"))
+    } else {
+        Issue.record("LateArrival result should open its app bundle")
+    }
+}
+
+@MainActor
+@Test
+func removedAppDisappearsAfterPresentationRefresh() async throws {
+    let root = try makeAppFixtureDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let removedURL = root.appendingPathComponent("Removed.app", isDirectory: true)
+    try makeFakeBundle(
+        at: removedURL,
+        bundleID: "removed",
+        bundleName: "Removed"
+    )
+    let catalog = AppCatalog(directories: [root], extraApplicationPaths: [])
+    await catalog.refreshNow()
+    let provider = AppsProvider(catalog: catalog, frecencyFor: { _ in [:] })
+    try FileManager.default.removeItem(at: removedURL)
+
+    let changed = await catalog.refreshNow()
+    let results = try await provider.results(
+        for: ParsedQuery(mode: .apps, term: "Removed")
+    )
+
+    #expect(changed)
+    #expect(results.isEmpty)
+}
+
+@MainActor
+@Test
+func forcedRefreshReportsNoChangeForIdenticalSnapshot() async {
+    let app = AppInfo(
+        bundleID: "unchanged",
+        name: "Unchanged",
+        path: "/Applications/Unchanged.app",
+        keywords: []
+    )
+    let catalog = AppCatalog(
+        directories: [],
+        extraApplicationPaths: [],
+        scanner: { _, _ in [app] }
+    )
+
+    let firstChanged = await catalog.refreshNow()
+    let secondChanged = await catalog.refreshNow()
+
+    #expect(firstChanged)
+    #expect(!secondChanged)
+}
+
+@MainActor
+@Test
+func forcedRefreshDuringInFlightScanQueuesFollowUpScan() async {
+    let existing = AppInfo(
+        bundleID: "existing",
+        name: "Existing",
+        path: "/Applications/Existing.app",
+        keywords: []
+    )
+    let late = AppInfo(
+        bundleID: "late-arrival",
+        name: "LateArrival",
+        path: "/Applications/LateArrival.app",
+        keywords: []
+    )
+    let probe = AppCatalogScanProbe(firstResult: [existing], laterResult: [existing, late])
+    let catalog = AppCatalog(
+        directories: [],
+        extraApplicationPaths: [],
+        scanner: { _, _ in await probe.scan() }
+    )
+
+    catalog.refreshIfStale()
+    await probe.waitUntilFirstScanStarts()
+    let forcedRefresh = Task { await catalog.refreshNow() }
+    while catalog.forcedRefreshGeneration == 0 {
+        await Task.yield()
+    }
+    await probe.releaseFirstScan()
+
+    let changed = await forcedRefresh.value
+
+    #expect(changed)
+    #expect(await probe.invocationCount == 2)
+    #expect(catalog.apps == [existing, late])
+}
+
+@MainActor
+@Test
 func appsProviderReturnsFrecentAppsForEmptyTerm() async throws {
     let root = try makeAppFixtureDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -228,6 +352,50 @@ func appsProviderPreFilterIsRankerNoOp() async throws {
     #expect(!rankedFiltered.isEmpty)
     #expect(rankedFiltered.count < catalog.apps.count)
     #expect(rankedFiltered.map(\.id) == rankedUnfiltered.map(\.id))
+}
+
+private actor AppCatalogScanProbe {
+    let firstResult: [AppInfo]
+    let laterResult: [AppInfo]
+    private(set) var invocationCount = 0
+    private var firstScanStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstScanRelease: CheckedContinuation<Void, Never>?
+
+    init(firstResult: [AppInfo], laterResult: [AppInfo]) {
+        self.firstResult = firstResult
+        self.laterResult = laterResult
+    }
+
+    func scan() async -> [AppInfo] {
+        invocationCount += 1
+        guard invocationCount == 1 else {
+            return laterResult
+        }
+
+        let waiters = firstScanStartedWaiters
+        firstScanStartedWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            firstScanRelease = continuation
+        }
+        return firstResult
+    }
+
+    func waitUntilFirstScanStarts() async {
+        guard invocationCount == 0 else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            firstScanStartedWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstScan() {
+        firstScanRelease?.resume()
+        firstScanRelease = nil
+    }
 }
 
 private func makeAppFixtureDirectory() throws -> URL {

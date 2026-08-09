@@ -9,8 +9,8 @@ final class PaletteFooterView: NSView {
     private let gearButton = PaletteFooterGearButton()
     private let rightCluster = NSStackView()
 
-    /// Wired by `PaletteController`, which forwards to `AppDelegate` —
-    /// follows the same closure-callback style as `onWillShow`.
+    /// Wired by `PaletteController`, which forwards to `AppDelegate` through
+    /// the same injected closure-callback pattern as other palette actions.
     var onShowSettings: (() -> Void)?
     var onOpenScriptsFolder: (() -> Void)?
     var onQuit: (() -> Void)?
