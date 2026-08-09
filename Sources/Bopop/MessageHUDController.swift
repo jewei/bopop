@@ -12,6 +12,7 @@ import AppKit
 @MainActor
 final class MessageHUDController {
     private var panel: NSPanel?
+    var panelForTesting: NSPanel? { panel }
     private var dismissTask: Task<Void, Never>?
 
     private static let width: CGFloat = 380
@@ -69,11 +70,11 @@ final class MessageHUDController {
             backing: .buffered,
             defer: false
         )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.level = .floating
+        // The same style every other Bopop overlay uses. Hand-rolling this was
+        // the bug that made the HUD invisible: without `.canJoinAllSpaces` and
+        // `.fullScreenAuxiliary` it only appears on the Space it was created
+        // on, and `.floating` sits below a full-screen app.
+        panel.applyBopopOverlayStyle()
         panel.ignoresMouseEvents = true
         panel.contentView = container
         panel.orderFrontRegardless()
@@ -117,4 +118,10 @@ private final class MessageHUDBackgroundView: NSView {
     required init?(coder: NSCoder) {
         nil
     }
+}
+
+extension MessageHUDController {
+    /// The panel currently on screen, for tests. There is no other way to
+    /// observe a borderless non-key panel from outside.
+    var visiblePanelForTesting: NSPanel? { panelForTesting }
 }

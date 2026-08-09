@@ -203,6 +203,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Headless smoke hook: BOPOP_DEBUG_AUTOSHOW=1 opens the palette
             // shortly after launch so UI regressions are reproducible without
             // a keyboard (used to catch the row-init exception in 2720f0c-era).
+            // Same purpose as the autoshow hook below. The HUD is otherwise
+            // only reachable by running a script or making an action fail,
+            // which is how it shipped invisible once already.
+            if ProcessInfo.processInfo.environment["BOPOP_DEBUG_HUD"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.messageHUD.show("debug hud probe", isFailure: true)
+                }
+            }
             if ProcessInfo.processInfo.environment["BOPOP_DEBUG_AUTOSHOW"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.paletteController.toggle()
