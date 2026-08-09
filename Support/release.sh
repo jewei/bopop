@@ -171,7 +171,10 @@ XML
 # build, notarization, or validation leaves the tree exactly as it found it.
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST_SRC")"
 if [[ "$PLIST_VERSION" != "$VERSION" ]]; then
-    echo "▶ Updating Support/Info.plist $PLIST_VERSION → $VERSION…"
+    # Braces are load-bearing: bash 3.2 on macOS takes the bytes of the
+    # following "…" as part of the variable name, so `$VERSION…` looks up
+    # VERSION… and `set -u` kills the release after notarization.
+    echo "▶ Updating Support/Info.plist $PLIST_VERSION → ${VERSION}…"
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST_SRC"
 fi
 
