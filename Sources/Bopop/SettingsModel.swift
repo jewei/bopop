@@ -38,6 +38,8 @@ final class SettingsModel: ObservableObject {
     enum SnippetError: Equatable {
         case nameMissing
         case contentMissing
+        case storageUnavailable
+        case saveFailed(String)
 
         var message: String {
             switch self {
@@ -45,6 +47,14 @@ final class SettingsModel: ObservableObject {
                 "Give the snippet a name."
             case .contentMissing:
                 "Give the snippet some content."
+            case .storageUnavailable:
+                """
+                Your snippets file couldn't be read and was renamed to \
+                snippets.json.corrupt in Bopop's Application Support folder. \
+                Snippets stay read-only until you move or delete it.
+                """
+            case .saveFailed(let reason):
+                "Couldn't save snippets: \(reason)"
             }
         }
     }
@@ -128,6 +138,10 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var spotlightConflict: Bool
     @Published private(set) var customSearchError: CustomSearchError?
     @Published private(set) var snippetError: SnippetError?
+    /// False when the snippets file was quarantined at load. Published so the
+    /// form can say so up front instead of letting the user compose a snippet
+    /// and only then discover it cannot be saved.
+    @Published private(set) var snippetsAvailable: Bool
 
     /// The presence of `storage.brandImageURL` IS the flag — no separate
     /// defaults key, one source of truth (see design doc).
@@ -179,6 +193,7 @@ final class SettingsModel: ObservableObject {
         fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
         customSearches = Self.storedCustomSearches(in: defaults)
         snippets = snippetStore.snippets
+        snippetsAvailable = snippetStore.isAvailable
         hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
         hasCustomBrandImage = FileManager.default.fileExists(atPath: storage.brandImageURL.path)
     }
@@ -341,25 +356,45 @@ final class SettingsModel: ObservableObject {
         }
         snippetError = nil
         let trimmedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
-        snippetStore.add(Snippet(
-            id: UUID(),
-            name: trimmedName,
-            keyword: trimmedKeyword.isEmpty ? nil : trimmedKeyword,
-            content: trimmedContent
-        ))
-        snippets = snippetStore.snippets
-        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
-        return true
+        return commitSnippetChange {
+            try snippetStore.add(Snippet(
+                id: UUID(),
+                name: trimmedName,
+                keyword: trimmedKeyword.isEmpty ? nil : trimmedKeyword,
+                content: trimmedContent
+            ))
+        }
     }
 
     func clearSnippetError() {
         snippetError = nil
     }
 
-    func updateSnippet(_ snippet: Snippet) {
-        snippetStore.update(snippet)
+    @discardableResult
+    func updateSnippet(_ snippet: Snippet) -> Bool {
+        commitSnippetChange { try snippetStore.update(snippet) }
+    }
+
+    /// The store writes to disk before it publishes, so a thrown error means
+    /// nothing changed — republish its unchanged list and show why.
+    @discardableResult
+    private func commitSnippetChange(_ change: () throws -> Void) -> Bool {
+        do {
+            try change()
+            snippetError = nil
+        } catch SnippetStore.StoreError.storageUnavailable {
+            snippetError = .storageUnavailable
+            return false
+        } catch let SnippetStore.StoreError.writeFailed(reason) {
+            snippetError = .saveFailed(reason)
+            return false
+        } catch {
+            snippetError = .saveFailed(error.localizedDescription)
+            return false
+        }
         snippets = snippetStore.snippets
         hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
+        return true
     }
 
     func unhideResult(_ id: String) {
@@ -367,10 +402,9 @@ final class SettingsModel: ObservableObject {
         hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
     }
 
-    func removeSnippet(id: UUID) {
-        snippetStore.remove(id: id)
-        snippets = snippetStore.snippets
-        hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
+    @discardableResult
+    func removeSnippet(id: UUID) -> Bool {
+        commitSnippetChange { try snippetStore.remove(id: id) }
     }
 
     /// Opens an NSOpenPanel (single image file) and imports the chosen

@@ -138,9 +138,32 @@ public nonisolated struct Storage {
         expectedVersion: Int,
         from url: URL
     ) -> [Element]? {
+        switch loadElementsOutcome(elementType, expectedVersion: expectedVersion, from: url) {
+        case .absent, .unreadable:
+            return nil
+        case .loaded(let elements):
+            return elements
+        }
+    }
+
+    /// What `loadElements` found. Callers holding regenerable data (usage,
+    /// clipboard) can keep treating "absent" and "unreadable" alike; a store
+    /// holding data the user authored must not, because writing over a
+    /// quarantined file strands the only copy under a name they never see.
+    public enum ElementLoad<Element> {
+        case absent
+        case loaded([Element])
+        case unreadable
+    }
+
+    public func loadElementsOutcome<Element: Codable>(
+        _ elementType: Element.Type,
+        expectedVersion: Int,
+        from url: URL
+    ) -> ElementLoad<Element> {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: url.path) else {
-            return nil
+            return .absent
         }
 
         do {
@@ -151,7 +174,7 @@ public nonisolated struct Storage {
             )
             guard envelope.version == expectedVersion else {
                 quarantine(url, using: fileManager)
-                return nil
+                return .unreadable
             }
             let elements = envelope.payload.compactMap(\.value)
             let dropped = envelope.payload.count - elements.count
@@ -160,10 +183,10 @@ public nonisolated struct Storage {
                     "Dropped \(dropped, privacy: .public) unreadable element(s) from \(url.lastPathComponent, privacy: .public)"
                 )
             }
-            return elements
+            return .loaded(elements)
         } catch {
             quarantine(url, using: fileManager)
-            return nil
+            return .unreadable
         }
     }
 

@@ -230,3 +230,27 @@ private func withModel(_ body: (SettingsModel) throws -> Void) throws {
     #expect(rateStore.cached() == nil)
     #expect(!FileManager.default.fileExists(atPath: storage.ratesFileURL.path))
 }
+
+/// A quarantined snippets file must be visible in Settings before the user
+/// composes anything, and a save attempt must refuse rather than write over the
+/// recovered copy.
+@MainActor
+@Test func quarantinedSnippetsFileMakesSettingsReadOnly() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("bopop-settings-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+    try Data("not json".utf8).write(to: storage.snippetsFileURL)
+
+    let model = makeModel(defaults: makeDefaults(), storage: storage)
+
+    #expect(!model.snippetsAvailable)
+
+    let added = model.addSnippet(name: "Sig", keyword: "", content: "body")
+
+    #expect(!added)
+    #expect(model.snippetError == .storageUnavailable)
+    #expect(model.snippets.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: storage.snippetsFileURL.path))
+}

@@ -212,6 +212,14 @@ struct SettingsView: View {
             }
 
             Section("Snippets") {
+                if !model.snippetsAvailable {
+                    Label(
+                        SettingsModel.SnippetError.storageUnavailable.message,
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
                 ForEach(model.snippets) { snippet in
                     HStack {
                         Text(snippet.name)
