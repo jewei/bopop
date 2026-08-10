@@ -36,7 +36,7 @@ func emptyQueryPublishesProviderResults() async throws {
 
     var received: [QueryEngine.Update] = []
     engine.onUpdate = { received.append($0) }
-    engine.update(raw: "", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "", stickyMode: .general))
 
     for _ in 0..<200 where !(received.last?.isFinal ?? false) {
         try await Task.sleep(for: .milliseconds(5))

@@ -16,9 +16,9 @@ func queryEngineDiscardsStaleGeneration() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "first", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "first", stickyMode: .general))
     await gate.waitUntilStarted()
-    engine.update(raw: "second", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "second", stickyMode: .general))
 
     let current = await recorder.waitForUpdate { $0.generation == 2 && $0.isFinal }
     #expect(current?.results.map(\.id) == ["app:second"])
@@ -46,13 +46,38 @@ func queryEngineCancellationStopsPublish() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "late", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "late", stickyMode: .general))
     await state.waitUntilStarted()
     engine.cancel()
     await state.waitUntilCancelled()
     try? await Task.sleep(for: .milliseconds(5))
 
     #expect(recorder.updates.isEmpty)
+}
+
+/// Every update reports the query it answers. Without this the receiver has to
+/// re-derive the query from whatever the field holds when the update lands —
+/// a second clock that can disagree with the query that actually ran, which is
+/// how a mode prefix ends up drawn against the previous mode's rows.
+@MainActor
+@Test
+func queryEngineUpdatesCarryTheQueryTheyAnswer() async {
+    let provider = FakeProvider(id: .apps) { query in
+        [engineResult(id: "app:\(query.term)", title: query.term)]
+    }
+    let engine = QueryEngine(providers: [.emoji: [provider], .general: [provider]], debounce: [:])
+    let recorder = UpdateRecorder()
+    engine.onUpdate = recorder.record
+
+    // A prefix query: the mode the engine ran under is not the sticky mode the
+    // caller started from, so a receiver re-parsing later could disagree.
+    let typed = QueryParser.parse(raw: ":smile", stickyMode: .general)
+    engine.update(query: typed)
+    let final = await recorder.waitForUpdate(matching: \.isFinal)
+
+    #expect(final?.query == typed)
+    #expect(final?.query.mode == .emoji)
+    #expect(final?.query.term == "smile")
 }
 
 @MainActor
@@ -71,7 +96,7 @@ func queryEngineIsolatesThrowingProvider() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "good", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "good", stickyMode: .general))
     let final = await recorder.waitForUpdate(matching: \.isFinal)
 
     #expect(final?.results.map(\.id) == ["app:good"])
@@ -100,7 +125,7 @@ func queryEngineStillFinalizesWhenLastProviderReportsCancellation() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "good", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "good", stickyMode: .general))
     await gate.waitUntilStarted()
     await gate.release()
 
@@ -126,7 +151,7 @@ func queryEnginePublishesIncrementally() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "", stickyMode: .general))
     await slowGate.waitUntilStarted()
     let first = await recorder.waitForUpdate { !$0.isFinal }
     #expect(first?.results.map(\.id) == ["cmd:fast"])
@@ -151,8 +176,8 @@ func queryEngineDebounceCancelsEarlierSleep() async {
     let recorder = UpdateRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "first", stickyMode: .fileSearch)
-    engine.update(raw: "second", stickyMode: .fileSearch)
+    engine.update(query: QueryParser.parse(raw: "first", stickyMode: .fileSearch))
+    engine.update(query: QueryParser.parse(raw: "second", stickyMode: .fileSearch))
 
     let final = await recorder.waitForUpdate(matching: \.isFinal)
     #expect(final?.generation == 2)
@@ -222,7 +247,7 @@ func queryEngineRunsProvidersConcurrently() async throws {
         let recorder = UpdateRecorder()
         engine.onUpdate = recorder.record
 
-        engine.update(raw: "go", stickyMode: .general)
+        engine.update(query: QueryParser.parse(raw: "go", stickyMode: .general))
         let final = await recorder.waitForUpdate(matching: \.isFinal)
 
         #expect(Set(final?.results.map(\.id) ?? []) == ["a:go", "b:go"])

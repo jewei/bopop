@@ -111,7 +111,7 @@ func keystrokeRendersASingleFrame() async {
     let recorder = FrameRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "safari", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "safari", stickyMode: .general))
     await recorder.waitForFinal()
 
     let captured = frames(from: recorder.updates)
@@ -133,7 +133,7 @@ func typingAWordRendersOneFramePerKeystroke() async {
     var typed = ""
     for character in "safari" {
         typed.append(character)
-        engine.update(raw: typed, stickyMode: .general)
+        engine.update(query: QueryParser.parse(raw: typed, stickyMode: .general))
         try? await Task.sleep(for: .milliseconds(60))
     }
     await recorder.waitForFinal()
@@ -159,7 +159,7 @@ func interimRendersAreNeverBlank() async {
     let recorder = FrameRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "safari", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "safari", stickyMode: .general))
     await recorder.waitForFinal()
 
     let blankInterim = recorder.updates.filter { !$0.isFinal && $0.results.isEmpty }
@@ -190,7 +190,7 @@ func slowProviderDoesNotStallTheFirstPaint() async {
 
     // Empty query: the ranker keeps every candidate, so the assertions below
     // are about publish timing rather than about what matches "fast".
-    engine.update(raw: "", stickyMode: .general)
+    engine.update(query: QueryParser.parse(raw: "", stickyMode: .general))
     await gate.waitUntilStarted()
 
     // Paints the fast provider's rows on the settle boundary, while the slow

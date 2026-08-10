@@ -3,11 +3,26 @@ import os
 
 public final class QueryEngine {
     public struct Update: Sendable {
+        /// The query this update answers.
+        ///
+        /// Carried back so the receiver can tell which query produced these
+        /// results instead of re-deriving it from whatever the query field
+        /// happens to hold by the time the update lands. Re-parsing on receipt
+        /// is a second clock: it can disagree with the query that was actually
+        /// run, which is how a mode prefix ends up drawn against the previous
+        /// mode's rows.
+        public let query: ParsedQuery
         public let results: [SearchResult]
         public let generation: Int
         public let isFinal: Bool
 
-        public init(results: [SearchResult], generation: Int, isFinal: Bool) {
+        public init(
+            query: ParsedQuery,
+            results: [SearchResult],
+            generation: Int,
+            isFinal: Bool
+        ) {
+            self.query = query
             self.results = results
             self.generation = generation
             self.isFinal = isFinal
@@ -50,12 +65,16 @@ public final class QueryEngine {
         self.providerWeights = providerWeights
     }
 
-    public func update(raw: String, stickyMode: Mode) {
+    /// Runs an already-parsed query.
+    ///
+    /// The engine deliberately does not parse: `QueryParser` is owned by the
+    /// caller so that exactly one parse exists per keystroke, and the parse
+    /// that ran is the parse reported back on `Update.query`.
+    public func update(query: ParsedQuery) {
         generation += 1
         task?.cancel()
 
         let taskGeneration = generation
-        let query = QueryParser.parse(raw: raw, stickyMode: stickyMode)
         let modeProviders = providers[query.mode, default: []]
         task = Task { [weak self] in
             guard let self else {
@@ -77,7 +96,12 @@ public final class QueryEngine {
             }
 
             if modeProviders.isEmpty {
-                emit(results: [], generation: taskGeneration, isFinal: true)
+                emit(
+                    query: query,
+                    results: [],
+                    generation: taskGeneration,
+                    isFinal: true
+                )
                 return
             }
 
@@ -245,10 +269,16 @@ public final class QueryEngine {
                 providerWeights: providerWeights
             )
         }
-        emit(results: ranked, generation: taskGeneration, isFinal: isFinal)
+        emit(
+            query: query,
+            results: ranked,
+            generation: taskGeneration,
+            isFinal: isFinal
+        )
     }
 
     private func emit(
+        query: ParsedQuery,
         results: [SearchResult],
         generation taskGeneration: Int,
         isFinal: Bool
@@ -258,6 +288,7 @@ public final class QueryEngine {
         }
         onUpdate?(
             Update(
+                query: query,
                 results: results,
                 generation: taskGeneration,
                 isFinal: isFinal

@@ -850,7 +850,7 @@ final class PaletteController: NSObject {
         lastParsedMode = query.mode
         updateFooterStatus(for: query)
         resizePanel()
-        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
+        engine.update(query: query)
     }
 
     private func updateFooter(after update: QueryEngine.Update, query: ParsedQuery) {
