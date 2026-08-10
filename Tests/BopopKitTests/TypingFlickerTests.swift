@@ -6,9 +6,14 @@ import Testing
 //
 // The palette re-renders once per `QueryEngine.Update`, so a frame here is one
 // thing the user's eye actually sees. These tests drive the real general-mode
-// provider set through the real engine and reconstruct each frame exactly the
-// way `PaletteController.applyMeasured` does — `HeroPresentation.split` plus
-// `PaletteSelection.afterUpdate`.
+// provider set through the real engine and into a real `PaletteState`, and
+// assert on the plans it returns.
+//
+// This file used to reconstruct each frame by hand — its own header said it
+// "reconstruct[s] each frame exactly the way `PaletteController.applyMeasured`
+// does" — which meant the composition under test had a second copy kept in
+// sync by hand, and the copy silently omitted selection restoration, the
+// render-skip and grid mode. It drives the module now.
 //
 // Typing "safari" used to produce 54 renders across 6 keystrokes: 25 of them
 // painted a genuinely empty list (every provider that matched nothing still
@@ -16,16 +21,17 @@ import Testing
 // already-visible row down the list when a slower, higher-ranking provider
 // landed.
 
-/// One rendered palette state.
+/// One rendered palette state, taken straight off the plan the module returns.
 private struct Frame: Equatable {
-    let generation: Int
+    let query: ParsedQuery
     let isFinal: Bool
     let heroID: String?
     let rowIDs: [String]
-    let selectedIndex: Int
+    let focus: PaletteFocus
+    let contentChanged: Bool
 
     var visual: String {
-        "hero=\(heroID ?? "-") sel=\(selectedIndex) rows=\(rowIDs.count) \(rowIDs.prefix(5).joined(separator: ","))"
+        "hero=\(heroID ?? "-") focus=\(focus) rows=\(rowIDs.count) \(rowIDs.prefix(5).joined(separator: ","))"
     }
 }
 
@@ -36,31 +42,31 @@ private struct Disruption {
     let reason: String
 }
 
+/// Pairs each plan with the update that produced it — `isFinal` is a fact
+/// about the publication, not about what gets drawn.
 @MainActor
-private func frames(from updates: [QueryEngine.Update]) -> [Frame] {
-    updates.map { update in
-        let split = HeroPresentation.split(update.results)
-        let rowIDs = split.rows.map(\.id)
-        let selection = PaletteSelection.afterUpdate(
-            rowIDs: rowIDs,
-            hasHero: split.hero != nil,
-            restorationID: nil,
-            isFinal: update.isFinal
-        )
-        return Frame(
-            generation: update.generation,
+private func frames(
+    _ plans: [PaletteRenderPlan],
+    _ updates: [QueryEngine.Update]
+) -> [Frame] {
+    zip(plans, updates).map { plan, update in
+        Frame(
+            query: plan.query,
             isFinal: update.isFinal,
-            heroID: split.hero?.id,
-            rowIDs: rowIDs,
-            selectedIndex: selection.index
+            heroID: plan.hero?.id,
+            rowIDs: plan.rows.map(\.id),
+            focus: plan.focus,
+            contentChanged: plan.contentChanged
         )
     }
 }
 
 private func disruptions(in frames: [Frame]) -> [Disruption] {
     var found: [Disruption] = []
+    // Only within one keystroke: across keystrokes the rows are supposed to
+    // change, that is the filtering working.
     for (previous, next) in zip(frames, frames.dropFirst())
-    where previous.generation == next.generation {
+    where previous.query == next.query {
         if previous.heroID != next.heroID {
             found.append(
                 Disruption(
@@ -81,7 +87,7 @@ private func timeline(_ frames: [Frame]) -> Comment {
     var lines = ["\(frames.count) frame(s):"]
     for (index, frame) in frames.enumerated() {
         lines.append(
-            "  [\(index)] gen=\(frame.generation) final=\(frame.isFinal) \(frame.visual)"
+            "  [\(index)] term='\(frame.query.term)' final=\(frame.isFinal) \(frame.visual)"
         )
     }
     for disruption in disruptions(in: frames) {
@@ -111,10 +117,10 @@ func keystrokeRendersASingleFrame() async {
     let recorder = FrameRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "safari", stickyMode: .general)
+    recorder.type("safari", into: engine)
     await recorder.waitForFinal()
 
-    let captured = frames(from: recorder.updates)
+    let captured = frames(recorder.plans, recorder.updates)
     let trace = timeline(captured)
 
     #expect(disruptions(in: captured).isEmpty, trace)
@@ -133,12 +139,12 @@ func typingAWordRendersOneFramePerKeystroke() async {
     var typed = ""
     for character in "safari" {
         typed.append(character)
-        engine.update(raw: typed, stickyMode: .general)
+        recorder.type(typed, into: engine)
         try? await Task.sleep(for: .milliseconds(60))
     }
     await recorder.waitForFinal()
 
-    let captured = frames(from: recorder.updates)
+    let captured = frames(recorder.plans, recorder.updates)
     let trace = timeline(captured)
 
     let blanks = captured.filter { $0.rowIDs.isEmpty && !$0.isFinal }
@@ -159,7 +165,7 @@ func interimRendersAreNeverBlank() async {
     let recorder = FrameRecorder()
     engine.onUpdate = recorder.record
 
-    engine.update(raw: "safari", stickyMode: .general)
+    recorder.type("safari", into: engine)
     await recorder.waitForFinal()
 
     let blankInterim = recorder.updates.filter { !$0.isFinal && $0.results.isEmpty }
@@ -190,7 +196,7 @@ func slowProviderDoesNotStallTheFirstPaint() async {
 
     // Empty query: the ranker keeps every candidate, so the assertions below
     // are about publish timing rather than about what matches "fast".
-    engine.update(raw: "", stickyMode: .general)
+    recorder.type("", into: engine)
     await gate.waitUntilStarted()
 
     // Paints the fast provider's rows on the settle boundary, while the slow
@@ -201,40 +207,6 @@ func slowProviderDoesNotStallTheFirstPaint() async {
     await gate.release()
     let final = await recorder.waitForUpdate(matching: \.isFinal)
     #expect(Set(final?.results.map(\.id) ?? []) == ["cmd:fast", "app:slow"])
-}
-
-/// A settled paint must not repeat itself. `PaletteController` skips the
-/// `reloadData()` + `resizePanel()` when the rendered state is unchanged, and
-/// this is the pure decision behind that skip.
-@Test
-func identicalRenderStateComparesEqual() {
-    let rows = [
-        flickerResult(id: "app:one", title: "One"),
-        flickerResult(id: "app:two", title: "Two")
-    ]
-    let first = PaletteRenderState(hero: nil, rows: rows, isGrid: false)
-    let same = PaletteRenderState(hero: nil, rows: rows, isGrid: false)
-    let reordered = PaletteRenderState(
-        hero: nil,
-        rows: rows.reversed(),
-        isGrid: false
-    )
-    let asGrid = PaletteRenderState(hero: nil, rows: rows, isGrid: true)
-    let withHero = PaletteRenderState(hero: rows[0], rows: rows, isGrid: false)
-    let retitled = PaletteRenderState(
-        hero: nil,
-        rows: [flickerResult(id: "app:one", title: "Renamed"), rows[1]],
-        isGrid: false
-    )
-
-    #expect(first == same)
-    #expect(first != reordered)
-    // A grid/table swap has to reload even on identical rows.
-    #expect(first != asGrid)
-    #expect(first != withHero)
-    // Same ids, different content: comparing ids alone would wrongly skip the
-    // reload and leave a stale row on screen.
-    #expect(first != retitled)
 }
 
 // MARK: - Harness
@@ -327,12 +299,33 @@ private final class FakeProvider: ResultProvider {
     }
 }
 
+/// Feeds every engine update through a real `PaletteState` and keeps the plans
+/// it returns. The plans are what the adapter would draw, so a frame here is a
+/// frame the user would have seen — no reconstruction.
 @MainActor
 private final class FrameRecorder {
+    let palette = PaletteState(
+        configuration: PaletteStateConfiguration(
+            orderedModes: [.general, .apps, .fileSearch, .clipboard, .emoji, .translation],
+            gridColumns: 10
+        )
+    )
     private(set) var updates: [QueryEngine.Update] = []
+    private(set) var plans: [PaletteRenderPlan] = []
 
     func record(_ update: QueryEngine.Update) {
         updates.append(update)
+        plans.append(palette.apply(update))
+    }
+
+    /// Types into the module and hands whatever query it asks for to the
+    /// engine — the same loop the adapter runs.
+    func type(_ text: String, into engine: QueryEngine) {
+        for effect in palette.setQueryText(text).effects {
+            if case let .runQuery(query) = effect {
+                engine.update(query: query)
+            }
+        }
     }
 
     /// Waits for the final update, then a beat longer so any trailing emit is

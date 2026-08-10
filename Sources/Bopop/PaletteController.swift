@@ -33,26 +33,24 @@ final class PaletteController: NSObject {
     private let actionsPanel = ActionsPanelController()
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
-    private var stickyMode: Mode = .general
-    /// The mode currently reflected by `tabsView`, tracking the EFFECTIVE
-    /// mode from the latest engine update — this includes prefix-typed
-    /// modes (`f `/`:`/`t `), which drive providers without changing
-    /// `stickyMode`. See `apply(_:)`.
-    private var lastParsedMode: Mode = .general
-    private var results: [SearchResult] = []
-    private var heroResult: SearchResult?
-    /// -1 means the hero card owns the selection (Return/⌘C act on it); a
-    /// valid `results` index means a table row is selected.
-    private var selectedIndex = 0
-    /// Id of the result the next engine update should re-select, set by a
-    /// stay-open mutation (pin/unpin). Pinning moves its row into or out of
-    /// the pinned block, so `apply(_:)`'s default snap back to row 0 would
-    /// silently retarget ⏎ at whatever slid into that slot.
-    private var selectionToRestore: String?
-    /// What the table and grid currently hold, so `apply(_:)` can skip a
-    /// reload that would redraw exactly the same rows. Cleared by `hide()`,
-    /// which empties the views behind `apply(_:)`'s back.
-    private var lastRenderState: PaletteRenderState?
+    /// The palette's state. Sole authority for query text, mode, results,
+    /// hero and selection — this controller is its AppKit adapter and never
+    /// writes any of that itself.
+    private let state: PaletteState
+    /// The plan currently on screen, so the table and grid data sources have
+    /// something to read. Replaced wholesale by every plan and never consulted
+    /// to decide what happens next; `state` decides.
+    private var rendered: PaletteRenderPlan
+    /// Set while `commit` drives AppKit's selection. `selectRowIndexes` fires
+    /// `tableViewSelectionDidChange` synchronously, and without this the
+    /// delegate would write the selection back as if the user had moved it —
+    /// two authorities inside one call stack. Same idiom as
+    /// `isProgrammaticFrameChange`.
+    private var isApplyingPlan = false
+    /// Draws that began while another was still in progress. Must stay zero: a
+    /// re-entrant draw runs against half-updated views, and one of them hung
+    /// the app outright. Counted rather than asserted so a test can pin it.
+    private var reentrantDrawCount = 0
     private var appRefreshTask: Task<Void, Never>?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
@@ -75,8 +73,13 @@ final class PaletteController: NSObject {
     init(
         engine: QueryEngine,
         actionRunner: ActionRunner,
-        brandImageURL: URL = Storage.production().brandImageURL,
-        defaults: UserDefaults = .standard,
+        // No production defaults: a test that forgot to override `defaults`
+        // would have `persistPositionIfUserAdjusted` write the palette's
+        // position into the developer's real standard defaults, and would read
+        // the real brand image back out. `AppDelegate` is the single wiring
+        // point and already passes both, so requiring them costs nothing.
+        brandImageURL: URL,
+        defaults: UserDefaults,
         refreshAppsOnShow: @escaping () async -> Bool = { false },
         onShowSettings: @escaping () -> Void = {},
         onOpenScriptsFolder: @escaping () -> Void = {},
@@ -90,6 +93,14 @@ final class PaletteController: NSObject {
         self.onShowSettings = onShowSettings
         self.onOpenScriptsFolder = onOpenScriptsFolder
         self.onQuit = onQuit
+        let state = PaletteState(
+            configuration: PaletteStateConfiguration(
+                orderedModes: PaletteTabsView.orderedTabs.map(\.0),
+                gridColumns: PaletteMetrics.gridColumns
+            )
+        )
+        self.state = state
+        rendered = state.reset()
         panel = PalettePanel(
             contentRect: NSRect(
                 origin: .zero,
@@ -194,13 +205,10 @@ final class PaletteController: NSObject {
         }
         largeTypeController.hide()
         panel.orderOut(nil)
-        stickyMode = .general
+        // Resets the whole state set, including the render key: the views are
+        // emptied below, so identical content next time must still redraw.
+        rendered = state.reset()
         queryField.stringValue = ""
-        results = []
-        heroResult = nil
-        selectedIndex = 0
-        selectionToRestore = nil
-        lastRenderState = nil
         tableView.reloadData()
         gridView.collectionView.reloadData()
         scrollView.isHidden = true
@@ -208,8 +216,7 @@ final class PaletteController: NSObject {
         updateHeroPresentation()
         footerView.setStatus("Bopop")
         footerView.setActions(primary: nil, hasActions: false)
-        lastParsedMode = .general
-        tabsView.setActive(.general)
+        tabsView.setActive(rendered.query.mode)
         resizePanel()
     }
 
@@ -227,10 +234,7 @@ final class PaletteController: NSObject {
                   panel.isVisible else {
                 return
             }
-            let mode = QueryParser.parse(
-                raw: queryField.stringValue,
-                stickyMode: stickyMode
-            ).mode
+            let mode = rendered.query.mode
             guard mode == .general || mode == .apps else {
                 return
             }
@@ -390,80 +394,106 @@ final class PaletteController: NSObject {
         }
     }
 
+    // Read-only views onto the plan currently drawn. The controller reads
+    // these; only `state` produces them.
+    private var results: [SearchResult] { rendered.rows }
+    private var heroResult: SearchResult? { rendered.hero }
+
     private func apply(_ update: QueryEngine.Update) {
         PerformanceSignposts.palette.interval("Results Apply") {
-            applyMeasured(update)
+            commit(state.apply(update), after: update)
         }
     }
 
-    private func applyMeasured(_ update: QueryEngine.Update) {
+    /// Draws one plan and runs its effects. The single place AppKit is told
+    /// anything about results, mode or selection.
+    private func commit(
+        _ plan: PaletteRenderPlan,
+        after update: QueryEngine.Update? = nil
+    ) {
         actionsPanel.hide()
-        let split = HeroPresentation.split(update.results)
-        heroResult = split.hero
-        results = split.rows
+        rendered = plan
+
+        if let text = plan.queryFieldText, queryField.stringValue != text {
+            queryField.stringValue = text
+            if let editor = queryField.currentEditor() {
+                editor.selectedRange = NSRange(location: text.count, length: 0)
+            }
+        }
+        if let editor = queryField.currentEditor() as? NSTextView {
+            PaletteLayout.configureFieldEditor(editor)
+        }
+
+        if isApplyingPlan {
+            reentrantDrawCount += 1
+        }
+        // Covers the whole draw, not just the selection call. `reloadData()`
+        // changes the table's selection and fires
+        // `tableViewSelectionDidChange` synchronously, so a guard around
+        // `applyFocus` alone let the delegate mistake our own reload for a
+        // user click and re-enter `commit` — against views that were only
+        // half updated. In emoji mode the re-entrant pass reached
+        // `syncGridSelection` while the collection view still held the
+        // previous mode's items but its data source already reported the new
+        // count, and AppKit wedged there. That hung the MainActor's executor,
+        // so every later engine update was silently never delivered.
+        isApplyingPlan = true
+
+        tabsView.setActive(plan.query.mode)
+        updateQueryFieldAccessibility(for: plan.query.mode)
         updateHeroPresentation()
 
-        let selection = PaletteSelection.afterUpdate(
-            rowIDs: results.map(\.id),
-            hasHero: heroResult != nil,
-            restorationID: selectionToRestore,
-            isFinal: update.isFinal
-        )
-        selectedIndex = selection.index
-        selectionToRestore = selection.restorationID
-
-        let query = QueryParser.parse(raw: queryField.stringValue, stickyMode: stickyMode)
-        lastParsedMode = query.mode
-        tabsView.setActive(query.mode)
-        updateQueryFieldAccessibility(for: query.mode)
-
-        // View swap on the same `results`/`selectedIndex` model: the grid
-        // and table never show simultaneously (hero rule untouched — emoji
-        // mode never produces one, so `heroResult` is always nil here when
-        // `isGridMode` is true).
-        let isGrid = isGridMode
-
-        // A settle-boundary publish and the final publish that follows it are
-        // frequently identical — the last provider matched nothing. Rebuilding
-        // every row view and resizing the panel for that is work the user sees
-        // as a twitch, so reload only when the drawn content actually differs.
-        //
-        // Content only: `selectedIndex` is deliberately NOT part of the key.
-        // Arrow keys move the selection without coming through here, so a
-        // cached index would go stale and skip a reload the selection sync
-        // below still has to run. That sync is cheap and idempotent, so it
-        // stays unconditional and stays correct either way.
-        let render = PaletteRenderState(
-            hero: heroResult,
-            rows: results,
-            isGrid: isGrid
-        )
-        let contentChanged = render != lastRenderState
-        lastRenderState = render
-
-        if contentChanged {
+        let isGrid = plan.presentation == .grid
+        if plan.contentChanged {
             tableView.reloadData()
             gridView.collectionView.reloadData()
         }
-        scrollView.isHidden = isGrid || results.isEmpty
-        gridView.isHidden = !isGrid || results.isEmpty
+        scrollView.isHidden = isGrid || plan.rows.isEmpty
+        gridView.isHidden = !isGrid || plan.rows.isEmpty
+        applyFocus(plan.focus, isGrid: isGrid)
 
-        if selectedIndex == PaletteSelection.heroIndex || results.isEmpty {
-            tableView.deselectAll(nil)
-            gridView.collectionView.deselectAll(nil)
-        } else if isGrid {
-            syncGridSelection()
+        if let update {
+            updateFooter(after: update, query: plan.query)
         } else {
-            tableView.selectRowIndexes(
-                IndexSet(integer: selectedIndex),
-                byExtendingSelection: false
-            )
-            tableView.scrollRowToVisible(selectedIndex)
+            updateFooterStatus(for: plan.query)
+            updateFooterActions()
+        }
+        if plan.contentChanged {
+            resizePanel()
         }
 
-        updateFooter(after: update, query: query)
-        if contentChanged {
-            resizePanel()
+        // Cleared before the effects run: they are not drawing, and one of
+        // them can re-enter through `hide()`.
+        isApplyingPlan = false
+
+        for effect in plan.effects {
+            switch effect {
+            case let .runQuery(query):
+                engine.update(query: query)
+            case .closePalette:
+                hide()
+            }
+        }
+    }
+
+    /// Drives AppKit's selection from the plan. Runs inside `commit`'s
+    /// `isApplyingPlan` guard, which owns the flag — clearing it here would
+    /// reopen the write-back path for the rest of the draw.
+    private func applyFocus(_ focus: PaletteFocus, isGrid: Bool) {
+        switch focus {
+        case .none, .hero:
+            tableView.deselectAll(nil)
+            gridView.collectionView.deselectAll(nil)
+        case let .row(index):
+            if isGrid {
+                syncGridSelection(to: index)
+            } else {
+                tableView.selectRowIndexes(
+                    IndexSet(integer: index),
+                    byExtendingSelection: false
+                )
+                tableView.scrollRowToVisible(index)
+            }
         }
     }
 
@@ -477,35 +507,42 @@ final class PaletteController: NSObject {
         }
     }
 
-    /// Single click executes the row, launcher-style. Selection state is
-    /// already synced by tableViewSelectionDidChange before the action fires.
+    /// Single click executes the row, launcher-style. The click carries its
+    /// own index rather than reading back whatever AppKit selected, so the
+    /// action can never fire against a different row than the one hit.
     @objc private func rowClicked(_ sender: NSTableView) {
         let row = sender.clickedRow
         guard results.indices.contains(row) else {
             return
         }
-        selectedIndex = row
-        actionRunner.perform(results[row])
+        commit(state.selectRow(row))
+        if let result = selectedResult() {
+            actionRunner.perform(result)
+        }
     }
 
-    /// Whether the emoji tile grid — rather than the table — is the
-    /// currently visible results presentation. Derived from the EFFECTIVE
-    /// mode (see `lastParsedMode`'s doc comment), not `stickyMode`, so a
-    /// prefix-typed `:term` also renders the grid.
+    /// Whether the emoji tile grid — rather than the table — is the currently
+    /// visible results presentation. Driven by the plan, so it reflects the
+    /// EFFECTIVE mode (a prefix-typed `:term` renders the grid too) and can
+    /// never disagree with the rows actually loaded.
     private var isGridMode: Bool {
-        lastParsedMode == .emoji
+        rendered.presentation == .grid
     }
 
-    /// Mirrors `gridView.collectionView`'s selection to `selectedIndex`
-    /// and scrolls the selected tile into view — the grid analog of
-    /// `tableView.selectRowIndexes`/`scrollRowToVisible` in
-    /// `moveSelection`.
-    private func syncGridSelection() {
-        guard results.indices.contains(selectedIndex) else {
+    /// Mirrors the plan's focus into `gridView.collectionView` and scrolls the
+    /// tile into view — the grid analog of
+    /// `tableView.selectRowIndexes`/`scrollRowToVisible`.
+    private func syncGridSelection(to index: Int) {
+        // Checked against the collection view's own count, not just the plan's:
+        // selecting or scrolling to an item the view does not hold yet wedges
+        // AppKit outright rather than failing, and the view lags the plan
+        // whenever a draw is still in progress.
+        guard results.indices.contains(index),
+              index < gridView.collectionView.numberOfItems(inSection: 0) else {
             gridView.collectionView.deselectAll(nil)
             return
         }
-        let indexPath = IndexPath(item: selectedIndex, section: 0)
+        let indexPath = IndexPath(item: index, section: 0)
         gridView.collectionView.selectionIndexPaths = [indexPath]
         // Explicit position: an empty ScrollPosition can no-op in AppKit,
         // leaving the selection below the fold while arrowing.
@@ -515,41 +552,12 @@ final class PaletteController: NSObject {
         )
     }
 
-    /// Grid analog of `moveSelection(by:)`: ←/→ pass `by: ±1`, ↑/↓ pass
-    /// `by: ±PaletteMetrics.gridColumns`. The grid has no hero sentinel
-    /// (emoji mode never produces a hero), so this only ever clamps within
-    /// `results` via `GridNavigation`.
-    private func moveGridSelection(by offset: Int) {
-        guard !results.isEmpty else {
-            return
-        }
-        selectedIndex = PaletteSelection.moveGrid(
-            index: selectedIndex,
-            by: offset,
-            columns: PaletteMetrics.gridColumns,
-            rowCount: results.count
-        )
-        syncGridSelection()
-        updateFooterActions()
-    }
-
     private func selectedResult() -> SearchResult? {
-        if selectedIndex == -1 {
-            return heroResult
-        }
-        guard results.indices.contains(selectedIndex) else {
-            return nil
-        }
-        return results[selectedIndex]
+        state.focusedResult
     }
 
     private func enterMode(_ mode: Mode) {
-        stickyMode = mode
-        queryField.stringValue = ""
-        lastParsedMode = mode
-        tabsView.setActive(mode)
-        updateQueryFieldAccessibility(for: mode)
-        updateQuery()
+        commit(state.enterMode(mode))
     }
 
     /// The tab row shows which mode is active; VoiceOver users get that
@@ -565,34 +573,8 @@ final class PaletteController: NSObject {
         )
     }
 
-    /// ⇥ / ⇧⇥ cycles through the ordered tab list from the current
-    /// EFFECTIVE mode (not just `stickyMode`, so cycling while a prefix
-    /// mode is active continues from that mode).
-    private func cycleTab(by offset: Int) {
-        let modes = PaletteTabsView.orderedTabs.map(\.0)
-        enterMode(TabCycling.next(from: lastParsedMode, offset: offset, orderedModes: modes))
-    }
-
-    private func moveSelection(by offset: Int) {
-        guard !results.isEmpty || heroResult != nil else {
-            return
-        }
-        selectedIndex = PaletteSelection.moveTable(
-            index: selectedIndex,
-            by: offset,
-            rowCount: results.count,
-            hasHero: heroResult != nil
-        )
-        if selectedIndex == PaletteSelection.heroIndex {
-            tableView.deselectAll(nil)
-        } else {
-            tableView.selectRowIndexes(
-                IndexSet(integer: selectedIndex),
-                byExtendingSelection: false
-            )
-            tableView.scrollRowToVisible(selectedIndex)
-        }
-        updateFooterActions()
+    private func moveSelection(_ move: PaletteSelectionMove) {
+        commit(state.moveSelection(move))
         refreshQuickLookIfVisible()
     }
 
@@ -659,10 +641,9 @@ final class PaletteController: NSObject {
             largeTypeController.hide()
             return true
         }
-        // `selectedResult()` already returns `heroResult` whenever it's the
-        // active selection (`selectedIndex == -1`), and `apply(_:)` always
-        // forces that whenever `heroResult != nil` — so a fallback to
-        // `heroResult` here can never fire and was dead code.
+        // `selectedResult()` already returns the hero whenever focus is
+        // `.hero`, and an update with a hero always takes focus — so a
+        // fallback to the hero here can never fire and was dead code.
         // `panel.screen` is nil whenever the frame intersects no screen (a
         // saved position after a display change — the case `show()` guards
         // with `isOnAnyScreen`), and `NSScreen.main` is nil when no screen
@@ -812,40 +793,14 @@ final class PaletteController: NSObject {
         }
     }
 
+    /// Stay-open mutations (pin/unpin/hide) re-run the query but keep ⏎ on the
+    /// row that was just acted on, even though pinning moves it.
     private func updateQueryPreservingSelection() {
-        selectionToRestore = PaletteSelection.selectedID(
-            index: selectedIndex,
-            heroID: heroResult?.id,
-            rowIDs: results.map(\.id)
-        )
-        // Full updateQuery(), not a bare engine.update() — every state mutation
-        // must use the same refresh sequence and selection-restoration path.
-        updateQuery(preservingSelection: true)
+        commit(state.refreshPreservingSelection())
     }
 
-    private func updateQuery(preservingSelection: Bool = false) {
-        if !preservingSelection {
-            selectionToRestore = nil
-        }
-        actionsPanel.hide()
-        if let editor = queryField.currentEditor() as? NSTextView {
-            PaletteLayout.configureFieldEditor(editor)
-        }
-        let query = QueryParser.parse(
-            raw: queryField.stringValue,
-            stickyMode: stickyMode
-        )
-        // Assigned synchronously from the same parse the footer already
-        // uses, rather than waiting for `apply(_:)`'s async engine update —
-        // otherwise `isGridMode` (and the `resizePanel()` call right below,
-        // which reads it) is one keystroke stale right after typing a mode
-        // prefix like `:`. `apply(_:)` keeps its own assignment: a
-        // still-in-flight update can resolve after the query has moved on,
-        // and `apply` only runs for the current generation.
-        lastParsedMode = query.mode
-        updateFooterStatus(for: query)
-        resizePanel()
-        engine.update(raw: queryField.stringValue, stickyMode: stickyMode)
+    private func updateQuery() {
+        commit(state.setQueryText(queryField.stringValue))
     }
 
     private func updateFooter(after update: QueryEngine.Update, query: ParsedQuery) {
@@ -955,6 +910,45 @@ final class PaletteController: NSObject {
     }
 }
 
+// MARK: - Test surface
+//
+// Until now nothing could construct a PaletteController, let alone drive one,
+// so ~3,660 lines of the palette cluster had no way to be tested and a
+// re-entrancy hang in `commit` shipped and had to be found by hand against a
+// running app. These are the minimum needed to stand one up and poke it the
+// way AppKit does. Same idiom as `MessageHUDController.panelForTesting`.
+extension PaletteController {
+    /// Draws that began while another was still in progress. Zero is the
+    /// invariant; anything else means a delegate callback re-entered `commit`.
+    var reentrantDrawCountForTesting: Int { reentrantDrawCount }
+    var renderedPlanForTesting: PaletteRenderPlan { rendered }
+    var tableRowCountForTesting: Int { tableView.numberOfRows }
+    var gridItemCountForTesting: Int {
+        gridView.collectionView.numberOfItems(inSection: 0)
+    }
+    var isTableVisibleForTesting: Bool { !scrollView.isHidden }
+    var isGridVisibleForTesting: Bool { !gridView.isHidden }
+    var selectedTableRowForTesting: Int { tableView.selectedRow }
+
+    /// Types into the query field exactly as AppKit does: set the value, then
+    /// fire the delegate. Going through the notification rather than calling
+    /// `updateQuery` keeps the real path — including the delegate hop that
+    /// produced the re-entrancy — under test.
+    func typeForTesting(_ text: String) {
+        queryField.stringValue = text
+        controlTextDidChange(
+            Notification(
+                name: NSControl.textDidChangeNotification,
+                object: queryField
+            )
+        )
+    }
+
+    func enterModeForTesting(_ mode: Mode) {
+        enterMode(mode)
+    }
+}
+
 extension PaletteController: NSTextFieldDelegate {
     func controlTextDidChange(_ notification: Notification) {
         updateQuery()
@@ -995,17 +989,9 @@ extension PaletteController: NSTextFieldDelegate {
         }
         switch commandSelector {
         case #selector(NSResponder.moveUp(_:)):
-            if isGridMode {
-                moveGridSelection(by: -PaletteMetrics.gridColumns)
-            } else {
-                moveSelection(by: -1)
-            }
+            moveSelection(.up)
         case #selector(NSResponder.moveDown(_:)):
-            if isGridMode {
-                moveGridSelection(by: PaletteMetrics.gridColumns)
-            } else {
-                moveSelection(by: 1)
-            }
+            moveSelection(.down)
         case #selector(NSResponder.moveLeft(_:)):
             // Only meaningful in the grid: in text mode this MUST fall
             // through (return false) so the caret moves normally instead
@@ -1013,45 +999,22 @@ extension PaletteController: NSTextFieldDelegate {
             guard isGridMode else {
                 return false
             }
-            moveGridSelection(by: -1)
+            moveSelection(.left)
         case #selector(NSResponder.moveRight(_:)):
             guard isGridMode else {
                 return false
             }
-            moveGridSelection(by: 1)
+            moveSelection(.right)
         case #selector(NSResponder.insertTab(_:)):
-            switch TabKeyPolicy.action(hero: heroResult) {
-            case .autocomplete(let answer):
-                queryField.stringValue = answer
-                if let editor = queryField.currentEditor() {
-                    editor.selectedRange = NSRange(location: answer.count, length: 0)
-                }
-                updateQuery()
-            case .cycleTab:
-                cycleTab(by: 1)
-            }
+            commit(state.tab(shift: false))
         case #selector(NSResponder.insertBacktab(_:)):
-            cycleTab(by: -1)
+            commit(state.tab(shift: true))
         case #selector(NSResponder.insertNewline(_:)):
             if let result = selectedResult() {
                 actionRunner.perform(result)
             }
         case #selector(NSResponder.cancelOperation(_:)):
-            switch EscapePolicy.action(
-                textIsEmpty: queryField.stringValue.isEmpty,
-                stickyMode: stickyMode
-            ) {
-            case .clearText:
-                queryField.stringValue = ""
-                updateQuery()
-            case .exitMode:
-                stickyMode = .general
-                lastParsedMode = .general
-                tabsView.setActive(.general)
-                updateQuery()
-            case .closePanel:
-                hide()
-            }
+            commit(state.escape())
         default:
             return false
         }
@@ -1082,19 +1045,22 @@ extension PaletteController: NSTableViewDataSource, NSTableViewDelegate {
             guard let self, results.indices.contains(row) else {
                 return
             }
-            selectedIndex = row
-            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            updateFooterActions()
+            commit(state.selectRow(row))
             presentActionsPanel()
         }
         return rowView
     }
 
+    /// Reports a selection the USER made. Programmatic selection is filtered
+    /// out by `isApplyingPlan`: `commit` drives `selectRowIndexes`, which fires
+    /// this synchronously, and letting it write back would make AppKit a second
+    /// authority racing the one inside the same call stack.
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isApplyingPlan else {
+            return
+        }
         if results.indices.contains(tableView.selectedRow) {
-            selectedIndex = tableView.selectedRow
-        } else if tableView.selectedRow == -1, heroResult != nil {
-            selectedIndex = -1
+            commit(state.selectRow(tableView.selectedRow))
         }
         updateFooterActions()
         refreshQuickLookIfVisible()
@@ -1133,11 +1099,15 @@ extension PaletteController: NSCollectionViewDataSource, NSCollectionViewDelegat
     /// `collectionView.selectionIndexPaths` is already updated by AppKit
     /// before this delegate call fires.
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-        guard let indexPath = indexPaths.first, results.indices.contains(indexPath.item) else {
+        guard !isApplyingPlan,
+              let indexPath = indexPaths.first,
+              results.indices.contains(indexPath.item) else {
             return
         }
-        selectedIndex = indexPath.item
-        actionRunner.perform(results[indexPath.item])
+        commit(state.selectRow(indexPath.item))
+        if let result = selectedResult() {
+            actionRunner.perform(result)
+        }
     }
 }
 

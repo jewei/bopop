@@ -94,3 +94,13 @@ func calculatorProviderIgnoresOtherModes() async throws {
 
     #expect(results.isEmpty)
 }
+
+@MainActor
+@Test func calculatorResultCarriesHero() async throws {
+    let results = try await CalculatorProvider().results(
+        for: ParsedQuery(mode: .general, term: "123*456"))
+    let hero = try #require(results.first?.hero)
+    #expect(hero.left == "123*456")
+    #expect(hero.right == "56,088")
+    #expect(hero.rightBadge == "Fifty-Six Thousand Eighty-Eight")
+}

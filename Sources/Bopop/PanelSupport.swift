@@ -25,14 +25,33 @@ enum FocusLossCheck {
         onFocusLoss: @escaping () -> Void
     ) {
         DispatchQueue.main.async {
-            switch NSApp.keyWindow {
-            case ownPanel, is PalettePanel, is LargeTypePanel, is QLPreviewPanel:
+            guard isForeign(successor: NSApp.keyWindow, ownPanel: ownPanel) else {
                 return
-            default:
-                if condition() {
-                    onFocusLoss()
-                }
             }
+            if condition() {
+                onFocusLoss()
+            }
+        }
+    }
+
+    /// Whether `successor` taking key means the user left Bopop, as opposed to
+    /// one of Bopop's own overlays taking it — or this window getting it back.
+    ///
+    /// Split out from the deferral so the allowlist can be asserted directly.
+    /// It is the hardest behaviour in the app to reproduce by hand (it needs a
+    /// real key-window handover between two overlays), and the list it checks
+    /// is load-bearing for an invariant stated in a different file:
+    /// `ActionsPanelController` builds a plain `NSPanel`, which is NOT on this
+    /// list, so it reads as a genuine focus loss and would tear the palette
+    /// down. It is saved only by never becoming key — see the note at the top
+    /// of `ActionsPanelController`. Any future overlay has to either subclass
+    /// one of these or join the list.
+    static func isForeign(successor: NSWindow?, ownPanel: NSWindow?) -> Bool {
+        switch successor {
+        case ownPanel, is PalettePanel, is LargeTypePanel, is QLPreviewPanel:
+            return false
+        default:
+            return true
         }
     }
 }

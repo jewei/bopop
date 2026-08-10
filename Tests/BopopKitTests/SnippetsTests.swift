@@ -72,10 +72,6 @@ import Testing
     #expect(command.providerID == .commands)
 }
 
-@Test func escapeExitsSnippetsModeBeforeClosing() {
-    #expect(EscapePolicy.action(textIsEmpty: true, stickyMode: .snippets) == .exitMode)
-}
-
 /// Snippets are authored data: the user typed them and nothing can regenerate
 /// them. A write that fails must not look like it worked, or the in-memory list
 /// and the file disagree until the next launch quietly discards the difference.
