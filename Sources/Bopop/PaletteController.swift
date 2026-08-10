@@ -47,6 +47,10 @@ final class PaletteController: NSObject {
     /// two authorities inside one call stack. Same idiom as
     /// `isProgrammaticFrameChange`.
     private var isApplyingPlan = false
+    /// Draws that began while another was still in progress. Must stay zero: a
+    /// re-entrant draw runs against half-updated views, and one of them hung
+    /// the app outright. Counted rather than asserted so a test can pin it.
+    private var reentrantDrawCount = 0
     private var appRefreshTask: Task<Void, Never>?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
@@ -420,6 +424,9 @@ final class PaletteController: NSObject {
             PaletteLayout.configureFieldEditor(editor)
         }
 
+        if isApplyingPlan {
+            reentrantDrawCount += 1
+        }
         // Covers the whole draw, not just the selection call. `reloadData()`
         // changes the table's selection and fires
         // `tableViewSelectionDidChange` synchronously, so a guard around
@@ -900,6 +907,45 @@ final class PaletteController: NSObject {
             + CGFloat(visibleRows - 1) * PaletteMetrics.gridSpacing
             + PaletteMetrics.listTopInset
             + PaletteMetrics.listBottomInset
+    }
+}
+
+// MARK: - Test surface
+//
+// Until now nothing could construct a PaletteController, let alone drive one,
+// so ~3,660 lines of the palette cluster had no way to be tested and a
+// re-entrancy hang in `commit` shipped and had to be found by hand against a
+// running app. These are the minimum needed to stand one up and poke it the
+// way AppKit does. Same idiom as `MessageHUDController.panelForTesting`.
+extension PaletteController {
+    /// Draws that began while another was still in progress. Zero is the
+    /// invariant; anything else means a delegate callback re-entered `commit`.
+    var reentrantDrawCountForTesting: Int { reentrantDrawCount }
+    var renderedPlanForTesting: PaletteRenderPlan { rendered }
+    var tableRowCountForTesting: Int { tableView.numberOfRows }
+    var gridItemCountForTesting: Int {
+        gridView.collectionView.numberOfItems(inSection: 0)
+    }
+    var isTableVisibleForTesting: Bool { !scrollView.isHidden }
+    var isGridVisibleForTesting: Bool { !gridView.isHidden }
+    var selectedTableRowForTesting: Int { tableView.selectedRow }
+
+    /// Types into the query field exactly as AppKit does: set the value, then
+    /// fire the delegate. Going through the notification rather than calling
+    /// `updateQuery` keeps the real path — including the delegate hop that
+    /// produced the re-entrancy — under test.
+    func typeForTesting(_ text: String) {
+        queryField.stringValue = text
+        controlTextDidChange(
+            Notification(
+                name: NSControl.textDidChangeNotification,
+                object: queryField
+            )
+        )
+    }
+
+    func enterModeForTesting(_ mode: Mode) {
+        enterMode(mode)
     }
 }
 
