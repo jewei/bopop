@@ -60,21 +60,12 @@ func stickyModeTrailingSpaceStillMatches() {
     #expect(ranked.map(\.id) == ["app:safari"])
 }
 
-@Test
-func escapePolicyFollowsClearExitCloseChain() {
-    #expect(
-        EscapePolicy.action(textIsEmpty: false, stickyMode: .general) == .clearText
-    )
-    #expect(
-        EscapePolicy.action(textIsEmpty: false, stickyMode: .fileSearch) == .clearText
-    )
-    #expect(
-        EscapePolicy.action(textIsEmpty: true, stickyMode: .clipboard) == .exitMode
-    )
-    #expect(
-        EscapePolicy.action(textIsEmpty: true, stickyMode: .general) == .closePanel
-    )
-    #expect(
-        EscapePolicy.action(textIsEmpty: true, stickyMode: .apps) == .exitMode
-    )
+@Test func queryParserEmojiPrefix() {
+    #expect(QueryParser.parse(raw: ":fire", stickyMode: .general)
+        == ParsedQuery(mode: .emoji, term: "fire"))
+    #expect(QueryParser.parse(raw: ":fire ", stickyMode: .general)
+        == ParsedQuery(mode: .emoji, term: "fire"))
+    #expect(QueryParser.parse(raw: ":", stickyMode: .general).mode == .general)
+    #expect(QueryParser.parse(raw: "t hello", stickyMode: .general)
+        == ParsedQuery(mode: .translation, term: "hello"))
 }

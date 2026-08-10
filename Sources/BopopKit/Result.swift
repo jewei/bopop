@@ -54,7 +54,7 @@ public nonisolated struct HeroContent: Equatable, Sendable {
     public let note: String?
     /// The plain-text answer ⇥ should feed back into the query field, e.g.
     /// the calculator's ungrouped result. `nil` (the default) means ⇥
-    /// should cycle tabs as usual instead — see `TabKeyPolicy`.
+    /// should cycle tabs as usual instead — see `PaletteState.tab(shift:)`.
     public let autocompleteText: String?
 
     public init(

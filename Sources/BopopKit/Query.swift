@@ -73,21 +73,3 @@ public nonisolated enum QueryParser {
         )
     }
 }
-
-public nonisolated enum EscapeAction: Equatable, Sendable {
-    case clearText
-    case exitMode
-    case closePanel
-}
-
-public nonisolated enum EscapePolicy {
-    public static func action(textIsEmpty: Bool, stickyMode: Mode) -> EscapeAction {
-        if !textIsEmpty {
-            return .clearText
-        }
-        if stickyMode != .general {
-            return .exitMode
-        }
-        return .closePanel
-    }
-}

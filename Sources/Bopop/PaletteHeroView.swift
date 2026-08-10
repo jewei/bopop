@@ -4,7 +4,7 @@ import BopopKit
 /// Renders `HeroContent` as a "before → after" card: a source pane, an arrow
 /// with an optional note, and a target pane — mirrored left/right. Sits
 /// between the query field and the results list whenever the top-ranked
-/// result carries hero content (see `HeroPresentation.split`).
+/// result carries hero content (see `PaletteState`, which splits it off the rows).
 final class PaletteHeroView: NSView {
     private static let horizontalInset: CGFloat = 20
     private static let paneGap: CGFloat = 16

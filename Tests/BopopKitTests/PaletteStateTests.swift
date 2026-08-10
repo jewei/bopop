@@ -434,6 +434,36 @@ func escapeFinallyClosesThePalette() {
     #expect(palette.escape().effects == [.closePalette])
 }
 
+/// Every sticky mode is a mode ⎋ has to leave before it closes anything —
+/// including transient ones like snippets that have no resting tab pill.
+/// These assertions used to be spread across QueryTests, HeroTests and
+/// SnippetsTests, one mode at a time.
+@MainActor
+@Test(arguments: [Mode.apps, .fileSearch, .clipboard, .emoji, .translation, .snippets])
+func escapeLeavesEveryStickyModeBeforeClosing(mode: Mode) {
+    let palette = state()
+    palette.enterMode(mode)
+
+    let left = palette.escape()
+    #expect(left.query.mode == .general)
+    #expect(left.effects == [.runQuery(ParsedQuery(mode: .general, term: ""))])
+
+    #expect(palette.escape().effects == [.closePalette])
+}
+
+/// Text is cleared before the mode is left, in every mode.
+@MainActor
+@Test(arguments: [Mode.general, .apps, .fileSearch, .clipboard, .emoji, .translation])
+func escapeClearsTextBeforeTouchingTheMode(mode: Mode) {
+    let palette = state()
+    palette.enterMode(mode)
+    palette.setQueryText("text")
+
+    let cleared = palette.escape()
+    #expect(cleared.queryText.isEmpty)
+    #expect(cleared.query.mode == mode, "the mode survives the first escape")
+}
+
 // MARK: - Tab
 
 @MainActor
