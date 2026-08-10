@@ -24,3 +24,30 @@ comments pointing at a file a fresh clone did not have.
     block cursor silently never appears. `PalettePanel.fieldEditor(_:for:)` hands out a
     `BlockCursorTextView(usingTextLayoutManager: false)` explicitly to force TextKit 1. Don't drop
     that flag while "modernizing" the field editor.
+
+12. **A palette draw must never re-enter a palette draw.** `reloadData()`
+    changes an `NSTableView`'s selection and fires
+    `tableViewSelectionDidChange` *synchronously*, so a guard around only the
+    selection call lets the delegate mistake the reload for a user click and
+    re-enter `PaletteController.commit` against half-updated views. That
+    shipped once: the re-entrant pass reached the collection view while it
+    still held the previous mode's items, AppKit wedged inside
+    `scrollToItems`, and because the hung job was the engine's `Task`, the
+    MainActor executor died with it — AppKit events kept flowing, so the UI
+    looked alive while every later engine update was silently never
+    delivered. Presented as "the emoji tab breaks every other tab".
+13. **No test catches that class of bug.** `PaletteController` can be
+    constructed and driven (`Tests/BopopTests/PaletteControllerTests.swift`),
+    which covers wiring, but an off-screen `NSTableView` does not fire its
+    selection delegate from `reloadData()` — reverting the guard leaves the
+    suite green. A visible panel and changing row counts do not reproduce it
+    either. Until there is a UI test host, a change to the palette's AppKit
+    half wants a manual pass with `make run`.
+14. **`PaletteController.show()` returns early when no screen owns the
+    palette**, so `panel.isVisible` can never become true on a headless CI
+    host. Assert dismissal on an observable that survives that —
+    `hideCountForTesting` — or the test passes locally and fails on CI.
+15. **`Sources/BopopKit/Resources/emoji.json` is generated**, not hand-edited.
+    Regenerate with
+    `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json`;
+    it fetches from the network and the output is committed.
