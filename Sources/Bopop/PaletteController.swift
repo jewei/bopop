@@ -271,70 +271,12 @@ final class PaletteController: NSObject {
         gridView.collectionView.delegate = self
 
         panel.onResign = { [weak self] in self?.hide() }
-        // Panel-only shortcuts (see spec): ⌘C/⌘⏎/⌘Y/⌘L act on the result
-        // only while the Actions panel is open. `run(kind:)` returning
-        // false (no such item for this result) lets the key event fall
-        // through — for ⌘C that reaches the field editor's text copy,
-        // which also remains the path when the panel is closed.
-        panel.onCommandCopy = { [weak self] in
-            guard let self, actionsPanel.isVisible else {
-                return false
-            }
-            return actionsPanel.run(kind: .copy)
-        }
-        panel.onCommandReveal = { [weak self] in
-            guard let self, actionsPanel.isVisible else {
-                return false
-            }
-            return actionsPanel.run(kind: .reveal)
-        }
-        // Quick Look / Large Type stay toggles: the overlay-visible check
-        // runs first, so if the overlay is already up the same key
-        // dismisses it — that dismiss wins over the Actions-panel gating
-        // below regardless of whether the panel also happens to be open.
-        panel.onToggleQuickLook = { [weak self] in
-            guard let self else {
-                return false
-            }
-            if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
-                return toggleQuickLook()
-            }
-            guard actionsPanel.isVisible else {
-                return false
-            }
-            return actionsPanel.run(kind: .quickLook)
-        }
-        panel.onToggleLargeType = { [weak self] in
-            guard let self else {
-                return false
-            }
-            if largeTypeController.isVisible {
-                return toggleLargeType()
-            }
-            guard actionsPanel.isVisible else {
-                return false
-            }
-            return actionsPanel.run(kind: .largeType)
-        }
-        panel.onCommandK = { [weak self] in
-            self?.toggleActionsPanel() ?? false
-        }
-        panel.onCommandComma = { [weak self] in
-            guard let self else {
-                return false
-            }
-            hide()
-            onShowSettings()
-            return true
-        }
-        // ⌘W closes "the window"; for the palette that is the same dismissal
-        // Escape performs, including any overlay it has open.
-        panel.onCommandW = { [weak self] in
-            guard let self else {
-                return false
-            }
-            hide()
-            return true
+        // One callback for every chord. Which key means what — including the
+        // panel-only gating and the overlay-dismiss precedence — is
+        // `PaletteState.route`'s decision, not seven closures' worth of
+        // duplicated conditions.
+        panel.onKey = { [weak self] key in
+            self?.handle(key) ?? false
         }
         actionsPanel.onRun = { [weak self] kind in
             self?.runAction(kind)
@@ -571,11 +513,6 @@ final class PaletteController: NSObject {
         queryField.setAccessibilityLabel(
             mode == .general ? "Search Bopop" : "Search \(title)"
         )
-    }
-
-    private func moveSelection(_ move: PaletteSelectionMove) {
-        commit(state.moveSelection(move))
-        refreshQuickLookIfVisible()
     }
 
     private func performSelectedReveal() -> Bool {
@@ -869,6 +806,70 @@ final class PaletteController: NSObject {
         )
     }
 
+    /// The one place a key is dispatched. Both input paths — `NSEvent` chords
+    /// via `PalettePanel.performKeyEquivalent` and `NSResponder` selectors via
+    /// `doCommandBy` — decode to a `PaletteKey` and arrive here.
+    ///
+    /// Returns whether the key was handled. `false` is load-bearing: it lets
+    /// AppKit carry on, which is how ←/→ move the caret and ⌘C copies selected
+    /// text out of the query field.
+    @discardableResult
+    private func handle(_ key: PaletteKey) -> Bool {
+        let overlays = PaletteOverlays(
+            actionsPanelIsVisible: actionsPanel.isVisible,
+            quickLookIsVisible: QLPreviewPanel.sharedPreviewPanelExists()
+                && QLPreviewPanel.shared().isVisible,
+            largeTypeIsVisible: largeTypeController.isVisible
+        )
+        switch state.route(key, overlays: overlays) {
+        case .passThrough:
+            return false
+        case let .perform(action):
+            return perform(action)
+        }
+    }
+
+    private func perform(_ action: PaletteKeyAction) -> Bool {
+        switch action {
+        case let .moveSelection(move):
+            commit(state.moveSelection(move))
+            refreshQuickLookIfVisible()
+        case let .cycleTab(shift):
+            commit(state.tab(shift: shift))
+        case .runFocused:
+            guard let result = selectedResult() else {
+                break
+            }
+            actionRunner.perform(result)
+        case .escape:
+            commit(state.escape())
+        case let .actionsPanelMove(offset):
+            actionsPanel.moveSelection(by: offset)
+        case .actionsPanelRunSelected:
+            actionsPanel.runSelected()
+        case .actionsPanelDismiss:
+            actionsPanel.hide()
+        case let .actionsPanelRun(kind):
+            // The module already confirmed the panel offers this action, so a
+            // false here would mean the two disagree.
+            return actionsPanel.run(kind: kind)
+        case .toggleActionsPanel:
+            return toggleActionsPanel()
+        case .toggleQuickLook:
+            return toggleQuickLook()
+        case .toggleLargeType:
+            return toggleLargeType()
+        case .showSettings:
+            hide()
+            onShowSettings()
+        case .closePalette:
+            hide()
+        case .swallow:
+            break
+        }
+        return true
+    }
+
     private static func panelHeight(resultCount: Int, hasHero: Bool, isGrid: Bool) -> CGFloat {
         let contentHeight = isGrid
             ? gridContentHeight(resultCount: resultCount)
@@ -947,6 +948,16 @@ extension PaletteController {
     func enterModeForTesting(_ mode: Mode) {
         enterMode(mode)
     }
+
+    /// Dispatches a key through the real path — route, then perform — and
+    /// reports whether it was handled.
+    @discardableResult
+    func handleKeyForTesting(_ key: PaletteKey) -> Bool {
+        handle(key)
+    }
+
+    var queryTextForTesting: String { rendered.queryText }
+    var isPanelVisibleForTesting: Bool { panel.isVisible }
 }
 
 extension PaletteController: NSTextFieldDelegate {
@@ -959,66 +970,26 @@ extension PaletteController: NSTextFieldDelegate {
         textView: NSTextView,
         doCommandBy commandSelector: Selector
     ) -> Bool {
-        if actionsPanel.isVisible {
-            switch commandSelector {
-            case #selector(NSResponder.moveUp(_:)):
-                actionsPanel.moveSelection(by: -1)
-                return true
-            case #selector(NSResponder.moveDown(_:)):
-                actionsPanel.moveSelection(by: 1)
-                return true
-            case #selector(NSResponder.insertNewline(_:)):
-                actionsPanel.runSelected()
-                return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                actionsPanel.hide()
-                return true
-            case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)):
-                // In the emoji grid these move the RESULT selection, which
-                // would leave the panel showing a stale result's actions.
-                // In text mode they just move the caret — let those through.
-                guard isGridMode else {
-                    break
-                }
-                return true
-            default:
-                // ⇥ etc. fall through to normal handling; any resulting
-                // query/mode change closes the panel via updateQuery().
-                break
-            }
-        }
-        switch commandSelector {
-        case #selector(NSResponder.moveUp(_:)):
-            moveSelection(.up)
-        case #selector(NSResponder.moveDown(_:)):
-            moveSelection(.down)
-        case #selector(NSResponder.moveLeft(_:)):
-            // Only meaningful in the grid: in text mode this MUST fall
-            // through (return false) so the caret moves normally instead
-            // of silently swallowing the keystroke.
-            guard isGridMode else {
-                return false
-            }
-            moveSelection(.left)
-        case #selector(NSResponder.moveRight(_:)):
-            guard isGridMode else {
-                return false
-            }
-            moveSelection(.right)
-        case #selector(NSResponder.insertTab(_:)):
-            commit(state.tab(shift: false))
-        case #selector(NSResponder.insertBacktab(_:)):
-            commit(state.tab(shift: true))
-        case #selector(NSResponder.insertNewline(_:)):
-            if let result = selectedResult() {
-                actionRunner.perform(result)
-            }
-        case #selector(NSResponder.cancelOperation(_:)):
-            commit(state.escape())
-        default:
+        guard let key = Self.paletteKey(for: commandSelector) else {
             return false
         }
-        return true
+        return handle(key)
+    }
+
+    /// Decodes an `NSResponder` selector into a semantic key. Pure glue —
+    /// what the key then means is `PaletteState.route`'s decision.
+    private static func paletteKey(for selector: Selector) -> PaletteKey? {
+        switch selector {
+        case #selector(NSResponder.moveUp(_:)): return .up
+        case #selector(NSResponder.moveDown(_:)): return .down
+        case #selector(NSResponder.moveLeft(_:)): return .left
+        case #selector(NSResponder.moveRight(_:)): return .right
+        case #selector(NSResponder.insertTab(_:)): return .tab
+        case #selector(NSResponder.insertBacktab(_:)): return .backTab
+        case #selector(NSResponder.insertNewline(_:)): return .enter
+        case #selector(NSResponder.cancelOperation(_:)): return .escape
+        default: return nil
+        }
     }
 }
 
