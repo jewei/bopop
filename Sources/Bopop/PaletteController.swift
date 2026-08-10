@@ -49,6 +49,10 @@ final class PaletteController: NSObject {
     /// the pinned block, so `apply(_:)`'s default snap back to row 0 would
     /// silently retarget ⏎ at whatever slid into that slot.
     private var selectionToRestore: String?
+    /// What the table and grid currently hold, so `apply(_:)` can skip a
+    /// reload that would redraw exactly the same rows. Cleared by `hide()`,
+    /// which empties the views behind `apply(_:)`'s back.
+    private var lastRenderState: PaletteRenderState?
     private var appRefreshTask: Task<Void, Never>?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
@@ -196,6 +200,7 @@ final class PaletteController: NSObject {
         heroResult = nil
         selectedIndex = 0
         selectionToRestore = nil
+        lastRenderState = nil
         tableView.reloadData()
         gridView.collectionView.reloadData()
         scrollView.isHidden = true
@@ -417,8 +422,29 @@ final class PaletteController: NSObject {
         // mode never produces one, so `heroResult` is always nil here when
         // `isGridMode` is true).
         let isGrid = isGridMode
-        tableView.reloadData()
-        gridView.collectionView.reloadData()
+
+        // A settle-boundary publish and the final publish that follows it are
+        // frequently identical — the last provider matched nothing. Rebuilding
+        // every row view and resizing the panel for that is work the user sees
+        // as a twitch, so reload only when the drawn content actually differs.
+        //
+        // Content only: `selectedIndex` is deliberately NOT part of the key.
+        // Arrow keys move the selection without coming through here, so a
+        // cached index would go stale and skip a reload the selection sync
+        // below still has to run. That sync is cheap and idempotent, so it
+        // stays unconditional and stays correct either way.
+        let render = PaletteRenderState(
+            hero: heroResult,
+            rows: results,
+            isGrid: isGrid
+        )
+        let contentChanged = render != lastRenderState
+        lastRenderState = render
+
+        if contentChanged {
+            tableView.reloadData()
+            gridView.collectionView.reloadData()
+        }
         scrollView.isHidden = isGrid || results.isEmpty
         gridView.isHidden = !isGrid || results.isEmpty
 
@@ -436,7 +462,9 @@ final class PaletteController: NSObject {
         }
 
         updateFooter(after: update, query: query)
-        resizePanel()
+        if contentChanged {
+            resizePanel()
+        }
     }
 
     private func updateHeroPresentation() {

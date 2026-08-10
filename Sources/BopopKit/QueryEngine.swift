@@ -18,19 +18,34 @@ public final class QueryEngine {
 
     private let providers: [Mode: [any ResultProvider]]
     private let debounce: [Mode: Duration]
+    private let settle: Duration
     private let frecencyFor: (String) -> Double
     private let providerWeights: [ProviderID: Double]
     private var generation = 0
     private var task: Task<Void, Never>?
 
+    /// - Parameter settle: How long results are allowed to keep accumulating
+    ///   once the first of them lands. Providers finish at wildly different
+    ///   times, and publishing per completion made the palette repaint up to
+    ///   twelve times per keystroke — first blank, then with rows that a
+    ///   slower, higher-ranking provider promptly shoved down. Collecting for
+    ///   one short window instead means a keystroke normally costs one paint.
+    ///   It is a window, not a wait: anything still outstanding when the window
+    ///   closes publishes what has landed and keeps going, so a slow provider
+    ///   (Currency, on a bad network) can never hold the list back. `.zero`
+    ///   restores per-completion publishing. Either way an interim update is
+    ///   never empty — publishing the empty accumulated list on the way to a
+    ///   populated one is what the user saw as a blink.
     public init(
         providers: [Mode: [any ResultProvider]],
         debounce: [Mode: Duration] = [.fileSearch: .milliseconds(250)],
+        settle: Duration = .milliseconds(50),
         frecencyFor: @escaping (String) -> Double = { _ in 0 },
         providerWeights: [ProviderID: Double] = Ranker.defaultWeights
     ) {
         self.providers = providers
         self.debounce = debounce
+        self.settle = settle
         self.frecencyFor = frecencyFor
         self.providerWeights = providerWeights
     }
@@ -100,6 +115,24 @@ public final class QueryEngine {
     ) async {
         var accumulated: [SearchResult] = []
         var remaining = providers.count
+        // Results that have landed since the last publish, and whether a
+        // window is already counting down for them. The window is armed on
+        // demand rather than running free: a provider that never returns would
+        // otherwise keep re-arming a timer forever behind an idle palette.
+        var hasUnpublishedResults = false
+        var isSettleWindowArmed = false
+        let settleWindow = settle
+
+        func armSettleWindow(in group: inout TaskGroup<ProviderCompletion>) {
+            guard settleWindow > .zero, !isSettleWindowArmed else {
+                return
+            }
+            isSettleWindowArmed = true
+            group.addTask {
+                try? await Task.sleep(for: settleWindow)
+                return .settled
+            }
+        }
 
         await withTaskGroup(of: ProviderCompletion.self) { group in
             for provider in providers {
@@ -121,43 +154,98 @@ public final class QueryEngine {
             }
 
             for await completion in group {
-                remaining -= 1
                 guard !Task.isCancelled, taskGeneration == generation else {
                     group.cancelAll()
                     return
                 }
 
+                if case .settled = completion {
+                    // The window closed with providers still outstanding, so
+                    // publish what has landed: the window bounds how long a
+                    // slow provider can delay results already in hand, it
+                    // never lets one block them.
+                    isSettleWindowArmed = false
+                    if hasUnpublishedResults, !accumulated.isEmpty {
+                        hasUnpublishedResults = false
+                        publish(
+                            accumulated,
+                            query: query,
+                            generation: taskGeneration,
+                            isFinal: false
+                        )
+                    }
+                    continue
+                }
+
+                // Decremented for every provider outcome, cancellation
+                // included: skipping it when the LAST provider is the
+                // cancelled one would strand `isFinal` at false forever and
+                // pin File mode's footer on "Searching…" until the next
+                // keystroke.
+                remaining -= 1
+
                 switch completion {
                 case let .results(_, results):
                     accumulated.append(contentsOf: results)
+                    if !results.isEmpty {
+                        hasUnpublishedResults = true
+                        // Start the clock on rows the user cannot see yet.
+                        armSettleWindow(in: &group)
+                    }
                 case let .failure(providerID, message):
                     Self.logger.error(
                         "Provider \(providerID.rawValue, privacy: .public) failed: \(message, privacy: .private)"
                     )
-                case .cancelled:
-                    // Falls through to the emit below rather than `continue`:
-                    // `remaining` is already decremented, so skipping it when
-                    // the LAST provider is the cancelled one would strand
-                    // `isFinal` at false forever and pin File mode's footer
-                    // on "Searching…" until the next keystroke.
+                case .cancelled, .settled:
                     break
                 }
 
-                let ranked = PerformanceSignposts.query.interval("Rank Results") {
-                    Ranker.rank(
+                if remaining == 0 {
+                    publish(
                         accumulated,
-                        query: query.term,
-                        frecencyFor: frecencyFor,
-                        providerWeights: providerWeights
+                        query: query,
+                        generation: taskGeneration,
+                        isFinal: true
+                    )
+                    // The next settle task is still sleeping; nothing is left
+                    // to publish, so end the group rather than wait it out.
+                    group.cancelAll()
+                    return
+                }
+
+                // With a settle window, interim publishes belong to the timer
+                // alone. Without one, every completion publishes — but never a
+                // blank list, which is what made the palette blink: the six
+                // providers that matched nothing each painted the empty
+                // accumulated list before the matching one landed.
+                if settleWindow <= .zero, hasUnpublishedResults, !accumulated.isEmpty {
+                    hasUnpublishedResults = false
+                    publish(
+                        accumulated,
+                        query: query,
+                        generation: taskGeneration,
+                        isFinal: false
                     )
                 }
-                emit(
-                    results: ranked,
-                    generation: taskGeneration,
-                    isFinal: remaining == 0
-                )
             }
         }
+    }
+
+    private func publish(
+        _ accumulated: [SearchResult],
+        query: ParsedQuery,
+        generation taskGeneration: Int,
+        isFinal: Bool
+    ) {
+        let ranked = PerformanceSignposts.query.interval("Rank Results") {
+            Ranker.rank(
+                accumulated,
+                query: query.term,
+                frecencyFor: frecencyFor,
+                providerWeights: providerWeights
+            )
+        }
+        emit(results: ranked, generation: taskGeneration, isFinal: isFinal)
     }
 
     private func emit(
@@ -186,5 +274,7 @@ public final class QueryEngine {
         case results(ProviderID, [SearchResult])
         case failure(ProviderID, String)
         case cancelled
+        /// A settle window elapsed with providers still outstanding.
+        case settled
     }
 }
