@@ -106,8 +106,6 @@ func drawingResultsNeverReEntersTheDraw() async throws {
     }
     defer { try? FileManager.default.removeItem(at: root) }
 
-    controller.show()
-    defer { controller.hide() }
     controller.typeForTesting("a")
     await wait(on: controller) { $0.rows.count == 25 }
     controller.typeForTesting("ab")
@@ -190,4 +188,70 @@ private nonisolated final class StubProvider: ResultProvider {
     func results(for query: ParsedQuery) async throws -> [SearchResult] {
         make(query)
     }
+}
+
+// MARK: - Key dispatch
+
+/// The adapter half of key routing: `PaletteState.route` decides, and these
+/// check the controller actually performs the decision.
+
+@MainActor
+@Test
+func escapeClearsTheQueryFieldThenClosesThePalette() async throws {
+    let (controller, root) = try makeController { query in
+        query.term.isEmpty ? [] : [row("hit", matching: query.term)]
+    }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    controller.typeForTesting("saf")
+    await wait(on: controller) { !$0.rows.isEmpty }
+
+    // Counted rather than reading `panel.isVisible`: `show()` bails when no
+    // screen owns the palette, so a headless CI host never sees it visible.
+    #expect(controller.handleKeyForTesting(.escape))
+    #expect(controller.queryTextForTesting.isEmpty)
+    #expect(controller.hideCountForTesting == 0, "first escape only clears")
+
+    #expect(controller.handleKeyForTesting(.escape))
+    #expect(controller.hideCountForTesting == 1, "second escape closes")
+}
+
+@MainActor
+@Test
+func tabCyclesTheModeThroughTheAdapter() async throws {
+    let (controller, root) = try makeController { _ in [] }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let before = controller.renderedPlanForTesting.query.mode
+    #expect(controller.handleKeyForTesting(.tab))
+    #expect(controller.renderedPlanForTesting.query.mode != before)
+}
+
+/// `false` is the load-bearing outcome: it lets AppKit move the caret instead
+/// of the keystroke being silently swallowed.
+@MainActor
+@Test
+func horizontalArrowsAreReportedUnhandledInListMode() async throws {
+    let (controller, root) = try makeController { query in
+        query.term.isEmpty ? [] : (0..<3).map { row("hit\($0)", matching: query.term) }
+    }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    controller.typeForTesting("a")
+    await wait(on: controller) { $0.rows.count == 3 }
+
+    #expect(!controller.handleKeyForTesting(.left))
+    #expect(!controller.handleKeyForTesting(.right))
+    #expect(controller.handleKeyForTesting(.down), "but vertical arrows are ours")
+    #expect(controller.renderedPlanForTesting.focus == .row(1))
+}
+
+@MainActor
+@Test
+func commandCloseHidesThePalette() async throws {
+    let (controller, root) = try makeController { _ in [] }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    #expect(controller.handleKeyForTesting(.commandClose))
+    #expect(controller.hideCountForTesting == 1)
 }

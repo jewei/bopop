@@ -1,15 +1,12 @@
 import AppKit
+import BopopKit
 import Quartz
 
 final class PalettePanel: NSPanel {
     var onResign: (() -> Void)?
-    var onCommandCopy: (() -> Bool)?
-    var onCommandReveal: (() -> Bool)?
-    var onToggleQuickLook: (() -> Bool)?
-    var onToggleLargeType: (() -> Bool)?
-    var onCommandK: (() -> Bool)?
-    var onCommandComma: (() -> Bool)?
-    var onCommandW: (() -> Bool)?
+    /// Every ⌘-chord the palette understands, decoded to a semantic key.
+    /// Returns whether it was handled; false falls through to AppKit.
+    var onKey: ((PaletteKey) -> Bool)?
 
     /// Set by `PaletteController` (which implements both protocols) so this
     /// panel — the key window while the palette is visible, and thus first
@@ -59,62 +56,52 @@ final class PalettePanel: NSPanel {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let relevantModifiers = event.relevantModifiers
-        // There is no menu bar, so Edit-menu key equivalents never fire —
-        // the standard editing actions must be routed to the field editor
-        // by hand or ⌘V/⌘A/⌘X (and text-selection ⌘C) are dead keys.
-        if relevantModifiers == .command {
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "c":
-                if onCommandCopy?() == true {
-                    return true
-                }
-                if NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: self) {
-                    return true
-                }
-            case "v":
-                if NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: self) {
-                    return true
-                }
-            case "x":
-                if NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self) {
-                    return true
-                }
-            case "a":
-                if NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self) {
-                    return true
-                }
-            case "\r":
-                if onCommandReveal?() == true {
-                    return true
-                }
-            case "y":
-                if onToggleQuickLook?() == true {
-                    return true
-                }
-            case "l":
-                if onToggleLargeType?() == true {
-                    return true
-                }
-            case "k":
-                if onCommandK?() == true {
-                    return true
-                }
-            // ⌘, and ⌘W are muscle memory everywhere else in macOS, and with
-            // no menu bar nothing else would ever deliver them.
-            case ",":
-                if onCommandComma?() == true {
-                    return true
-                }
-            case "w":
-                if onCommandW?() == true {
-                    return true
-                }
-            default:
-                break
-            }
+        // There is no menu bar, so Edit-menu key equivalents never fire — the
+        // standard editing actions must be routed to the field editor by hand
+        // or ⌘V/⌘A/⌘X (and text-selection ⌘C) are dead keys.
+        guard event.relevantModifiers == .command,
+              let character = event.charactersIgnoringModifiers?.lowercased() else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        // Chords the palette may claim. `onKey` returning false means it
+        // declined — for ⌘C that is the common case, and the fall-through to
+        // the field editor below is what copies selected query text.
+        if let key = Self.paletteKey(for: character), onKey?(key) == true {
+            return true
+        }
+        // Pure editor relays: the palette has no opinion on these, they only
+        // need delivering because there is no menu bar to do it.
+        if let editing = Self.editingSelector(for: character),
+           NSApp.sendAction(editing, to: nil, from: self) {
+            return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    private static func paletteKey(for character: String) -> PaletteKey? {
+        switch character {
+        case "c": return .commandCopy
+        case "\r": return .commandReveal
+        case "y": return .commandQuickLook
+        case "l": return .commandLargeType
+        case "k": return .commandActions
+        // ⌘, and ⌘W are muscle memory everywhere else in macOS, and with no
+        // menu bar nothing else would ever deliver them.
+        case ",": return .commandSettings
+        case "w": return .commandClose
+        default: return nil
+        }
+    }
+
+    private static func editingSelector(for character: String) -> Selector? {
+        switch character {
+        case "c": return #selector(NSText.copy(_:))
+        case "v": return #selector(NSText.paste(_:))
+        case "x": return #selector(NSText.cut(_:))
+        case "a": return #selector(NSText.selectAll(_:))
+        default: return nil
+        }
     }
 
     // MARK: - QLPreviewPanel control contract
