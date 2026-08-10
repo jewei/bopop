@@ -46,7 +46,7 @@ final class PaletteHeroView: NSView {
         wantsLayer = true
         // This lives INSIDE the already-masked panel content view, so a plain
         // layer corner radius is fine here — the maskImage gotcha only
-        // applies to the panel's own NSVisualEffectView (HANDOVER gotcha #5).
+        // applies to the panel's own NSVisualEffectView (docs/gotchas.md #5).
         layer?.backgroundColor = NSColor.white.withAlphaComponent(0.04).cgColor
         layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous

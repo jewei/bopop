@@ -74,7 +74,7 @@ final class EmojiTileItem: NSCollectionViewItem {
 
     // A `lazy var` rather than an IBOutlet: AppKit can toggle `isSelected`
     // during collection-view reuse/prepare before `loadView()` has been
-    // triggered (HANDOVER gotcha #4's analog for table rows — item state
+    // triggered (docs/gotchas.md #4's analog for table rows — item state
     // can be asked for before layout). Accessing this property is itself
     // what forces first creation, so there is no nil-outlet window to
     // guard against.
