@@ -312,6 +312,13 @@ public final class PaletteState {
         query.mode == .emoji ? .grid : .list
     }
 
+    /// Readable by the key-routing extension, which lives in another file and
+    /// needs it for the one asymmetry in the whole matrix: ←/→ move the
+    /// selection in the grid and the caret everywhere else.
+    var isGridPresentation: Bool {
+        presentation == .grid
+    }
+
     private func clearResults() {
         hero = nil
         rows = []
