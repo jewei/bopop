@@ -106,8 +106,6 @@ func drawingResultsNeverReEntersTheDraw() async throws {
     }
     defer { try? FileManager.default.removeItem(at: root) }
 
-    controller.show()
-    defer { controller.hide() }
     controller.typeForTesting("a")
     await wait(on: controller) { $0.rows.count == 25 }
     controller.typeForTesting("ab")
@@ -204,17 +202,18 @@ func escapeClearsTheQueryFieldThenClosesThePalette() async throws {
         query.term.isEmpty ? [] : [row("hit", matching: query.term)]
     }
     defer { try? FileManager.default.removeItem(at: root) }
-    controller.show()
 
     controller.typeForTesting("saf")
     await wait(on: controller) { !$0.rows.isEmpty }
 
+    // Counted rather than reading `panel.isVisible`: `show()` bails when no
+    // screen owns the palette, so a headless CI host never sees it visible.
     #expect(controller.handleKeyForTesting(.escape))
     #expect(controller.queryTextForTesting.isEmpty)
-    #expect(controller.isPanelVisibleForTesting, "first escape only clears")
+    #expect(controller.hideCountForTesting == 0, "first escape only clears")
 
     #expect(controller.handleKeyForTesting(.escape))
-    #expect(!controller.isPanelVisibleForTesting, "second escape closes")
+    #expect(controller.hideCountForTesting == 1, "second escape closes")
 }
 
 @MainActor
@@ -252,9 +251,7 @@ func horizontalArrowsAreReportedUnhandledInListMode() async throws {
 func commandCloseHidesThePalette() async throws {
     let (controller, root) = try makeController { _ in [] }
     defer { try? FileManager.default.removeItem(at: root) }
-    controller.show()
-    #expect(controller.isPanelVisibleForTesting)
 
     #expect(controller.handleKeyForTesting(.commandClose))
-    #expect(!controller.isPanelVisibleForTesting)
+    #expect(controller.hideCountForTesting == 1)
 }

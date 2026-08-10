@@ -51,6 +51,10 @@ final class PaletteController: NSObject {
     /// re-entrant draw runs against half-updated views, and one of them hung
     /// the app outright. Counted rather than asserted so a test can pin it.
     private var reentrantDrawCount = 0
+    /// Completed dismissals. Observable without a screen, unlike
+    /// `panel.isVisible`: `show()` bails when no screen owns the palette, so a
+    /// headless test host can never see the panel become visible.
+    private var hideCount = 0
     private var appRefreshTask: Task<Void, Never>?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
@@ -194,6 +198,7 @@ final class PaletteController: NSObject {
         }
 
         isHiding = true
+        hideCount += 1
         defer { isHiding = false }
         appRefreshTask?.cancel()
         appRefreshTask = nil
@@ -934,6 +939,7 @@ extension PaletteController {
 
     var queryTextForTesting: String { rendered.queryText }
     var isPanelVisibleForTesting: Bool { panel.isVisible }
+    var hideCountForTesting: Int { hideCount }
 }
 
 extension PaletteController: NSTextFieldDelegate {
