@@ -519,3 +519,28 @@ func resetClearsEverythingIncludingTheRenderKey() {
     )
     #expect(redrawn.contentChanged)
 }
+
+// MARK: - Repro
+
+@MainActor
+@Test
+func leavingEmojiModeSearchesTheNewModeNotEmoji() {
+    let palette = state()
+    palette.enterMode(.emoji)
+    palette.apply(
+        update(ParsedQuery(mode: .emoji, term: ""), [row("tile0"), row("tile1")])
+    )
+
+    let entered = palette.enterMode(.apps)
+    #expect(entered.query.mode == .apps)
+
+    let typed = palette.setQueryText("saf")
+    #expect(typed.query.mode == .apps, "still querying emoji after leaving the tab")
+    #expect(typed.effects == [.runQuery(ParsedQuery(mode: .apps, term: "saf"))])
+
+    let results = palette.apply(
+        update(ParsedQuery(mode: .apps, term: "saf"), [row("app:safari")])
+    )
+    #expect(results.rows.map(\.id) == ["app:safari"])
+    #expect(results.presentation == .list)
+}
