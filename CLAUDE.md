@@ -10,13 +10,20 @@ SwiftPM, Swift 6 language mode, macOS 15+, Xcode 26.
   Tests: `Tests/BopopKitTests`, `Tests/BopopTests`.
 - **CI:** `.github/workflows/ci.yml` builds and tests every push to `main`
   and every PR.
+- **Gotchas:** `docs/gotchas.md` — platform behaviour that reads as a bug, or
+  as pointless code, until you know it. Several are cited by number from the
+  source. Read it before "simplifying" anything that looks redundant.
 
 ## Architecture
 
 Queries flow one way:
 
 ```
-QueryParser → QueryEngine → Providers (concurrent) → Ranker → PaletteController → ActionRunner
+PaletteState → QueryEngine → Providers (concurrent) → Ranker
+     ↑                                                   │
+     └──────────── PaletteRenderPlan ────────────────────┘
+                          ↓
+              PaletteController (adapter) → ActionRunner
 ```
 
 - **`BopopKit` is Foundation-only.** No `import AppKit` or `SwiftUI` — the
@@ -30,6 +37,32 @@ QueryParser → QueryEngine → Providers (concurrent) → Ranker → PaletteCon
   `await MainActor.run { ... }` snapshot. `assumeIsolated` is banned in a
   provider body.
 
+### The palette
+
+`PaletteState` owns everything about the palette that is Foundation-
+representable: query text, sticky and effective mode, results, hero,
+selection, restoration id, and the key used to skip an unchanged redraw.
+Every command returns a `PaletteRenderPlan`; `PaletteController` draws the
+plan and runs its effects, and never writes any of that state itself.
+
+- **`PaletteState` is the only writer.** The controller is an adapter. If you
+  find yourself adding a mutable `results`/`selectedIndex`/`stickyMode` to the
+  controller, the change belongs in the module instead.
+- **Parse exactly once.** `PaletteState` parses; `QueryEngine.update(query:)`
+  takes an already-parsed query and reports it back on `Update.query`, and an
+  update whose query doesn't match the current one is ignored. Re-parsing
+  `queryField.stringValue` on receipt is a second clock — it is how a mode
+  prefix ended up drawn against the previous mode's rows.
+- **Two pure modules hang off it.** `PaletteGeometry` owns the panel-height
+  rules (the design tokens stay in `PaletteMetrics`, injected); `route(_:
+  overlays:)` in `PaletteKeyRouting` owns what a key means. Both are pure, so
+  both are table-tested. AppKit decoding — `NSEvent` chords, `NSResponder`
+  selectors — stays in the adapter.
+- **Resist one-caller helpers.** Six of them accumulated here, each extracted
+  to make a test possible rather than to hide a decision from a second caller.
+  The arithmetic ended up tested and the composition — where every bug lived —
+  did not. They are gone; don't grow them back.
+
 ## Critical invariants
 
 Don't break these without meaning to.
@@ -40,17 +73,37 @@ Don't break these without meaning to.
 - **`QueryParser` trims in every mode**, sticky included. `Ranker` folds case
   and diacritics but never trims, so an untrimmed term makes one trailing
   space tier-mismatch every candidate and blank the list mid-word.
-- **Selection is an index into `results`, with `-1` meaning the hero card.**
-  `apply(_:)` resets it to 0 on each update unless `selectionToRestore` names
-  a row — that's what keeps ⏎ pointed at the row a stay-open action (pin,
-  unpin, hide) just acted on.
+- **Selection is `PaletteFocus` — `.none`, `.hero`, or `.row(Int)`.** Not an
+  index with a sentinel: `.row(4)` over an empty list is not constructible,
+  which is what finally settled two layers that disagreed about what an empty
+  grid selects. `PaletteState.apply(_:)` resets focus on each update unless a
+  stay-open action (pin, unpin, hide) named a row to restore — that restoration
+  survives interim updates and is spent on the final one, which is what keeps
+  ⏎ pointed at the row the action just touched.
+- **A draw must never re-enter a draw.** `PaletteController.commit` holds
+  `isApplyingPlan` for the *whole* draw, not just the selection call.
+  `reloadData()` changes the table's selection and fires
+  `tableViewSelectionDidChange` synchronously, so a narrower guard lets the
+  delegate mistake our own reload for a user click and re-enter against
+  half-updated views. That shipped once: the re-entrant pass reached the
+  collection view while it still held the previous mode's items, AppKit wedged,
+  and the hung job killed the MainActor executor — every later engine update
+  was silently never delivered. No test catches this; see Known gaps.
 - **Overlay panels resign key when another Bopop overlay takes it.**
-  `FocusLossCheck` defers one runloop turn and inspects the successor window,
-  which is the only way to tell "own overlay took key" from "user switched
-  app". Dismissing an overlay must explicitly re-key the palette.
+  `FocusLossCheck.isForeign(successor:ownPanel:)` decides, and `runDeferred`
+  waits one runloop turn so the successor is known — the only way to tell "own
+  overlay took key" from "user switched app". Dismissing an overlay must
+  explicitly re-key the palette.
 - **The actions panel never becomes key.** It's a non-activating child panel;
   the query field keeps focus and `PaletteController` routes keys to it. That
-  is why the caret never needs freezing.
+  is why the caret never needs freezing — and it is load-bearing for
+  `FocusLossCheck`, whose allowlist does *not* include the plain `NSPanel` the
+  actions panel is built from. If it ever became key it would read as genuine
+  focus loss and tear the palette down. A test pins both halves.
+- **A key the palette declines must report unhandled.** `route` returns
+  `.passThrough` rather than a bare `false`, and the adapter must propagate it:
+  that is what lets ←/→ move the caret and ⌘C copy selected text out of the
+  query field. Reporting it handled silently swallows the keystroke.
 - **Storage is a `{version, payload}` envelope**, atomic, `0600`. A decode
   failure quarantines the file; `loadElements` decodes arrays element-wise so
   one bad record doesn't cost the user the rest. Additive fields must use
@@ -73,6 +126,25 @@ Don't break these without meaning to.
 - **Destructive commands confirm.** Either macOS does it (the loginwindow
   events) or `SystemCommand.confirmation` does. The `…` title suffix marks
   exactly the commands that confirm — a test pins that both ways.
+
+## Known gaps
+
+Written down so they aren't rediscovered the hard way.
+
+- **AppKit re-entrancy is not covered by any test.** `PaletteController` can be
+  constructed and driven now (`Tests/BopopTests/PaletteControllerTests.swift`),
+  which covers wiring — typing reaches the engine, results reach the table, the
+  grid and table swap, focus lands where the plan says. It does *not* cover
+  delegate re-entrancy: an off-screen `NSTableView` doesn't fire its selection
+  delegate from `reloadData()`, so reverting the `isApplyingPlan` guard leaves
+  the suite green. A visible panel and changing row counts don't reproduce it
+  either. Closing this needs a UI test host the project doesn't have, so until
+  then **a change to the palette's AppKit half needs a manual smoke test**, and
+  `make run` is the way to do it.
+- **`show()` needs a screen.** It returns early when no `NSScreen` owns the
+  palette, so anything asserting `panel.isVisible` passes locally and fails on
+  CI. Assert on an observable that doesn't need a window — see
+  `hideCountForTesting`.
 
 ## Dev channel
 

@@ -68,8 +68,8 @@ final class PaletteFooterView: NSView {
         // All four views share the .leading gravity area, so setViews'
         // ordering (not per-item gravity) determines layout — the whole
         // rightCluster stack is separately pinned to the footer's trailing
-        // edge below. Mixing gravity areas here isn't needed (HANDOVER
-        // gotcha #6 applies when views must be pinned independently within
+        // edge below. Mixing gravity areas here isn't needed
+        // (docs/gotchas.md #6 applies when views must be pinned independently within
         // a stack; this cluster is pinned as a single unit instead).
         rightCluster.setViews(
             [navigateLabel, primaryLabel, actionsButton, gearButton],
