@@ -75,8 +75,13 @@ final class PaletteController: NSObject {
     init(
         engine: QueryEngine,
         actionRunner: ActionRunner,
-        brandImageURL: URL = Storage.production().brandImageURL,
-        defaults: UserDefaults = .standard,
+        // No production defaults: a test that forgot to override `defaults`
+        // would have `persistPositionIfUserAdjusted` write the palette's
+        // position into the developer's real standard defaults, and would read
+        // the real brand image back out. `AppDelegate` is the single wiring
+        // point and already passes both, so requiring them costs nothing.
+        brandImageURL: URL,
+        defaults: UserDefaults,
         refreshAppsOnShow: @escaping () async -> Bool = { false },
         onShowSettings: @escaping () -> Void = {},
         onOpenScriptsFolder: @escaping () -> Void = {},
