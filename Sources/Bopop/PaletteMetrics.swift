@@ -1,4 +1,5 @@
 import AppKit
+import BopopKit
 
 enum PaletteMetrics {
     static let width: CGFloat = 620
@@ -41,4 +42,21 @@ enum PaletteMetrics {
         let columns = CGFloat(gridColumns)
         return (contentWidth - columns * gridTileSize) / (columns - 1)
     }()
+
+    /// These numbers, handed to the module that owns the height rules. The
+    /// tokens stay here with the rest of the design system; the arithmetic
+    /// they feed lives in `BopopKit` where it can be tested.
+    static let geometry = PaletteGeometry(
+        chromeHeight: Double(fieldHeight + separatorHeight + tabsHeight + footerHeight),
+        heroHeight: Double(heroHeight),
+        listTopInset: Double(listTopInset),
+        listBottomInset: Double(listBottomInset),
+        rowHeight: Double(rowHeight),
+        interRowGap: Double(interRowGap),
+        maxVisibleRows: maxVisibleRows,
+        gridColumns: gridColumns,
+        gridVisibleRows: gridVisibleRows,
+        gridTileSize: Double(gridTileSize),
+        gridSpacing: Double(gridSpacing)
+    )
 }

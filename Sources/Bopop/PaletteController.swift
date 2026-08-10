@@ -757,6 +757,22 @@ final class PaletteController: NSObject {
         setFrameProgrammatically(frame)
     }
 
+    /// Thin conversion over `PaletteGeometry`, which works in `Double` to
+    /// keep CoreGraphics out of BopopKit.
+    private static func panelHeight(
+        resultCount: Int,
+        hasHero: Bool,
+        isGrid: Bool
+    ) -> CGFloat {
+        CGFloat(
+            PaletteMetrics.geometry.panelHeight(
+                resultCount: resultCount,
+                hasHero: hasHero,
+                isGrid: isGrid
+            )
+        )
+    }
+
     // MARK: - Dragged-position memory
 
     private func setFrameProgrammatically(_ frame: NSRect) {
@@ -869,45 +885,6 @@ final class PaletteController: NSObject {
         )
     }
 
-    private static func panelHeight(resultCount: Int, hasHero: Bool, isGrid: Bool) -> CGFloat {
-        let contentHeight = isGrid
-            ? gridContentHeight(resultCount: resultCount)
-            : listContentHeight(resultCount: resultCount)
-        let heroHeight: CGFloat = hasHero
-            ? PaletteMetrics.heroHeight + PaletteMetrics.listTopInset + PaletteMetrics.listBottomInset
-            : 0
-        return PaletteMetrics.fieldHeight
-            + PaletteMetrics.separatorHeight
-            + PaletteMetrics.tabsHeight
-            + heroHeight
-            + contentHeight
-            + PaletteMetrics.footerHeight
-    }
-
-    private static func listContentHeight(resultCount: Int) -> CGFloat {
-        let visibleRows = min(resultCount, PaletteMetrics.maxVisibleRows)
-        guard visibleRows > 0 else {
-            return 0
-        }
-        return CGFloat(visibleRows) * PaletteMetrics.rowHeight
-            + CGFloat(visibleRows - 1) * PaletteMetrics.interRowGap
-            + PaletteMetrics.listTopInset
-            + PaletteMetrics.listBottomInset
-    }
-
-    /// 5 tile-rows visible (~300pt content) then scrolls, same
-    /// cap-then-scroll pattern as `listContentHeight`'s `maxVisibleRows`.
-    private static func gridContentHeight(resultCount: Int) -> CGFloat {
-        guard resultCount > 0 else {
-            return 0
-        }
-        let totalRows = (resultCount + PaletteMetrics.gridColumns - 1) / PaletteMetrics.gridColumns
-        let visibleRows = min(totalRows, PaletteMetrics.gridVisibleRows)
-        return CGFloat(visibleRows) * PaletteMetrics.gridTileSize
-            + CGFloat(visibleRows - 1) * PaletteMetrics.gridSpacing
-            + PaletteMetrics.listTopInset
-            + PaletteMetrics.listBottomInset
-    }
 }
 
 // MARK: - Test surface
