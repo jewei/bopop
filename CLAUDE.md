@@ -81,9 +81,11 @@ effects.
   `.passThrough` and the adapter propagates it, which is what lets ←/→ move the
   caret and ⌘C copy selected text out of the query field.
 - **Overlay panels resign key when another Bopop overlay takes it.**
-  `FocusLossCheck.isForeign(successor:ownPanel:)` decides; `runDeferred` waits a
-  runloop turn so the successor is known. Dismissing an overlay re-keys the
-  palette explicitly.
+  `FocusLossCheck.isForeign` decides and `runDeferred` waits a runloop turn, but
+  the successor can still be nil — that reads the same whether the user left or
+  a handover has not settled, so the check also asks whether one of our overlays
+  is still on screen. See gotcha #16. Dismissing an overlay re-keys the palette
+  explicitly.
 - **The actions panel stays non-key.** A non-activating child panel, so the
   query field keeps focus and the caret never needs freezing. Load-bearing for
   `FocusLossCheck`, whose allowlist excludes the plain `NSPanel` it is built

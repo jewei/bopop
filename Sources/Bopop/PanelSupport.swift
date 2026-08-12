@@ -25,12 +25,30 @@ enum FocusLossCheck {
         onFocusLoss: @escaping () -> Void
     ) {
         DispatchQueue.main.async {
-            guard isForeign(successor: NSApp.keyWindow, ownPanel: ownPanel) else {
+            guard isForeign(
+                successor: NSApp.keyWindow,
+                ownPanel: ownPanel,
+                otherOverlayIsVisible: overlayIsVisible(besides: ownPanel)
+            ) else {
                 return
             }
             if condition() {
                 onFocusLoss()
             }
+        }
+    }
+
+    /// Whether one of Bopop's own overlays — other than `ownPanel` — is still
+    /// on screen. Deliberately not "any visible window": the AppleTranslator
+    /// host is an offscreen, alpha-0 `NSWindow` that is always visible and
+    /// would make every check look like an in-app handover.
+    private static func overlayIsVisible(besides ownPanel: NSWindow?) -> Bool {
+        NSApp.windows.contains { window in
+            window !== ownPanel
+                && window.isVisible
+                && (window is PalettePanel
+                    || window is LargeTypePanel
+                    || window is QLPreviewPanel)
         }
     }
 
@@ -46,10 +64,25 @@ enum FocusLossCheck {
     /// down. It is saved only by never becoming key — see the note at the top
     /// of `ActionsPanelController`. Any future overlay has to either subclass
     /// one of these or join the list.
-    static func isForeign(successor: NSWindow?, ownPanel: NSWindow?) -> Bool {
+    static func isForeign(
+        successor: NSWindow?,
+        ownPanel: NSWindow?,
+        otherOverlayIsVisible: Bool = false
+    ) -> Bool {
         switch successor {
         case ownPanel, is PalettePanel, is LargeTypePanel, is QLPreviewPanel:
             return false
+        case .none:
+            // Nothing holds key. That reads the same whether the user left the
+            // app or an in-app handover simply has not settled — one deferred
+            // runloop turn is not enough for Quick Look, which takes key only
+            // after it has loaded its preview, and gives it up again on the
+            // way out. Both were seen live as `successor=nil`.
+            //
+            // What separates them is whether one of our own overlays is still
+            // on screen. If Quick Look is up, the palette has not lost focus to
+            // anything; if nothing of ours is left, the user really has gone.
+            return !otherOverlayIsVisible
         default:
             return true
         }
