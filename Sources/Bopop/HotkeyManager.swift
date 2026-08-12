@@ -26,10 +26,21 @@ final class HotkeyManager {
     private var eventHandlerRef: EventHandlerRef?
     private var attemptedEventHandlerInstallation = false
 
-    func register(_ config: HotkeyConfig) {
+    /// Whether the last `register` actually took the shortcut. `false` means
+    /// the hotkey will not fire — most often because another app already holds
+    /// the combination.
+    private(set) var isRegistered = false
+
+    /// Returns whether the shortcut was taken. Carbon reports a conflict here
+    /// and it used to go only to the log, so an app holding the combination
+    /// left Bopop running with a dead hotkey and nothing said so. Callers
+    /// surface the failure; see `SettingsModel.hotkeyUnavailable`.
+    @discardableResult
+    func register(_ config: HotkeyConfig) -> Bool {
         unregister()
         guard installEventHandlerIfNeeded() else {
-            return
+            isRegistered = false
+            return false
         }
 
         var ref: EventHotKeyRef?
@@ -45,12 +56,16 @@ final class HotkeyManager {
 
         guard status == noErr else {
             logger.error("Could not register global hotkey; Carbon status: \(status)")
-            return
+            isRegistered = false
+            return false
         }
         hotkeyRef = ref
+        isRegistered = true
+        return true
     }
 
     func unregister() {
+        isRegistered = false
         guard let hotkeyRef else {
             return
         }

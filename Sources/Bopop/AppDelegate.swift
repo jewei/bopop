@@ -196,7 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotkeyManager.onHotkey = { [weak self] in
                 self?.paletteController.toggle()
             }
-            hotkeyManager.register(hotkeyConfig)
+            // Seeded into the model so Settings can show it: registration
+            // happens here, before any Settings window exists.
+            let registered = hotkeyManager.register(hotkeyConfig)
+            settingsModel.setHotkeyUnavailable(!registered)
             DispatchQueue.main.async {
                 SpotlightConflict.warnIfConflicting(with: hotkeyConfig)
             }

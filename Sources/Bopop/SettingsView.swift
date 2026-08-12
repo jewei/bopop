@@ -23,27 +23,18 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, minHeight: 28)
                 .contentShape(Rectangle())
 
+                // Two different signals. `spotlightConflict` predicts one
+                // known clash by reading Spotlight's own preferences; the
+                // other is Carbon reporting that registration actually
+                // failed, which catches any app holding the combination.
+                // The second used to go only to the log, so Bopop ran with a
+                // dead shortcut and nothing on screen said so.
                 if model.spotlightConflict, model.hotkey == .default {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label(
-                            "⌘Space is also assigned to Spotlight.",
-                            systemImage: "exclamationmark.triangle.fill"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-
-                        HStack {
-                            Button("Open Keyboard Settings") {
-                                NSWorkspace.shared.open(
-                                    SpotlightConflict.keyboardSettingsURL
-                                )
-                            }
-                            Button("Re-check") {
-                                model.recheckConflict()
-                            }
-                        }
-                        .controlSize(.small)
-                    }
+                    hotkeyWarning("⌘Space is also assigned to Spotlight.")
+                } else if model.hotkeyUnavailable {
+                    hotkeyWarning(
+                        "This shortcut is already in use by another app, so it won't open Bopop."
+                    )
                 }
             }
 
@@ -347,4 +338,26 @@ struct SettingsView: View {
         .padding(20)
         .frame(width: 380, height: 530)
     }
+
+    @ViewBuilder
+    private func hotkeyWarning(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+
+            HStack {
+                Button("Open Keyboard Settings") {
+                    NSWorkspace.shared.open(SpotlightConflict.keyboardSettingsURL)
+                }
+                // Retries the registration too, so freeing the shortcut in the
+                // other app and pressing this is enough — no relaunch.
+                Button("Re-check") {
+                    model.recheckConflict()
+                }
+            }
+            .controlSize(.small)
+        }
+    }
+
 }

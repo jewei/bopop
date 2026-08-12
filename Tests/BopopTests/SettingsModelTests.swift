@@ -254,3 +254,25 @@ private func withModel(_ body: (SettingsModel) throws -> Void) throws {
     #expect(model.snippets.isEmpty)
     #expect(!FileManager.default.fileExists(atPath: storage.snippetsFileURL.path))
 }
+
+/// Carbon reports a taken shortcut at registration time, and that used to go
+/// only to the log — Bopop ran on with a dead hotkey and nothing said so. QA
+/// report: "when i relaunch bopop from raycast, it was like nothing happened,
+/// bopop launch silently in the background".
+@MainActor
+@Test
+func hotkeyUnavailableIsSurfacedAndClearsOnRecheck() throws {
+    try withModel { model in
+        #expect(!model.hotkeyUnavailable, "registration succeeded, nothing to report")
+
+        // A launch-time failure, seeded the way AppDelegate does — the model
+        // does not exist yet when that registration runs.
+        model.setHotkeyUnavailable(true)
+        #expect(model.hotkeyUnavailable)
+
+        // Re-check retries the registration, so freeing the shortcut in the
+        // other app and pressing it clears the banner without a relaunch.
+        model.recheckConflict()
+        #expect(!model.hotkeyUnavailable)
+    }
+}
