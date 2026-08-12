@@ -48,7 +48,7 @@ func clipboardStoreEvictsOldestEntries() throws {
 
 @MainActor
 @Test
-func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
+func clipboardStoreForgetsEveryRecentCaptureOnUpstreamClear() throws {
     let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
@@ -59,11 +59,32 @@ func clipboardStoreForgetsRecentNewestOnUpstreamClear() throws {
     store.add("secret")
     currentDate = Date(timeIntervalSince1970: 1_110) // 100 s after "secret"
 
-    store.forgetNewest(ifCapturedWithin: 120)
-    #expect(store.entries.map(\.text) == ["older"])
+    // Both are inside the window, so both go. Scrubbing only the newest left
+    // an earlier password in history for good when two were copied in a row.
+    store.forgetCaptures(within: 120)
+    #expect(store.entries.isEmpty)
 
     let reloaded = ClipboardStore(storage: fixture.storage)
-    #expect(reloaded.entries.map(\.text) == ["older"])
+    #expect(reloaded.entries.isEmpty)
+}
+
+/// The window still bounds it: a capture older than the window survives a
+/// clear it had nothing to do with.
+@MainActor
+@Test
+func clipboardStoreKeepsCapturesOlderThanTheWindow() throws {
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let store = ClipboardStore(storage: fixture.storage) { currentDate }
+
+    store.add("long ago")
+    currentDate = Date(timeIntervalSince1970: 1_200)
+    store.add("just now")
+    currentDate = Date(timeIntervalSince1970: 1_260) // 60s after "just now"
+
+    store.forgetCaptures(within: 120)
+    #expect(store.entries.map(\.text) == ["long ago"])
 }
 
 @MainActor
@@ -77,11 +98,11 @@ func clipboardStoreKeepsNewestWhenClearArrivesLate() throws {
     store.add("kept")
     currentDate = Date(timeIntervalSince1970: 1_130) // 130 s after "kept"
 
-    store.forgetNewest(ifCapturedWithin: 120)
+    store.forgetCaptures(within: 120)
     #expect(store.entries.map(\.text) == ["kept"])
 
     store.clear()
-    store.forgetNewest(ifCapturedWithin: 120)
+    store.forgetCaptures(within: 120)
     #expect(store.entries.isEmpty)
 }
 
@@ -293,7 +314,7 @@ func clipboardStoreAddSkipsTextThatIsAlreadyPinned() throws {
 
 @MainActor
 @Test
-func clipboardStoreForgetNewestSkipsPinnedAndScrubsNewestUnpinned() throws {
+func clipboardStoreScrubSkipsPinnedEntries() throws {
     let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     var currentDate = Date(timeIntervalSince1970: 1_000)
@@ -307,13 +328,13 @@ func clipboardStoreForgetNewestSkipsPinnedAndScrubsNewestUnpinned() throws {
     store.add("secret")
     currentDate = Date(timeIntervalSince1970: 1_110)
 
-    // The pin has the newest capture of the three, but an explicit keep
+    // Everything unpinned inside the window goes, but an explicit keep
     // outranks a heuristic that can't identify who cleared the pasteboard.
-    store.forgetNewest(ifCapturedWithin: 120)
-    #expect(store.entries.map(\.text) == ["kept-by-pin", "older"])
+    store.forgetCaptures(within: 120)
+    #expect(store.entries.map(\.text) == ["kept-by-pin"])
 
     let reloaded = ClipboardStore(storage: fixture.storage)
-    #expect(reloaded.entries.map(\.text) == ["kept-by-pin", "older"])
+    #expect(reloaded.entries.map(\.text) == ["kept-by-pin"])
 }
 
 @MainActor

@@ -214,3 +214,38 @@ func watcherDoesNotScrubHistoryForInactiveSessionClear() throws {
 
     #expect(fixture.store.entries.map(\.text) == ["keep"])
 }
+
+/// Two passwords copied in succession, then one upstream clear.
+///
+/// Reported from a manual QA pass: "i copied 2 passwords, 1 is gone, another 1
+/// stays". Apple Passwords schedules its wipe per copy, but the second copy
+/// replaces the first on the pasteboard, so only one wipe actually lands — and
+/// a single wipe scrubs a single entry.
+@MainActor
+@Test
+func watcherScrubsEveryRecentCaptureOnOneUpstreamClear() throws {
+    nonisolated(unsafe) var currentDate = Date(timeIntervalSince1970: 1_000)
+    let fixture = try makeFixture(now: { currentDate })
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let watcher = makeWatcher(fixture)
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("first password", forType: .string)
+    watcher.pollPasteboard()
+
+    currentDate = Date(timeIntervalSince1970: 1_010)
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("second password", forType: .string)
+    watcher.pollPasteboard()
+    #expect(fixture.store.entries.count == 2)
+
+    // One wipe, 60s after the first copy — both are inside the 120s window.
+    currentDate = Date(timeIntervalSince1970: 1_060)
+    fixture.pasteboard.clearContents()
+    watcher.pollPasteboard()
+
+    #expect(
+        fixture.store.entries.map(\.text) == [],
+        "a password left behind by the scrub stays in history for good"
+    )
+}

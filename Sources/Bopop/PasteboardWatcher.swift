@@ -130,7 +130,7 @@ final class PasteboardWatcher {
             // A bare clearContents (Apple Passwords fires one ~90 s after a
             // copy) means the source considered the content sensitive — forget
             // our newest capture too.
-            store.forgetNewest(ifCapturedWithin: Self.upstreamClearScrubWindow)
+            store.forgetCaptures(within: Self.upstreamClearScrubWindow)
             return
         }
         // The secrecy-marker check lives entirely in ClipboardCapturePolicy —
