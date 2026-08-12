@@ -61,7 +61,7 @@ final class SettingsModel: ObservableObject {
 
     @Published var hotkey: HotkeyConfig {
         didSet {
-            hotkeyManager.register(hotkey)
+            hotkeyUnavailable = !hotkeyManager.register(hotkey)
             hotkey.save(to: defaults)
             spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
         }
@@ -136,6 +136,12 @@ final class SettingsModel: ObservableObject {
 
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var spotlightConflict: Bool
+    /// The shortcut could not be registered, so it will not fire. Reported by
+    /// Carbon at registration time, which catches any app holding the
+    /// combination — unlike `spotlightConflict`, which predicts one specific
+    /// clash by reading Spotlight's own preferences and only for the default
+    /// shortcut.
+    @Published private(set) var hotkeyUnavailable = false
     @Published private(set) var customSearchError: CustomSearchError?
     @Published private(set) var snippetError: SnippetError?
     /// False when the snippets file was quarantined at load. Published so the
@@ -252,9 +258,17 @@ final class SettingsModel: ObservableObject {
         return searches
     }
 
+    /// Re-runs both checks and retries the registration, so freeing the
+    /// shortcut in the other app and pressing Re-check is enough — no relaunch.
     func recheckConflict() {
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
-        hotkeyManager.register(hotkey)
+        hotkeyUnavailable = !hotkeyManager.register(hotkey)
+    }
+
+    /// Seeds the flag from the registration `AppDelegate` performs at launch,
+    /// which happens before this model exists.
+    func setHotkeyUnavailable(_ unavailable: Bool) {
+        hotkeyUnavailable = unavailable
     }
 
     /// Opens an NSOpenPanel (folders only, multi-select) and appends any
