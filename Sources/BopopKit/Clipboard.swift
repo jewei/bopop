@@ -172,21 +172,33 @@ public final class ClipboardStore {
 
     /// Upstream sensitive-clear scrub: when something wipes the pasteboard with
     /// a bare clearContents (zero types — Apple Passwords does this ~90 s after
-    /// a copy), drop the most recent capture so the secret doesn't outlive the
-    /// clipboard here.
+    /// a copy), drop every capture from that window so the secret doesn't
+    /// outlive the clipboard here.
+    ///
+    /// Every capture, not just the newest. A password manager schedules its
+    /// wipe per copy, but a second copy replaces the first on the pasteboard,
+    /// so only one wipe lands — and scrubbing one entry per wipe left the
+    /// earlier password in history for good. Found by manual QA: "i copied 2
+    /// passwords, 1 is gone, another 1 stays."
+    ///
+    /// The cost is deliberate: an unrelated copy made inside the same window
+    /// goes too. Losing a clipboard entry is an inconvenience, and a password
+    /// left behind is not.
     ///
     /// Pinned entries are never scrubbed. This heuristic can't tell a password
     /// manager's clear from any other app's (see the comment above), so it must
     /// not be able to destroy something the user explicitly asked to keep.
-    public func forgetNewest(ifCapturedWithin window: TimeInterval) {
+    public func forgetCaptures(within window: TimeInterval) {
         // `entrySort` puts pins first and orders the unpinned tail newest-first,
-        // so the newest unpinned entry is the one right after the pinned run.
-        let index = pinnedCount
-        guard index < entries.count,
-              now().timeIntervalSince(entries[index].capturedAt) <= window else {
+        // so the unpinned run starts right after the pins.
+        let cutoff = now().addingTimeInterval(-window)
+        let survivors = entries.enumerated().filter { index, entry in
+            index < pinnedCount || entry.capturedAt < cutoff
+        }
+        guard survivors.count != entries.count else {
             return
         }
-        entries.remove(at: index)
+        entries = survivors.map(\.element)
         persist()
     }
 
