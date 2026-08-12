@@ -28,7 +28,8 @@ enum FocusLossCheck {
             guard isForeign(
                 successor: NSApp.keyWindow,
                 ownPanel: ownPanel,
-                otherOverlayIsVisible: overlayIsVisible(besides: ownPanel)
+                quickLookIsVisible: QLPreviewPanel.sharedPreviewPanelExists()
+                    && QLPreviewPanel.shared().isVisible
             ) else {
                 return
             }
@@ -38,36 +39,20 @@ enum FocusLossCheck {
         }
     }
 
-    /// Whether one of Bopop's own overlays — other than `ownPanel` — is still
-    /// on screen. Deliberately not "any visible window": the AppleTranslator
-    /// host is an offscreen, alpha-0 `NSWindow` that is always visible and
-    /// would make every check look like an in-app handover.
-    private static func overlayIsVisible(besides ownPanel: NSWindow?) -> Bool {
-        NSApp.windows.contains { window in
-            window !== ownPanel
-                && window.isVisible
-                && (window is PalettePanel
-                    || window is LargeTypePanel
-                    || window is QLPreviewPanel)
-        }
-    }
-
     /// Whether `successor` taking key means the user left Bopop, as opposed to
     /// one of Bopop's own overlays taking it — or this window getting it back.
     ///
     /// Split out from the deferral so the allowlist can be asserted directly.
-    /// It is the hardest behaviour in the app to reproduce by hand (it needs a
-    /// real key-window handover between two overlays), and the list it checks
-    /// is load-bearing for an invariant stated in a different file:
-    /// `ActionsPanelController` builds a plain `NSPanel`, which is NOT on this
-    /// list, so it reads as a genuine focus loss and would tear the palette
-    /// down. It is saved only by never becoming key — see the note at the top
-    /// of `ActionsPanelController`. Any future overlay has to either subclass
-    /// one of these or join the list.
+    /// It is the hardest behaviour in the app to reproduce by hand, and the
+    /// list it checks is load-bearing for an invariant stated in a different
+    /// file: `ActionsPanelController` builds a plain `NSPanel`, which is NOT on
+    /// this list, so it reads as a genuine focus loss and would tear the
+    /// palette down. It is saved only by never becoming key. Any future overlay
+    /// has to either subclass one of these or join the list.
     static func isForeign(
         successor: NSWindow?,
         ownPanel: NSWindow?,
-        otherOverlayIsVisible: Bool = false
+        quickLookIsVisible: Bool = false
     ) -> Bool {
         switch successor {
         case ownPanel, is PalettePanel, is LargeTypePanel, is QLPreviewPanel:
@@ -79,10 +64,12 @@ enum FocusLossCheck {
             // after it has loaded its preview, and gives it up again on the
             // way out. Both were seen live as `successor=nil`.
             //
-            // What separates them is whether one of our own overlays is still
-            // on screen. If Quick Look is up, the palette has not lost focus to
-            // anything; if nothing of ours is left, the user really has gone.
-            return !otherOverlayIsVisible
+            // Quick Look specifically, not "any overlay of ours is visible":
+            // the palette sits visible behind every overlay, so the broader
+            // rule stopped Large Type dismissing when the user switched away.
+            // Quick Look is the only overlay that takes key late, and the only
+            // one that cannot be subclassed to say so itself.
+            return !quickLookIsVisible
         default:
             return true
         }
