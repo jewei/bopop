@@ -1069,6 +1069,22 @@ extension PaletteController: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
         FilePayload.path(for: selectedResult()) != nil ? 1 : 0
     }
 
+    /// Quick Look is key while visible, so ⌘Y never reaches `PalettePanel` —
+    /// the second press that is supposed to dismiss it has to be caught here.
+    /// `LargeTypePanel` solves the same problem by overriding
+    /// `performKeyEquivalent`, which is not available for a system singleton
+    /// that cannot be subclassed; this delegate hook is its equivalent.
+    ///
+    /// Escape already worked because Quick Look handles that itself.
+    func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        guard event?.type == .keyDown,
+              event.relevantModifiers == .command,
+              event.charactersIgnoringModifiers?.lowercased() == "y" else {
+            return false
+        }
+        return handle(.commandQuickLook)
+    }
+
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
         guard let path = FilePayload.path(for: selectedResult()) else {
             return nil
