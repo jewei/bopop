@@ -51,3 +51,16 @@ comments pointing at a file a fresh clone did not have.
     Regenerate with
     `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json`;
     it fetches from the network and the output is committed.
+16. **A resigned key window with no successor does not mean the user left.**
+    `NSApp.keyWindow` is nil both when another app is frontmost *and* during an
+    in-app handover that has not settled — one deferred runloop turn is not
+    enough for `QLPreviewPanel`, which takes key only after it has loaded its
+    preview and gives it up again on the way out. Hiding on the bare nil tore
+    the palette down mid-open and took Quick Look with it, presenting as "the
+    pdf appears and then closes in 1 second". `NSApp.isActive` does not
+    separate the two: it reads false in both. What separates them is whether
+    one of Bopop's own overlays is still on screen — see
+    `FocusLossCheck.isForeign(successor:ownPanel:otherOverlayIsVisible:)`.
+    Check the overlay types specifically, not "any visible window": the
+    AppleTranslator host is an offscreen alpha-0 `NSWindow` that is always
+    visible.
