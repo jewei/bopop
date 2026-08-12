@@ -75,7 +75,7 @@ func noSuccessorIsAFocusLossOnlyWhenNoOverlayIsLeft() {
         FocusLossCheck.isForeign(
             successor: nil,
             ownPanel: own,
-            otherOverlayIsVisible: false
+            quickLookIsVisible: false
         ),
         "nothing of ours on screen — the user really has gone"
     )
@@ -83,14 +83,14 @@ func noSuccessorIsAFocusLossOnlyWhenNoOverlayIsLeft() {
         !FocusLossCheck.isForeign(
             successor: nil,
             ownPanel: own,
-            otherOverlayIsVisible: true
+            quickLookIsVisible: true
         ),
-        "an overlay of ours is still up, so focus never left the app"
+        "Quick Look is still up, so focus never left the app"
     )
 }
 
-/// A window that is not ours still wins, overlay or not: the user clicked into
-/// another app while Quick Look happened to be open.
+/// A window that is not ours still wins, Quick Look or not: the user clicked
+/// into another app while Quick Look happened to be open.
 @MainActor
 @Test
 func aForeignSuccessorWinsEvenWithAnOverlayUp() {
@@ -105,7 +105,7 @@ func aForeignSuccessorWinsEvenWithAnOverlayUp() {
         FocusLossCheck.isForeign(
             successor: foreign,
             ownPanel: makePalettePanel(),
-            otherOverlayIsVisible: true
+            quickLookIsVisible: true
         )
     )
 }
@@ -130,4 +130,33 @@ func aPlainPanelIsForeignWhichIsWhyTheActionsPanelMustNeverBecomeKey() {
 
     #expect(FocusLossCheck.isForeign(successor: plain, ownPanel: makePalettePanel()))
     #expect(!plain.canBecomeKey, "the only thing keeping the palette alive")
+}
+
+/// The regression that shipped when this rule was "any overlay of ours is
+/// visible". The palette sits visible behind every overlay, so Large Type
+/// resigning while the palette was up read as an in-app handover and Large
+/// Type stopped dismissing when the user switched away.
+///
+/// Caught by QA, not by this file — there was no test for an overlay other
+/// than the palette resigning, which is exactly the case the broad rule broke.
+@MainActor
+@Test
+func anOverlayOtherThanTheOwnerStillDismissesOnAGenuineLoss() {
+    let largeType = LargeTypePanel(
+        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+    )
+
+    // The palette is visible behind it, as it always is. Quick Look is not up,
+    // so nothing is mid-handover: this is the user leaving.
+    #expect(
+        FocusLossCheck.isForeign(
+            successor: nil,
+            ownPanel: largeType,
+            quickLookIsVisible: false
+        ),
+        "Large Type must still dismiss with the palette sitting behind it"
+    )
 }

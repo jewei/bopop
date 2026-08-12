@@ -60,7 +60,11 @@ comments pointing at a file a fresh clone did not have.
     pdf appears and then closes in 1 second". `NSApp.isActive` does not
     separate the two: it reads false in both. What separates them is whether
     one of Bopop's own overlays is still on screen — see
-    `FocusLossCheck.isForeign(successor:ownPanel:otherOverlayIsVisible:)`.
-    Check the overlay types specifically, not "any visible window": the
-    AppleTranslator host is an offscreen alpha-0 `NSWindow` that is always
-    visible.
+    `FocusLossCheck.isForeign(successor:ownPanel:quickLookIsVisible:)`.
+    Quick Look **specifically**, not "any overlay of ours is visible": the
+    palette sits visible behind every overlay, so the broad version stopped
+    Large Type dismissing when the user switched away. Quick Look is the only
+    overlay that takes key late, and the only one that cannot be subclassed to
+    handle its own keys — `LargeTypePanel` overrides `performKeyEquivalent`
+    instead, which is also why ⌘L could close it while ⌘Y needed the
+    `previewPanel(_:handle:)` delegate hook.
