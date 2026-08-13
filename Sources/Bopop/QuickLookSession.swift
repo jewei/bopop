@@ -60,6 +60,14 @@ final class QuickLookSession {
         }
         observe(panel)
         focusHandoffState = .openingQuickLook
+        // Quick Look is an ordinary key window, and the palette is a
+        // non-activating panel in an accessory app — so Bopop is usually NOT
+        // the frontmost application when ⌘Y is pressed. Ordering the preview
+        // panel in without activating first makes it take key and give it
+        // straight back, which reads as "it opened and closed immediately".
+        // Measured: didBecomeKey followed at once by didResignKey, with the
+        // user's terminal still frontmost.
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         return true
     }

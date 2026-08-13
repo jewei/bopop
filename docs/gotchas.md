@@ -71,3 +71,14 @@ comments pointing at a file a fresh clone did not have.
     resign handoff for a bounded interval, and treats an unresolved nil as a
     genuine loss. Do not replace that state machine with `NSApp.isActive` or an
     “any overlay is visible” check. See ADR 0001.
+17. **Quick Look needs the application activated first.** `QLPreviewPanel` is
+    an ordinary key window, but the palette is a `.nonactivatingPanel` in an
+    accessory app — so Bopop is usually NOT frontmost when ⌘Y is pressed.
+    Ordering the preview panel in without `NSApp.activate` first makes it take
+    key and give it straight back: `didBecomeKey` immediately followed by
+    `didResignKey`, with the user's previous app still frontmost. It presents
+    as "Quick Look opened and closed immediately", and it is intermittent —
+    it works whenever Bopop happens to already be frontmost, which is why it
+    survived several rounds of focus-handoff work that each fixed something
+    else real. The cost is deliberate: activating steals focus from the app
+    behind, and returns it when the palette closes.
