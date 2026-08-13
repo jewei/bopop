@@ -7,21 +7,16 @@ import BopopKit
 /// responsible for calling `setActive` at every point the effective mode
 /// changes. A pill click enters that mode the same way a command row does.
 final class PaletteTabsView: NSView {
-    static let orderedTabs: [(Mode, String, String)] = [
-        (.general, "All", "square.grid.2x2"),
-        (.apps, "Apps", "app"),
-        (.fileSearch, "Files", "folder"),
-        (.clipboard, "Clipboard", "doc.on.clipboard"),
-        (.emoji, "Emoji", "face.smiling"),
-        (.translation, "Translate", "character.bubble")
-    ]
+    static let orderedTabs = Mode.descriptors
+        .filter { $0.tabPlacement == .resting }
+        .map { ($0.mode, $0.title, $0.symbolName) }
 
     /// Modes with a pill in `pills` that is NOT part of the resting six-pill
     /// row. Hidden unless its mode is the active one — see `setActive`.
     /// `cycleTab(by:)` iterates `orderedTabs` only, so ⇥ skips these.
-    static let transientTabs: [(Mode, String, String)] = [
-        (.snippets, "Snippets", "text.quote")
-    ]
+    static let transientTabs = Mode.descriptors
+        .filter { $0.tabPlacement == .transient }
+        .map { ($0.mode, $0.title, $0.symbolName) }
 
     /// Wired by `PaletteController` — a pill click enters that mode,
     /// mirroring `actionRunner.onModeChange` for command rows.

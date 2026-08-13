@@ -4,7 +4,7 @@ import Foundation
 /// show only the first line of multi-line stored text, capped so a single
 /// pasted document can't blow out row layout or make Ranker fold a huge
 /// string per keystroke.
-public nonisolated enum DisplayTruncation {
+public enum DisplayTruncation {
     /// Returns the first line of `text` (split on any newline), trimmed of
     /// surrounding whitespace, truncated to at most `limit` grapheme
     /// clusters with a trailing ellipsis appended when truncation occurs.

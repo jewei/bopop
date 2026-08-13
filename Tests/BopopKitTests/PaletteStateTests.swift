@@ -124,6 +124,21 @@ func typingWithinOneModeKeepsTheRowsUntilTheNextPublication() {
 
     #expect(plan.rows.map(\.id) == ["a"], "no blank frame while the next query runs")
     #expect(!plan.contentChanged)
+    #expect(palette.focusedResult == nil, "stale rows are visible but not actionable")
+}
+
+@MainActor
+@Test
+func aMatchingPublicationMakesRetainedRowsActionableAgain() {
+    let palette = state()
+    palette.setQueryText("saf")
+    palette.apply(update(ParsedQuery(mode: .general, term: "saf"), [row("old")]))
+    palette.setQueryText("safa")
+
+    #expect(palette.focusedResult == nil)
+
+    palette.apply(update(ParsedQuery(mode: .general, term: "safa"), [row("new")]))
+    #expect(palette.focusedResult?.id == "new")
 }
 
 // MARK: - Applying engine updates
@@ -234,6 +249,23 @@ func identicalSuccessiveUpdatesReportNoContentChange() {
 
     #expect(first.contentChanged)
     #expect(!second.contentChanged, "a settle publish and its final must not redraw twice")
+}
+
+@MainActor
+@Test
+func identicalRowsAfterAListModeClearMustRedraw() {
+    let palette = state()
+    let rows = [row("app:one"), row("app:two")]
+    palette.apply(update(ParsedQuery(mode: .general, term: ""), rows))
+
+    let cleared = palette.enterMode(.apps)
+    #expect(cleared.rows.isEmpty)
+    #expect(cleared.contentChanged)
+
+    let republished = palette.apply(
+        update(ParsedQuery(mode: .apps, term: ""), rows)
+    )
+    #expect(republished.contentChanged, "the adapter currently holds the cleared surface")
 }
 
 @MainActor

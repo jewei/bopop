@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum ProviderID: String, Hashable, Sendable {
+public enum ProviderID: String, Hashable, Sendable {
     case apps
     case files
     case calculator
@@ -19,14 +19,50 @@ public nonisolated enum ProviderID: String, Hashable, Sendable {
     case dictionary
 }
 
-public nonisolated enum IconRef: Equatable, Sendable {
+public enum IconRef: Equatable, Sendable {
     case appBundle(String)
     case file(String)
     case symbol(String)
     case none
 }
 
-public nonisolated enum ResultAction: Equatable, Sendable {
+public enum ResultAction: Equatable, Sendable {
+    public enum Role: Equatable, Sendable {
+        case disabled
+        case open
+        case copy
+        case clear
+        case pin
+        case unpin
+        case quit
+        case hide
+        case run
+        case select
+        case download
+        case reveal
+
+        public var verb: String? {
+            switch self {
+            case .disabled: nil
+            case .open: "open"
+            case .copy: "copy"
+            case .clear: "clear"
+            case .pin: "pin"
+            case .unpin: "unpin"
+            case .quit: "quit"
+            case .hide: "hide"
+            case .run: "run"
+            case .select: "select"
+            case .download: "download"
+            case .reveal: "reveal"
+            }
+        }
+    }
+
+    /// An informational result with no executable primary action. Keeping
+    /// this explicit avoids disguising a disabled row as a mode change or an
+    /// empty clipboard write.
+    case disabled
     case openApp(String)
     case openFile(String)
     case copyText(String)
@@ -44,9 +80,30 @@ public nonisolated enum ResultAction: Equatable, Sendable {
     case downloadTranslation
     case systemCommand(SystemCommand)
     case revealFile(String)
+
+    public var isExecutable: Bool {
+        role != .disabled
+    }
+
+    public var role: Role {
+        switch self {
+        case .disabled: .disabled
+        case .openApp, .openFile, .openURL: .open
+        case .copyText: .copy
+        case .clearClipboardHistory: .clear
+        case .pinClipboard: .pin
+        case .unpinClipboard: .unpin
+        case .quitApp: .quit
+        case .hideResult: .hide
+        case .runScript, .systemCommand: .run
+        case .enterMode: .select
+        case .downloadTranslation: .download
+        case .revealFile: .reveal
+        }
+    }
 }
 
-public nonisolated struct HeroContent: Equatable, Sendable {
+public struct HeroContent: Equatable, Sendable {
     public let left: String
     public let leftBadge: String?
     public let right: String
@@ -74,7 +131,7 @@ public nonisolated struct HeroContent: Equatable, Sendable {
     }
 }
 
-public nonisolated struct SearchResult: Identifiable, Equatable, Sendable {
+public struct SearchResult: Identifiable, Equatable, Sendable {
     public let id: String
     public let providerID: ProviderID
     public let title: String

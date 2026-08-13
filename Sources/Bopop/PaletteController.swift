@@ -31,6 +31,7 @@ final class PaletteController: NSObject {
     private let footerView = PaletteFooterView()
     private let largeTypeController = LargeTypeWindowController()
     private let actionsPanel = ActionsPanelController()
+    private let quickLookSession = QuickLookSession()
     private let layoutConstraints: PaletteLayout.InstalledConstraints
 
     /// The palette's state. Sole authority for query text, mode, results,
@@ -47,6 +48,8 @@ final class PaletteController: NSObject {
     /// two authorities inside one call stack. Same idiom as
     /// `isProgrammaticFrameChange`.
     private var isApplyingPlan = false
+    private var pendingCommit: (plan: PaletteRenderPlan, update: QueryEngine.Update?)?
+    private var nextDrawHookForTesting: (() -> Void)?
     /// Draws that began while another was still in progress. Must stay zero: a
     /// re-entrant draw runs against half-updated views, and one of them hung
     /// the app outright. Counted rather than asserted so a test can pin it.
@@ -55,19 +58,15 @@ final class PaletteController: NSObject {
     /// `panel.isVisible`: `show()` bails when no screen owns the palette, so a
     /// headless test host can never see the panel become visible.
     private var hideCount = 0
+    private var isDismissed = false
+    private var sessionGeneration = 0
     private var appRefreshTask: Task<Void, Never>?
     private var isHiding = false
     private var isProgrammaticFrameChange = false
     private var userAdjustedPosition = false
-    /// Registered once, lazily, the first time Quick Look is shown.
-    /// `QLPreviewPanel` is a system singleton we can't subclass, so unlike
-    /// `PalettePanel`/`LargeTypePanel` there's no `resignKey` override to
-    /// hook — `NSWindow.didResignKeyNotification` is the equivalent signal.
-    /// See `observeQuickLookResign`.
-    private var quickLookResignObserver: NotificationToken?
     private var panelMoveObserver: NotificationToken?
     private let brandImageURL: URL
-    private let defaults: UserDefaults
+    private let preferences: PreferencesRepository
     /// Modification date of `brandImageURL` as of the last successful stat,
     /// used to avoid re-decoding the image on every `show()` — only a
     /// changed (or newly missing) date triggers a reload. `nil` means "no
@@ -77,13 +76,11 @@ final class PaletteController: NSObject {
     init(
         engine: QueryEngine,
         actionRunner: ActionRunner,
-        // No production defaults: a test that forgot to override `defaults`
-        // would have `persistPositionIfUserAdjusted` write the palette's
-        // position into the developer's real standard defaults, and would read
-        // the real brand image back out. `AppDelegate` is the single wiring
-        // point and already passes both, so requiring them costs nothing.
+        // No production repository default: a test must never write palette
+        // position into the developer's real preferences. AppDelegate is the
+        // single wiring point and passes the production repository.
         brandImageURL: URL,
-        defaults: UserDefaults,
+        preferences: PreferencesRepository,
         refreshAppsOnShow: @escaping () async -> Bool = { false },
         onShowSettings: @escaping () -> Void = {},
         onOpenScriptsFolder: @escaping () -> Void = {},
@@ -92,14 +89,14 @@ final class PaletteController: NSObject {
         self.engine = engine
         self.actionRunner = actionRunner
         self.brandImageURL = brandImageURL
-        self.defaults = defaults
+        self.preferences = preferences
         self.refreshAppsOnShow = refreshAppsOnShow
         self.onShowSettings = onShowSettings
         self.onOpenScriptsFolder = onOpenScriptsFolder
         self.onQuit = onQuit
         let state = PaletteState(
             configuration: PaletteStateConfiguration(
-                orderedModes: PaletteTabsView.orderedTabs.map(\.0),
+                orderedModes: Mode.restingModes,
                 gridColumns: PaletteMetrics.gridColumns
             )
         )
@@ -150,6 +147,8 @@ final class PaletteController: NSObject {
             return
         }
         PerformanceSignposts.palette.interval("Palette Show") {
+            sessionGeneration += 1
+            isDismissed = false
             showMeasured()
         }
     }
@@ -193,11 +192,12 @@ final class PaletteController: NSObject {
     }
 
     func hide() {
-        guard !isHiding else {
+        guard !isHiding, !isDismissed else {
             return
         }
 
         isHiding = true
+        isDismissed = true
         hideCount += 1
         defer { isHiding = false }
         appRefreshTask?.cancel()
@@ -205,9 +205,7 @@ final class PaletteController: NSObject {
         actionsPanel.hide()
         engine.cancel()
         persistPositionIfUserAdjusted()
-        if QLPreviewPanel.sharedPreviewPanelExists() {
-            QLPreviewPanel.shared().orderOut(nil)
-        }
+        quickLookSession.hide()
         largeTypeController.hide()
         panel.orderOut(nil)
         // Resets the whole state set, including the render key: the views are
@@ -215,7 +213,7 @@ final class PaletteController: NSObject {
         rendered = state.reset()
         queryField.stringValue = ""
         tableView.reloadData()
-        gridView.collectionView.reloadData()
+        gridView.reloadData()
         scrollView.isHidden = true
         gridView.isHidden = true
         updateHeroPresentation()
@@ -272,10 +270,12 @@ final class PaletteController: NSObject {
         tableView.delegate = self
         tableView.target = self
         tableView.action = #selector(rowClicked(_:))
-        gridView.collectionView.dataSource = self
-        gridView.collectionView.delegate = self
+        gridView.connect(dataSource: self, delegate: self)
 
         panel.onResign = { [weak self] in self?.hide() }
+        panel.focusHandoff = { [weak self] in
+            self?.quickLookSession.focusHandoffState ?? .stable
+        }
         // One callback for every chord. Which key means what — including the
         // panel-only gating and the overlay-dismiss precedence — is
         // `PaletteState.route`'s decision, not seven closures' worth of
@@ -299,6 +299,29 @@ final class PaletteController: NSObject {
             panel.makeKeyAndOrderFront(nil)
         }
         largeTypeController.onFocusLost = { [weak self] in
+            self?.hide()
+        }
+        quickLookSession.onResign = { [weak self] in
+            guard let self else { return }
+            let resignSession = sessionGeneration
+            FocusLossCheck.runDeferred(
+                ownPanel: panel,
+                handoff: { [weak self] in
+                    self?.quickLookSession.focusHandoffState ?? .stable
+                },
+                condition: { [weak self] in
+                    guard let self else { return false }
+                    return !isDismissed && sessionGeneration == resignSession
+                },
+                onSettled: { [weak self] in
+                    guard let self, sessionGeneration == resignSession else { return }
+                    quickLookSession.finishResignResolution()
+                }
+            ) { [weak self] in
+                self?.hide()
+            }
+        }
+        quickLookSession.onExternalApplicationActivated = { [weak self] in
             self?.hide()
         }
         engine.onUpdate = { [weak self] update in
@@ -358,6 +381,17 @@ final class PaletteController: NSObject {
         _ plan: PaletteRenderPlan,
         after update: QueryEngine.Update? = nil
     ) {
+        guard !isApplyingPlan else {
+            reentrantDrawCount += 1
+            pendingCommit = (plan, update)
+            return
+        }
+        isApplyingPlan = true
+
+        let drawHook = nextDrawHookForTesting
+        nextDrawHookForTesting = nil
+        drawHook?()
+
         actionsPanel.hide()
         rendered = plan
 
@@ -371,9 +405,6 @@ final class PaletteController: NSObject {
             PaletteLayout.configureFieldEditor(editor)
         }
 
-        if isApplyingPlan {
-            reentrantDrawCount += 1
-        }
         // Covers the whole draw, not just the selection call. `reloadData()`
         // changes the table's selection and fires
         // `tableViewSelectionDidChange` synchronously, so a guard around
@@ -384,8 +415,6 @@ final class PaletteController: NSObject {
         // previous mode's items but its data source already reported the new
         // count, and AppKit wedged there. That hung the MainActor's executor,
         // so every later engine update was silently never delivered.
-        isApplyingPlan = true
-
         tabsView.setActive(plan.query.mode)
         updateQueryFieldAccessibility(for: plan.query.mode)
         updateHeroPresentation()
@@ -393,7 +422,7 @@ final class PaletteController: NSObject {
         let isGrid = plan.presentation == .grid
         if plan.contentChanged {
             tableView.reloadData()
-            gridView.collectionView.reloadData()
+            gridView.reloadData()
         }
         scrollView.isHidden = isGrid || plan.rows.isEmpty
         gridView.isHidden = !isGrid || plan.rows.isEmpty
@@ -421,6 +450,10 @@ final class PaletteController: NSObject {
                 hide()
             }
         }
+        if let pendingCommit {
+            self.pendingCommit = nil
+            commit(pendingCommit.plan, after: pendingCommit.update)
+        }
     }
 
     /// Drives AppKit's selection from the plan. Runs inside `commit`'s
@@ -430,10 +463,10 @@ final class PaletteController: NSObject {
         switch focus {
         case .none, .hero:
             tableView.deselectAll(nil)
-            gridView.collectionView.deselectAll(nil)
+            gridView.clearSelection()
         case let .row(index):
             if isGrid {
-                syncGridSelection(to: index)
+                gridView.selectAndReveal(index: index, availableResultCount: results.count)
             } else {
                 tableView.selectRowIndexes(
                     IndexSet(integer: index),
@@ -463,7 +496,7 @@ final class PaletteController: NSObject {
             return
         }
         commit(state.selectRow(row))
-        if let result = selectedResult() {
+        if let result = state.focusedResult {
             actionRunner.perform(result)
         }
     }
@@ -474,33 +507,6 @@ final class PaletteController: NSObject {
     /// never disagree with the rows actually loaded.
     private var isGridMode: Bool {
         rendered.presentation == .grid
-    }
-
-    /// Mirrors the plan's focus into `gridView.collectionView` and scrolls the
-    /// tile into view — the grid analog of
-    /// `tableView.selectRowIndexes`/`scrollRowToVisible`.
-    private func syncGridSelection(to index: Int) {
-        // Checked against the collection view's own count, not just the plan's:
-        // selecting or scrolling to an item the view does not hold yet wedges
-        // AppKit outright rather than failing, and the view lags the plan
-        // whenever a draw is still in progress.
-        guard results.indices.contains(index),
-              index < gridView.collectionView.numberOfItems(inSection: 0) else {
-            gridView.collectionView.deselectAll(nil)
-            return
-        }
-        let indexPath = IndexPath(item: index, section: 0)
-        gridView.collectionView.selectionIndexPaths = [indexPath]
-        // Explicit position: an empty ScrollPosition can no-op in AppKit,
-        // leaving the selection below the fold while arrowing.
-        gridView.collectionView.scrollToItems(
-            at: [indexPath],
-            scrollPosition: .nearestHorizontalEdge
-        )
-    }
-
-    private func selectedResult() -> SearchResult? {
-        state.focusedResult
     }
 
     private func enterMode(_ mode: Mode) {
@@ -521,7 +527,7 @@ final class PaletteController: NSObject {
     }
 
     private func performSelectedReveal() -> Bool {
-        guard let path = FilePayload.path(for: selectedResult()) else {
+        guard let path = FilePayload.path(for: state.focusedResult) else {
             return false
         }
         actionRunner.performReveal(path)
@@ -532,8 +538,8 @@ final class PaletteController: NSObject {
     /// harmlessly) when the selection has no file path and the panel isn't
     /// already open to be dismissed.
     private func toggleQuickLook() -> Bool {
-        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
-            QLPreviewPanel.shared().orderOut(nil)
+        if quickLookSession.isVisible {
+            quickLookSession.hide()
             // See largeTypeController.onDismiss above: explicitly re-key the
             // palette rather than relying on AppKit's successor-window
             // choice, so the deferred check in observeQuickLookResign can
@@ -541,39 +547,10 @@ final class PaletteController: NSObject {
             panel.makeKeyAndOrderFront(nil)
             return true
         }
-        guard FilePayload.path(for: selectedResult()) != nil else {
+        guard FilePayload.path(for: state.focusedResult) != nil else {
             return false
         }
-        let qlPanel = QLPreviewPanel.shared()!
-        observeQuickLookResign(qlPanel)
-        qlPanel.makeKeyAndOrderFront(nil)
-        return true
-    }
-
-    /// `QLPreviewPanel` is a private AppKit subclass handed out by
-    /// `.shared()` — it can't be subclassed to override `resignKey` the way
-    /// `PalettePanel`/`LargeTypePanel` do, so `NSWindow.didResignKeyNotification`
-    /// is the equivalent hook. The singleton outlives any single preview
-    /// session, so the observer is registered once for this controller's lifetime.
-    ///
-    /// Mirrors the same deferred one-runloop-turn keyWindow check as
-    /// `PalettePanel.resignKey`/`LargeTypePanel.resignKey`: the successor
-    /// key window isn't settled yet at notification time, so wait a turn,
-    /// then only treat it as a genuine focus loss (hide the whole palette)
-    /// if that successor isn't one of the app's own panels.
-    private func observeQuickLookResign(_ qlPanel: QLPreviewPanel) {
-        guard quickLookResignObserver == nil else {
-            return
-        }
-        quickLookResignObserver = NotificationToken(
-            name: NSWindow.didResignKeyNotification,
-            object: qlPanel
-        ) { [weak self] in
-            guard let self else { return }
-            FocusLossCheck.runDeferred(ownPanel: panel) { [weak self] in
-                self?.hide()
-            }
-        }
+        return quickLookSession.show()
     }
 
     /// No-op (returns `false`) when the selection has no large-type text
@@ -583,14 +560,14 @@ final class PaletteController: NSObject {
             largeTypeController.hide()
             return true
         }
-        // `selectedResult()` already returns the hero whenever focus is
+        // `focusedResult` already returns the hero whenever focus is
         // `.hero`, and an update with a hero always takes focus — so a
         // fallback to the hero here can never fire and was dead code.
         // `panel.screen` is nil whenever the frame intersects no screen (a
         // saved position after a display change — the case `show()` guards
         // with `isOnAnyScreen`), and `NSScreen.main` is nil when no screen
         // owns the key window. Bail like `show()` does rather than trap.
-        guard let text = LargeType.text(for: selectedResult()),
+        guard let text = LargeType.text(for: state.focusedResult),
               let screen = panel.screen ?? NSScreen.main else {
             return false
         }
@@ -614,7 +591,7 @@ final class PaletteController: NSObject {
     @discardableResult
     private func presentActionsPanel() -> Bool {
         actionsPanel.hide()
-        guard let result = selectedResult() else {
+        guard let result = state.focusedResult else {
             return false
         }
         actionsPanel.show(
@@ -632,26 +609,26 @@ final class PaletteController: NSObject {
         actionsPanel.hide()
         switch kind {
         case .primary:
-            if let result = selectedResult() {
+            if let result = state.focusedResult {
                 actionRunner.perform(result)
             }
         case .copy:
             // The panel's Copy is an explicit action on the result — the
             // field-editor-selection veto in performSelectedCopy exists to
             // disambiguate a bare ⌘C, which can't reach here.
-            if let result = selectedResult(), ResultActions.hasCopyAction(result) {
+            if let result = state.focusedResult, ResultActions.hasCopyAction(result) {
                 actionRunner.performCopy(result)
             }
         case .pin:
-            if let result = selectedResult(), ResultActions.hasPinAction(result) {
+            if let result = state.focusedResult, ResultActions.hasPinAction(result) {
                 actionRunner.performPin(result)
             }
         case .quit:
-            if let result = selectedResult() {
+            if let result = state.focusedResult {
                 actionRunner.performQuit(result)
             }
         case .hide:
-            if let result = selectedResult() {
+            if let result = state.focusedResult {
                 actionRunner.performHide(result)
             }
         case .reveal:
@@ -664,7 +641,7 @@ final class PaletteController: NSObject {
     }
 
     private func refreshQuickLookIfVisible() {
-        guard QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible else {
+        guard quickLookSession.isVisible else {
             return
         }
         // A selection change that lands on a result with no file path (e.g.
@@ -672,11 +649,11 @@ final class PaletteController: NSObject {
         // show — `reloadData` would just leave the previous preview's
         // content stuck on screen. Close the panel instead of showing stale
         // (or blank) content for an item that was never previewable.
-        guard FilePayload.path(for: selectedResult()) != nil else {
-            QLPreviewPanel.shared().orderOut(nil)
+        guard FilePayload.path(for: state.focusedResult) != nil else {
+            quickLookSession.hide()
             return
         }
-        QLPreviewPanel.shared().reloadData()
+        quickLookSession.reload()
     }
 
     private func resizePanel() {
@@ -727,22 +704,17 @@ final class PaletteController: NSObject {
         guard userAdjustedPosition else {
             return
         }
-        defaults.set(
-            Double(panel.frame.origin.x),
-            for: PersistedPreferenceKeys.palettePositionX
-        )
-        defaults.set(
-            Double(panel.frame.maxY),
-            for: PersistedPreferenceKeys.palettePositionY
-        )
+        preferences.setPalettePosition(PalettePosition(
+            x: Double(panel.frame.origin.x),
+            top: Double(panel.frame.maxY)
+        ))
     }
 
     private func savedTopLeft() -> NSPoint? {
-        guard let x = defaults.number(for: PersistedPreferenceKeys.palettePositionX),
-              let y = defaults.number(for: PersistedPreferenceKeys.palettePositionY) else {
+        guard let position = preferences.palettePosition else {
             return nil
         }
-        return NSPoint(x: x.doubleValue, y: y.doubleValue)
+        return NSPoint(x: position.x, y: position.top)
     }
 
     private static func isOnAnyScreen(_ topLeft: NSPoint) -> Bool {
@@ -804,19 +776,11 @@ final class PaletteController: NSObject {
     /// which each keep as an explicit case above instead of going through
     /// this helper.
     private static func footerLabel(for mode: Mode) -> String {
-        switch mode {
-        case .general: "Bopop"
-        case .apps: "Apps"
-        case .fileSearch: "Files"
-        case .clipboard: "Clipboard"
-        case .emoji: "Emoji"
-        case .translation: "Translate"
-        case .snippets: "Snippets"
-        }
+        mode == .general ? "Bopop" : mode.descriptor.title
     }
 
     private func updateFooterActions() {
-        guard let result = selectedResult() else {
+        guard let result = state.focusedResult else {
             footerView.setActions(primary: nil, hasActions: false)
             return
         }
@@ -838,8 +802,7 @@ final class PaletteController: NSObject {
     private func handle(_ key: PaletteKey) -> Bool {
         let overlays = PaletteOverlays(
             actionsPanelIsVisible: actionsPanel.isVisible,
-            quickLookIsVisible: QLPreviewPanel.sharedPreviewPanelExists()
-                && QLPreviewPanel.shared().isVisible,
+            quickLookIsVisible: quickLookSession.isVisible,
             largeTypeIsVisible: largeTypeController.isVisible
         )
         switch state.route(key, overlays: overlays) {
@@ -858,7 +821,7 @@ final class PaletteController: NSObject {
         case let .cycleTab(shift):
             commit(state.tab(shift: shift))
         case .runFocused:
-            guard let result = selectedResult() else {
+            guard let result = state.focusedResult else {
                 break
             }
             actionRunner.perform(result)
@@ -906,7 +869,7 @@ extension PaletteController {
     var renderedPlanForTesting: PaletteRenderPlan { rendered }
     var tableRowCountForTesting: Int { tableView.numberOfRows }
     var gridItemCountForTesting: Int {
-        gridView.collectionView.numberOfItems(inSection: 0)
+        gridView.itemCount
     }
     var isTableVisibleForTesting: Bool { !scrollView.isHidden }
     var isGridVisibleForTesting: Bool { !gridView.isHidden }
@@ -940,6 +903,15 @@ extension PaletteController {
     var queryTextForTesting: String { rendered.queryText }
     var isPanelVisibleForTesting: Bool { panel.isVisible }
     var hideCountForTesting: Int { hideCount }
+
+    /// Deterministically simulates a synchronous AppKit callback during the
+    /// next draw. The hook is consumed before invocation so the queued draw
+    /// cannot recursively trigger it again.
+    func reenterNextDrawForTesting(with key: PaletteKey) {
+        nextDrawHookForTesting = { [weak self] in
+            _ = self?.handle(key)
+        }
+    }
 }
 
 extension PaletteController: NSTextFieldDelegate {
@@ -1058,7 +1030,7 @@ extension PaletteController: NSCollectionViewDataSource, NSCollectionViewDelegat
             return
         }
         commit(state.selectRow(indexPath.item))
-        if let result = selectedResult() {
+        if let result = state.focusedResult {
             actionRunner.perform(result)
         }
     }
@@ -1066,7 +1038,7 @@ extension PaletteController: NSCollectionViewDataSource, NSCollectionViewDelegat
 
 extension PaletteController: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        FilePayload.path(for: selectedResult()) != nil ? 1 : 0
+        FilePayload.path(for: state.focusedResult) != nil ? 1 : 0
     }
 
     /// Quick Look is key while visible, so ⌘Y never reaches `PalettePanel` —
@@ -1086,7 +1058,7 @@ extension PaletteController: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
-        guard let path = FilePayload.path(for: selectedResult()) else {
+        guard let path = FilePayload.path(for: state.focusedResult) else {
             return nil
         }
         return URL(fileURLWithPath: path) as QLPreviewItem

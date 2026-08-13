@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct ScriptInfo: Equatable, Sendable {
+public struct ScriptInfo: Equatable, Sendable {
     public let name: String
     public let path: String
 }
@@ -9,7 +9,7 @@ public nonisolated struct ScriptInfo: Equatable, Sendable {
 // scan per call (no cache to race on) — safe to run entirely off the main
 // actor, which is the whole point: ScriptsProvider's directory scan must not
 // block every other provider while it walks the filesystem.
-public nonisolated final class ScriptCatalog: Sendable {
+public final class ScriptCatalog: Sendable {
     private let directory: URL
 
     public init(directory: URL) {
@@ -53,25 +53,25 @@ public nonisolated final class ScriptCatalog: Sendable {
     }
 }
 
-public nonisolated struct ScriptRunResult: Sendable {
+public struct ScriptRunResult: Sendable {
     public let exitCode: Int32?
     public let stdout: String
     public let stderr: String
     public let launchFailure: LaunchFailure?
 
-    public nonisolated enum LaunchFailure: Equatable, Sendable {
+    public enum LaunchFailure: Equatable, Sendable {
         case missingShebang
         case failed(String)
     }
 }
 
 public enum ScriptRunner {
-    private nonisolated static let outputLimit = 65_536
-    private nonisolated static let drainDeadline: Duration = .seconds(2)
-    private nonisolated static let truncationMarker =
+    private static let outputLimit = 65_536
+    private static let drainDeadline: Duration = .seconds(2)
+    private static let truncationMarker =
         "(output truncated: descendant still holds the pipe)"
 
-    public static nonisolated func run(
+    public static func run(
         scriptAt path: String,
         workingDirectory: URL
     ) async -> ScriptRunResult {
@@ -168,7 +168,7 @@ public enum ScriptRunner {
         )
     }
 
-    private static nonisolated func isMissingShebang(_ error: Error) -> Bool {
+    private static func isMissingShebang(_ error: Error) -> Bool {
         let error = error as NSError
         if error.domain == NSPOSIXErrorDomain, error.code == 8 {
             return true
@@ -179,7 +179,7 @@ public enum ScriptRunner {
         return false
     }
 
-    private static nonisolated func drain(
+    private static func drain(
         _ fileHandle: FileHandle,
         into capture: ScriptPipeCapture
     ) async -> Data {
@@ -208,7 +208,7 @@ public final class ScriptsProvider: ResultProvider {
         self.catalog = catalog
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, !query.term.isEmpty else {
             return []
         }
@@ -253,7 +253,7 @@ private actor ScriptTermination {
     }
 }
 
-private nonisolated final class ScriptPipeCapture: @unchecked Sendable {
+private final class ScriptPipeCapture: @unchecked Sendable {
     private let limit: Int
     private let lock = NSLock()
     private var data = Data()

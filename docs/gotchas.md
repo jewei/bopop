@@ -10,7 +10,16 @@ comments pointing at a file a fresh clone did not have.
 
 1. **Cryptex apps are invisible to `FileManager.contentsOfDirectory`** on `/Applications`. Safari lives at `/System/Cryptexes/App/System/Applications` — it's in `AppCatalog.defaultDirectories`.
 2. **Finder** isn't in any Applications dir; it's a single bundle at `/System/Library/CoreServices/Finder.app`, wired via `extraApplicationPaths`. Tests must pass `extraApplicationPaths: []` or real Finder pollutes fixtures.
-3. **Apple Passwords sets no clipboard marker types** (macOS 15.7, verified) — only `public.utf8-plain-text`. It does fire a zero-type pasteboard clear ~60–90 s after the copy; the upstream-clear scrub (`forgetNewest(ifCapturedWithin:)`) keys off that. The window was narrowed from 600 s to 120 s in the `review-fixes` round, and a later live QA pass confirmed both the capture and the scrub. That pass also found the scrub was scoped wrong: Apple Passwords schedules its wipe **per copy**, but a second copy replaces the first on the pasteboard, so only one wipe actually lands. Scrubbing a single entry per wipe therefore left the earlier password in history permanently — reported as "i copied 2 passwords, 1 is gone, another 1 stays". `forgetCaptures(within:)` now drops every unpinned capture in the window, accepting that an unrelated copy made in the same window goes with them. Don't remove either layer.
+3. **Apple Passwords sets no clipboard marker types** (macOS 15.7, verified) —
+   only `public.utf8-plain-text`. It does fire a zero-type pasteboard clear about
+   60–90 seconds after a copy; the upstream-clear scrub keys off that. Apple
+   Passwords schedules its wipe per copy, but a second copy replaces the first,
+   so only one wipe may land. Scrubbing one entry left the earlier password in
+   history permanently. `forgetCaptures(within:)` therefore drops every recent
+   unpinned capture within 120 seconds. This can also remove an unrelated recent
+   copy; pins remain exempt because they are an explicit keep decision. The
+   privacy contract is in `docs/privacy.md`. Do not remove either the sensitive-
+   type rejection or the upstream-clear heuristic.
 4. **`NSTableRowView.isSelected` is set during row init**, before any cell exists — `view(atColumn:)` throws then, and Carbon event dispatch swallows the exception, presenting as a silent hang. The `guard numberOfColumns > 0` in `PaletteRowView` is load-bearing.
 5. **Layer `cornerRadius` does not clip `NSVisualEffectView` blur material.** The rounded corners come from `maskImage` with `capInsets` in PaletteLayout.swift.
 6. **`NSStackView(views:)` puts everything in the leading gravity area**; equal-priority ties break arbitrarily per cell reuse. Right-pinned views (badge, ↵ keycap) must be added with `addView(_, in: .trailing)`.
@@ -51,20 +60,14 @@ comments pointing at a file a fresh clone did not have.
     Regenerate with
     `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json`;
     it fetches from the network and the output is committed.
-16. **A resigned key window with no successor does not mean the user left.**
-    `NSApp.keyWindow` is nil both when another app is frontmost *and* during an
-    in-app handover that has not settled — one deferred runloop turn is not
-    enough for `QLPreviewPanel`, which takes key only after it has loaded its
-    preview and gives it up again on the way out. Hiding on the bare nil tore
-    the palette down mid-open and took Quick Look with it, presenting as "the
-    pdf appears and then closes in 1 second". `NSApp.isActive` does not
-    separate the two: it reads false in both. What separates them is whether
-    one of Bopop's own overlays is still on screen — see
-    `FocusLossCheck.isForeign(successor:ownPanel:quickLookIsVisible:)`.
-    Quick Look **specifically**, not "any overlay of ours is visible": the
-    palette sits visible behind every overlay, so the broad version stopped
-    Large Type dismissing when the user switched away. Quick Look is the only
-    overlay that takes key late, and the only one that cannot be subclassed to
-    handle its own keys — `LargeTypePanel` overrides `performKeyEquivalent`
-    instead, which is also why ⌘L could close it while ⌘Y needed the
-    `previewPanel(_:handle:)` delegate hook.
+16. **A nil key successor is ambiguous only during an explicit Quick Look
+    handoff.** `NSApp.keyWindow` is nil both when another app is frontmost and
+    while `QLPreviewPanel` is taking or returning key status. One deferred
+    run-loop turn was not enough; treating nil as loss tore the palette down
+    mid-open. Visibility is not a discriminator: Quick Look may still be
+    visible while the user switches away, and the palette is visible behind
+    Large Type. `FocusHandoffState` therefore marks Quick Look opening and
+    resigning. `FocusLossCheck.decision` keeps the opening handoff, retries the
+    resign handoff for a bounded interval, and treats an unresolved nil as a
+    genuine loss. Do not replace that state machine with `NSApp.isActive` or an
+    “any overlay is visible” check. See ADR 0001.

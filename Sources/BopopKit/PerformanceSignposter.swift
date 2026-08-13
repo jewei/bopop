@@ -1,6 +1,6 @@
 import os
 
-public nonisolated struct PerformanceSignposter: Sendable {
+public struct PerformanceSignposter: Sendable {
     public static let disabled = PerformanceSignposter(signposter: .disabled)
 
     private let signposter: OSSignposter
@@ -41,7 +41,7 @@ public nonisolated struct PerformanceSignposter: Sendable {
     }
 }
 
-public nonisolated enum PerformanceSignposts {
+public enum PerformanceSignposts {
     public static let lifecycle = PerformanceSignposter(category: "Lifecycle")
     public static let palette = PerformanceSignposter(category: "Palette")
     public static let catalog = PerformanceSignposter(category: "Catalog")

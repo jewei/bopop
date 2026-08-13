@@ -1,7 +1,15 @@
 import Foundation
+
+public struct PersistenceFailure: Error, Equatable, Sendable {
+    public let reason: String
+
+    public init(_ reason: String) {
+        self.reason = reason
+    }
+}
 import os
 
-public nonisolated struct Storage {
+public struct Storage {
     public let baseDirectory: URL
 
     public init(baseDirectory: URL) {
@@ -63,7 +71,7 @@ public nonisolated struct Storage {
 
     /// The custom palette icon image, written by the app target's import
     /// pipeline. Its mere presence is the "custom icon active" flag — no
-    /// separate defaults key. See docs/superpowers/specs/2026-07-20-custom-palette-icon-design.md.
+    /// separate defaults key. See docs/adr/0002-custom-palette-image-storage.md.
     public var brandImageURL: URL {
         baseDirectory.appendingPathComponent("brand.png")
     }
@@ -95,11 +103,24 @@ public nonisolated struct Storage {
     public func save<T: Codable>(_ value: T, version: Int, to url: URL) throws {
         let envelope = Envelope(version: version, payload: value)
         let data = try JSONEncoder().encode(envelope)
-        try data.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
+        let fileManager = FileManager.default
+        let stagedURL = url.deletingLastPathComponent().appendingPathComponent(
+            ".\(url.lastPathComponent).\(UUID().uuidString).staged"
         )
+        defer { try? fileManager.removeItem(at: stagedURL) }
+
+        // Prepare bytes and privacy-sensitive permissions before replacing the
+        // live file. A failure at either step leaves the previous value intact.
+        try data.write(to: stagedURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: stagedURL.path
+        )
+        if fileManager.fileExists(atPath: url.path) {
+            _ = try fileManager.replaceItemAt(url, withItemAt: stagedURL)
+        } else {
+            try fileManager.moveItem(at: stagedURL, to: url)
+        }
     }
 
     public func load<T: Codable>(

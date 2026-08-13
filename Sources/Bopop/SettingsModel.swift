@@ -61,9 +61,14 @@ final class SettingsModel: ObservableObject {
 
     @Published var hotkey: HotkeyConfig {
         didSet {
-            hotkeyUnavailable = !hotkeyManager.register(hotkey)
             hotkey.save(to: defaults)
             spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
+            // Recording writes the new binding before it flips `isRecording`
+            // back to false. Register only on that final transition so one
+            // recording produces one Carbon registration, not two.
+            if !isRecording {
+                registerCurrentHotkey()
+            }
         }
     }
 
@@ -74,20 +79,21 @@ final class SettingsModel: ObservableObject {
             }
             if isRecording {
                 hotkeyManager.unregister()
+                hotkeyRegistrationOutcome = nil
             } else {
-                hotkeyManager.register(hotkey)
+                registerCurrentHotkey()
             }
         }
     }
 
     @Published var clipboardLimit: Int {
         didSet {
-            let clamped = Self.clampClipboardLimit(clipboardLimit)
+            let clamped = PreferencesRepository.clampClipboardLimit(clipboardLimit)
             guard clipboardLimit == clamped else {
                 clipboardLimit = clamped
                 return
             }
-            defaults.set(clipboardLimit, for: PersistedPreferenceKeys.clipboardLimit)
+            preferences.setClipboardLimit(clipboardLimit)
             clipboardStore.setLimit(clipboardLimit)
         }
     }
@@ -105,28 +111,25 @@ final class SettingsModel: ObservableObject {
 
     @Published var chineseVariant: TranslationTarget {
         didSet {
-            defaults.set(chineseVariant.rawValue, for: PersistedPreferenceKeys.chineseVariant)
+            preferences.setChineseVariant(chineseVariant)
         }
     }
 
     @Published var searchEngine: SearchEngine {
         didSet {
-            defaults.set(searchEngine.rawValue, for: PersistedPreferenceKeys.searchEngine)
+            preferences.setSearchEngine(searchEngine)
         }
     }
 
     @Published private(set) var fileSearchFolders: [String] {
         didSet {
-            defaults.set(fileSearchFolders, for: PersistedPreferenceKeys.fileSearchFolders)
+            preferences.setFileSearchFolders(fileSearchFolders)
         }
     }
 
     @Published private(set) var customSearches: [CustomWebSearch] {
         didSet {
-            guard let data = try? JSONEncoder().encode(customSearches) else {
-                return
-            }
-            defaults.set(data, for: PersistedPreferenceKeys.customSearchesData)
+            try? preferences.setCustomSearches(customSearches)
         }
     }
 
@@ -135,13 +138,12 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var hiddenResultIDs: [String]
 
     @Published private(set) var launchAtLoginError: String?
+    @Published private(set) var currencyCacheError: String?
     @Published private(set) var spotlightConflict: Bool
-    /// The shortcut could not be registered, so it will not fire. Reported by
-    /// Carbon at registration time, which catches any app holding the
-    /// combination — unlike `spotlightConflict`, which predicts one specific
-    /// clash by reading Spotlight's own preferences and only for the default
-    /// shortcut.
-    @Published private(set) var hotkeyUnavailable = false
+    /// Carbon's local registration result. It can diagnose Bopop's own handler
+    /// or registration failure, but it cannot establish that another process
+    /// owns the same combination. Spotlight remains a separate explicit check.
+    @Published private(set) var hotkeyRegistrationOutcome: HotkeyRegistrationOutcome?
     @Published private(set) var customSearchError: CustomSearchError?
     @Published private(set) var snippetError: SnippetError?
     /// False when the snippets file was quarantined at load. Published so the
@@ -163,25 +165,28 @@ final class SettingsModel: ObservableObject {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
-    private let hotkeyManager: HotkeyManager
+    private let hotkeyManager: any HotkeyRegistering
     private let clipboardStore: ClipboardStore
     private let snippetStore: SnippetStore
     private let visibilityStore: VisibilityStore
     private let rateStore: RateStore
     private let storage: Storage
     private let defaults: UserDefaults
+    private let preferences: PreferencesRepository
     private var isRevertingLaunchAtLogin = false
 
     init(
-        hotkeyManager: HotkeyManager,
+        hotkeyManager: any HotkeyRegistering,
         clipboardStore: ClipboardStore,
         snippetStore: SnippetStore,
         visibilityStore: VisibilityStore,
         rateStore: RateStore,
         storage: Storage,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        preferences: PreferencesRepository? = nil
     ) {
         let hotkey = HotkeyConfig.load(from: defaults)
+        let preferences = preferences ?? PreferencesRepository(defaults: defaults)
         self.hotkeyManager = hotkeyManager
         self.clipboardStore = clipboardStore
         self.snippetStore = snippetStore
@@ -189,15 +194,16 @@ final class SettingsModel: ObservableObject {
         self.rateStore = rateStore
         self.storage = storage
         self.defaults = defaults
+        self.preferences = preferences
         self.hotkey = hotkey
-        clipboardLimit = Self.storedClipboardLimit(in: defaults)
-        currencyEnabled = Self.storedCurrencyEnabled(in: defaults)
+        clipboardLimit = preferences.clipboardLimit
+        currencyEnabled = preferences.currencyEnabled
         launchAtLogin = SMAppService.mainApp.status == .enabled
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
-        chineseVariant = Self.storedChineseVariant(in: defaults)
-        searchEngine = Self.storedSearchEngine(in: defaults)
-        fileSearchFolders = Self.storedFileSearchFolders(in: defaults)
-        customSearches = Self.storedCustomSearches(in: defaults)
+        chineseVariant = preferences.chineseVariant
+        searchEngine = preferences.searchEngine
+        fileSearchFolders = preferences.fileSearchFolders
+        customSearches = preferences.customSearches
         snippets = snippetStore.snippets
         snippetsAvailable = snippetStore.isAvailable
         hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
@@ -205,16 +211,14 @@ final class SettingsModel: ObservableObject {
     }
 
     static func storedClipboardLimit(in defaults: UserDefaults) -> Int {
-        guard let stored = defaults.number(for: PersistedPreferenceKeys.clipboardLimit) else {
-            return 100
-        }
-        return clampClipboardLimit(stored.intValue)
+        PreferencesRepository(defaults: defaults).clipboardLimit
     }
 
-    /// Absent means off. Currency conversion is the one feature that leaves
-    /// the machine, so it ships disabled and stays disabled until asked for.
+    /// Absent means off. Currency is the only query feature that makes a
+    /// network request, so it ships disabled until the user consents. Sparkle
+    /// update checks are disclosed separately.
     static func storedCurrencyEnabled(in defaults: UserDefaults) -> Bool {
-        defaults.bool(for: PersistedPreferenceKeys.currencyEnabled)
+        PreferencesRepository(defaults: defaults).currencyEnabled
     }
 
     /// `enabled == true` is only ever reached from the consent dialog in
@@ -224,51 +228,47 @@ final class SettingsModel: ObservableObject {
             return
         }
         currencyEnabled = enabled
-        defaults.set(enabled, for: PersistedPreferenceKeys.currencyEnabled)
+        preferences.setCurrencyEnabled(enabled)
         if !enabled {
-            rateStore.clearCache()
+            if case let .failure(error) = rateStore.clearCache() {
+                currencyCacheError = "Currency is off, but the cached rates could not be deleted: \(error.reason)"
+            } else {
+                currencyCacheError = nil
+            }
         }
     }
 
     static func storedChineseVariant(in defaults: UserDefaults) -> TranslationTarget {
-        guard let stored = defaults.string(for: PersistedPreferenceKeys.chineseVariant),
-              let target = TranslationTarget(rawValue: stored) else {
-            return .chineseSimplified
-        }
-        return target
+        PreferencesRepository(defaults: defaults).chineseVariant
     }
 
     static func storedSearchEngine(in defaults: UserDefaults) -> SearchEngine {
-        guard let stored = defaults.string(for: PersistedPreferenceKeys.searchEngine),
-              let engine = SearchEngine(rawValue: stored) else {
-            return .google
-        }
-        return engine
+        PreferencesRepository(defaults: defaults).searchEngine
     }
 
     static func storedFileSearchFolders(in defaults: UserDefaults) -> [String] {
-        defaults.stringArray(for: PersistedPreferenceKeys.fileSearchFolders) ?? []
+        PreferencesRepository(defaults: defaults).fileSearchFolders
     }
 
     static func storedCustomSearches(in defaults: UserDefaults) -> [CustomWebSearch] {
-        guard let data = defaults.data(for: PersistedPreferenceKeys.customSearchesData),
-              let searches = try? JSONDecoder().decode([CustomWebSearch].self, from: data) else {
-            return []
-        }
-        return searches
+        PreferencesRepository(defaults: defaults).customSearches
     }
 
     /// Re-runs both checks and retries the registration, so freeing the
     /// shortcut in the other app and pressing Re-check is enough — no relaunch.
     func recheckConflict() {
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
-        hotkeyUnavailable = !hotkeyManager.register(hotkey)
+        registerCurrentHotkey()
     }
 
-    /// Seeds the flag from the registration `AppDelegate` performs at launch,
-    /// which happens before this model exists.
-    func setHotkeyUnavailable(_ unavailable: Bool) {
-        hotkeyUnavailable = unavailable
+    /// Records the result of AppDelegate's launch-time registration without
+    /// asking Carbon twice.
+    func setHotkeyRegistrationOutcome(_ outcome: HotkeyRegistrationOutcome) {
+        hotkeyRegistrationOutcome = outcome
+    }
+
+    private func registerCurrentHotkey() {
+        hotkeyRegistrationOutcome = hotkeyManager.register(hotkey)
     }
 
     /// Opens an NSOpenPanel (folders only, multi-select) and appends any
@@ -321,31 +321,22 @@ final class SettingsModel: ObservableObject {
         customSearchError = nil
     }
 
-    /// Mirrors `CustomWebSearch.isValid`'s conditions one at a time so the
-    /// form can say which one failed. Keep the two in step.
+    /// Maps the domain validation result to presentation copy. The rules
+    /// themselves live on `CustomWebSearch`, so Settings cannot drift from the
+    /// provider's definition of a usable search.
     private static func validate(
         _ search: CustomWebSearch,
         against existing: [CustomWebSearch]
     ) -> CustomSearchError? {
-        if search.name.trimmingCharacters(in: .whitespaces).isEmpty {
-            return .nameMissing
+        switch search.validationError(existing: existing) {
+        case .none: nil
+        case .nameMissing: .nameMissing
+        case .keywordMissing: .keywordMissing
+        case .keywordHasWhitespace: .keywordHasWhitespace
+        case .keywordReserved: .keywordReserved
+        case .keywordTaken: .keywordTaken
+        case .templateMissingQueryToken: .templateMissingQueryToken
         }
-        if search.keyword.isEmpty {
-            return .keywordMissing
-        }
-        if search.keyword.contains(where: \.isWhitespace) {
-            return .keywordHasWhitespace
-        }
-        if CustomWebSearch.isReservedKeyword(search.keyword) {
-            return .keywordReserved
-        }
-        if !search.urlTemplate.contains("{query}") {
-            return .templateMissingQueryToken
-        }
-        let isTaken = existing.contains {
-            $0.keyword.caseInsensitiveCompare(search.keyword) == .orderedSame
-        }
-        return isTaken ? .keywordTaken : nil
     }
 
     func removeCustomSearch(id: UUID) {
@@ -440,8 +431,14 @@ final class SettingsModel: ObservableObject {
 
     func resetBrandImageToDefault() {
         brandImageImportError = nil
-        try? FileManager.default.removeItem(at: storage.brandImageURL)
-        hasCustomBrandImage = false
+        do {
+            if FileManager.default.fileExists(atPath: storage.brandImageURL.path) {
+                try FileManager.default.removeItem(at: storage.brandImageURL)
+            }
+            hasCustomBrandImage = false
+        } catch {
+            brandImageImportError = "Couldn't reset the palette icon: \(error.localizedDescription)"
+        }
     }
 
     /// Decode → aspect-fill square-crop → downscale (via
@@ -473,10 +470,6 @@ final class SettingsModel: ObservableObject {
             updated.append(path)
         }
         fileSearchFolders = updated
-    }
-
-    private static func clampClipboardLimit(_ value: Int) -> Int {
-        min(max(value, 10), 500)
     }
 
     private func updateLaunchAtLogin(from oldValue: Bool) {

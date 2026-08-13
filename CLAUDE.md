@@ -14,8 +14,9 @@ SwiftPM, Swift 6 language mode, macOS 15+, Xcode 26.
   bug, or as pointless code, until you know it. Several entries are cited by
   number from the source. Read it before simplifying anything that looks
   redundant, and before changing the palette's AppKit half.
-- **[`docs/releasing.md`](docs/releasing.md)** — cutting a release, its two
-  guards, and how to pick the version.
+- **[`docs/README.md`](docs/README.md)** — the documentation map. In particular,
+  read `docs/testing.md` before trusting a green suite and `docs/releasing.md`
+  before cutting a release.
 
 ## Architecture
 
@@ -29,15 +30,16 @@ PaletteState → QueryEngine → Providers (concurrent) → Ranker
          PaletteController (adapter) → ActionRunner
 ```
 
-- **`BopopKit` is Foundation-only.** The SwiftPM target boundary enforces it,
-  which is why parsing, ranking and the providers are testable without a UI.
-  Anything needing AppKit arrives as a closure injected from `AppDelegate`.
+- **`BopopKit` has no AppKit or SwiftUI.** It also uses non-UI Apple modules
+  such as `os` and UniformTypeIdentifiers, so “Foundation-only” is not literal.
+  SwiftPM enforces the dependency direction; the UI-import ban is a review
+  convention. Anything needing AppKit arrives through the app adapter.
 - **`AppDelegate.init()` is the single wiring point.** Constructor injection,
   no singletons. New long-lived state is constructed and passed there.
-- **Providers are `nonisolated`** and run concurrently in a task group, so they
-  reach MainActor state only through an explicit `await MainActor.run { ... }`
-  snapshot. Use that snapshot rather than `assumeIsolated`, which is unsound
-  here and rejected in review.
+- **Providers are `Sendable` and run concurrently** outside the main actor.
+  They reach MainActor state only through an explicit awaited snapshot. Use
+  that snapshot rather than `assumeIsolated`, which is unsound here and rejected
+  in review.
 
 ### The palette
 
@@ -80,12 +82,14 @@ effects.
 - **A key the palette declines reports unhandled.** `route` returns
   `.passThrough` and the adapter propagates it, which is what lets ←/→ move the
   caret and ⌘C copy selected text out of the query field.
-- **Overlay panels resign key when another Bopop overlay takes it.**
-  `FocusLossCheck.isForeign` decides and `runDeferred` waits a runloop turn, but
-  the successor can still be nil — that reads the same whether the user left or
-  a handover has not settled, so the check also asks whether one of our overlays
-  is still on screen. See gotcha #16. Dismissing an overlay re-keys the palette
-  explicitly.
+- **Quick Look focus uses explicit handoff state, never visibility.**
+  `FocusLossCheck.decision` keeps a nil successor only while Quick Look is
+  explicitly opening, and retries its resign handoff for a bounded interval.
+  After that, nil is a genuine loss. Do not broaden this to “one of our overlays
+  is visible”: the palette sits behind Large Type, and that rule stopped Large
+  Type dismissing on an app switch. See gotcha #16 and
+  [`ADR 0001`](docs/adr/0001-quick-look-focus-handoff.md). Dismissing an overlay
+  re-keys the palette explicitly.
 - **The actions panel stays non-key.** A non-activating child panel, so the
   query field keeps focus and the caret never needs freezing. Load-bearing for
   `FocusLossCheck`, whose allowlist excludes the plain `NSPanel` it is built
@@ -101,11 +105,12 @@ effects.
   Clear and the trim, have their own cap, and the upstream-clear heuristic
   leaves them alone — it can't identify who cleared the pasteboard, so it must
   not delete something explicitly kept.
-- **Networked features are consent-gated, and the safe state is the default.**
-  Currency alone leaves the machine. `CurrencyProvider.isEnabled` defaults to
-  `{ false }`, so an unwired consent check disables the fetch; consent is
-  re-read on *both* sides of the network `await` because it can be withdrawn
-  mid-flight. Turning it off deletes the cached rates.
+- **Currency provider traffic is consent-gated and defaults off.**
+  `CurrencyProvider.isEnabled` defaults to `{ false }`, so an unwired consent
+  check disables the fetch; consent is re-read on both sides of the network
+  `await` because it can be withdrawn mid-flight. Turning it off deletes the
+  cached rates. Released builds separately perform Sparkle update checks; see
+  `docs/privacy.md`.
 - **No Accessibility permission, ever.** Bopop neither pastes into other apps
   nor taps events. Scripts run via `Process` with absolute paths and no shell;
   `ActionRunner.allowedURL` allowlists `http`/`https`/`dict`.

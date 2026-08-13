@@ -48,7 +48,7 @@ private func makeController(
             scriptFeedback: ScriptFeedback(storage: Storage(baseDirectory: root))
         ),
         brandImageURL: root.appendingPathComponent("brand.png"),
-        defaults: defaults
+        preferences: PreferencesRepository(defaults: defaults)
     )
     return (controller, root)
 }
@@ -60,13 +60,18 @@ private func wait(
     on controller: PaletteController,
     timeout: Duration = .seconds(10),
     for predicate: (PaletteRenderPlan) -> Bool
-) async {
+) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now + timeout
     while clock.now < deadline, !predicate(controller.renderedPlanForTesting) {
         try? await Task.sleep(for: .milliseconds(1))
     }
+    guard predicate(controller.renderedPlanForTesting) else {
+        throw PaletteControllerTestTimeout()
+    }
 }
+
+private struct PaletteControllerTestTimeout: Error {}
 
 @MainActor
 @Test
@@ -77,7 +82,7 @@ func typingDrawsTheResultsIntoTheTable() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
 
     controller.typeForTesting("saf")
-    await wait(on: controller) { !$0.rows.isEmpty }
+    try await wait(on: controller) { !$0.rows.isEmpty }
 
     #expect(controller.renderedPlanForTesting.rows.count == 3)
     #expect(controller.tableRowCountForTesting == 3)
@@ -107,9 +112,9 @@ func drawingResultsNeverReEntersTheDraw() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
 
     controller.typeForTesting("a")
-    await wait(on: controller) { $0.rows.count == 25 }
+    try await wait(on: controller) { $0.rows.count == 25 }
     controller.typeForTesting("ab")
-    await wait(on: controller) { $0.rows.count == 12 }
+    try await wait(on: controller) { $0.rows.count == 12 }
 
     #expect(controller.reentrantDrawCountForTesting == 0)
 }
@@ -129,13 +134,13 @@ func leavingAGridModeKeepsTheEngineDelivering() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
 
     controller.enterModeForTesting(.emoji)
-    await wait(on: controller) { $0.rows.count == 1914 }
+    try await wait(on: controller) { $0.rows.count == 1914 }
     #expect(controller.isGridVisibleForTesting)
     #expect(controller.gridItemCountForTesting == 1914)
 
     controller.enterModeForTesting(.apps)
     controller.typeForTesting("saf")
-    await wait(on: controller) { $0.rows.count == 1 }
+    try await wait(on: controller) { $0.rows.count == 1 }
 
     #expect(controller.renderedPlanForTesting.rows.map(\.id) == ["app:safari"])
     #expect(controller.tableRowCountForTesting == 1)
@@ -155,11 +160,30 @@ func programmaticSelectionDoesNotComeBackAsUserInput() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
 
     controller.typeForTesting("a")
-    await wait(on: controller) { $0.rows.count == 5 }
+    try await wait(on: controller) { $0.rows.count == 5 }
 
     #expect(controller.renderedPlanForTesting.focus == .row(0))
     #expect(controller.selectedTableRowForTesting == 0)
     #expect(controller.reentrantDrawCountForTesting == 0)
+}
+
+@MainActor
+@Test
+func aSynchronousNestedDrawIsQueuedUntilTheOuterDrawCompletes() async throws {
+    let (controller, root) = try makeController { query in
+        query.term.isEmpty ? [] : (0..<3).map { row("hit\($0)", matching: query.term) }
+    }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    controller.typeForTesting("a")
+    try await wait(on: controller) { $0.rows.count == 3 }
+
+    controller.reenterNextDrawForTesting(with: .down)
+    #expect(controller.handleKeyForTesting(.down))
+
+    #expect(controller.reentrantDrawCountForTesting == 1, "the injected callback re-entered")
+    #expect(controller.renderedPlanForTesting.focus == .row(2), "the queued newer plan wins")
+    #expect(controller.selectedTableRowForTesting == 2)
 }
 
 // MARK: - Fixtures
@@ -204,7 +228,7 @@ func escapeClearsTheQueryFieldThenClosesThePalette() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
 
     controller.typeForTesting("saf")
-    await wait(on: controller) { !$0.rows.isEmpty }
+    try await wait(on: controller) { !$0.rows.isEmpty }
 
     // Counted rather than reading `panel.isVisible`: `show()` bails when no
     // screen owns the palette, so a headless CI host never sees it visible.
@@ -238,7 +262,7 @@ func horizontalArrowsAreReportedUnhandledInListMode() async throws {
     defer { try? FileManager.default.removeItem(at: root) }
 
     controller.typeForTesting("a")
-    await wait(on: controller) { $0.rows.count == 3 }
+    try await wait(on: controller) { $0.rows.count == 3 }
 
     #expect(!controller.handleKeyForTesting(.left))
     #expect(!controller.handleKeyForTesting(.right))
@@ -254,4 +278,6 @@ func commandCloseHidesThePalette() async throws {
 
     #expect(controller.handleKeyForTesting(.commandClose))
     #expect(controller.hideCountForTesting == 1)
+    #expect(controller.handleKeyForTesting(.commandClose))
+    #expect(controller.hideCountForTesting == 1, "dismissal is idempotent within one session")
 }

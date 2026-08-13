@@ -18,6 +18,44 @@ func usageStoreRecordsHits() throws {
 
 @MainActor
 @Test
+func usageStoreRollsBackWhenPersistenceFails() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = UsageStore(
+        storage: fixture.storage,
+        saveEntries: { _ in throw ExpectedFailure() }
+    )
+
+    let result = store.record("app:failed")
+
+    #expect(store.score("app:failed") == 0)
+    guard case .failure = result else {
+        Issue.record("expected persistence failure")
+        return
+    }
+}
+
+@MainActor
+@Test func usageStoreReportsSanitizationWriteFailure() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    try fixture.storage.save(
+        ["app:invalid": PersistedUsageEntry(hits: 0, lastUsed: Date())],
+        version: 1,
+        to: fixture.storage.usageFileURL
+    )
+    let store = UsageStore(
+        storage: fixture.storage,
+        saveEntries: { _ in throw ExpectedFailure() }
+    )
+
+    #expect(store.persistenceError != nil)
+}
+
+@MainActor
+@Test
 func usageStoreDecaysWithFourteenDayHalfLife() throws {
     let fixture = try makeTestStorage()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -178,4 +216,3 @@ private struct PersistedUsageEntry: Codable {
     let hits: Int
     let lastUsed: Date
 }
-

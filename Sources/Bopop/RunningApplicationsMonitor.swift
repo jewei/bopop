@@ -2,7 +2,7 @@ import AppKit
 
 /// Tracks which apps are running so the palette can offer to quit them.
 ///
-/// `AppsProvider` lives in BopopKit, which is Foundation-only and can't see
+/// `AppsProvider` lives in UI-framework-independent BopopKit and can't see
 /// `NSRunningApplication` — so this sits in the app target and is injected as
 /// a closure, the same shape as the other settings lookups in `AppDelegate`.
 ///

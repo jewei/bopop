@@ -89,8 +89,9 @@ During a longer interactive run, exercise these scenarios separately:
 
 ## First recorded observation
 
-One cold run only — enough to prove the instrumentation works and to give later
-changes something to move against. Not a budget, and not a p95.
+One cold release-configuration run only — enough to prove the instrumentation
+works and to give later changes something to move against. Not a budget, and
+not a p95.
 
 | Field | Value |
 |---|---|
@@ -203,17 +204,12 @@ A bundle whose date cannot be read is re-read every scan rather than cached
 against a date that cannot be compared. The cache is rebuilt from each pass, so
 uninstalled apps fall out.
 
-## Known gap: release-configuration tests
+## Release-configuration tests
 
-`swift test -c release` does not build:
-
-```
-error: deinit is marked isolated, but containing class 'HotkeyManager' is not
-isolated to an actor
-```
-
-`swift build -c release` and `make app` are unaffected, so shipping works. It
-does mean the numbers above are debug-build numbers.
+`swift test -c release` is part of the supported release matrix. The signpost
+observation in “First recorded observation” is a release build. Only the
+explicitly labelled microbenchmarks below that observation were measured in
+debug. See `docs/testing.md` for the full matrix.
 
 ## Recording template
 

@@ -1,12 +1,12 @@
 import Foundation
 
-public nonisolated enum TranslationTarget: String, Sendable, Equatable {
+public enum TranslationTarget: String, Sendable, Equatable {
     case english = "en"
     case chineseSimplified = "zh-Hans"
     case chineseTraditional = "zh-Hant"
 }
 
-public nonisolated enum TranslationDirection {
+public enum TranslationDirection {
     private static let hanRanges: [ClosedRange<UInt32>] = [
         0x4E00...0x9FFF,
         0x3400...0x4DBF,
@@ -25,7 +25,7 @@ public nonisolated enum TranslationDirection {
     }
 }
 
-public nonisolated enum TranslatorAvailability: Sendable, Equatable {
+public enum TranslatorAvailability: Sendable, Equatable {
     case ready
     case needsDownload
     case unsupported
@@ -54,7 +54,7 @@ public final class TranslationProvider: ResultProvider {
         self.debounceNanoseconds = debounceNanoseconds
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .translation else {
             return []
         }
@@ -74,7 +74,7 @@ public final class TranslationProvider: ResultProvider {
                     title: "Translation not available on this Mac",
                     icon: .symbol("exclamationmark.triangle"),
                     keywords: [query.term],
-                    action: .enterMode(.translation),
+                    action: .disabled,
                     sortHint: 0
                 )
             ]
@@ -124,7 +124,7 @@ public final class TranslationProvider: ResultProvider {
         ]
     }
 
-    private nonisolated static func displayName(for target: TranslationTarget) -> String {
+    private static func displayName(for target: TranslationTarget) -> String {
         switch target {
         case .english: return "English"
         case .chineseSimplified: return "Simplified Chinese"

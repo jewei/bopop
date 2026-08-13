@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum LargeType {
+public enum LargeType {
     /// The overlay renders at most 3 lines at 24pt or larger, so this is well
     /// past anything it can display. Without a cap the full copy payload — up
     /// to `ClipboardStore.maximumTextSize`, 100 KB — reached the overlay's

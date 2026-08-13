@@ -2,7 +2,7 @@ import Foundation
 
 /// Shared with CustomWebSearch.url(for:) — both encode a free-typed query
 /// into a URL the same conservative way.
-internal nonisolated enum QueryEncoding {
+internal enum QueryEncoding {
     static let allowed: CharacterSet = {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+?=#")
@@ -10,7 +10,7 @@ internal nonisolated enum QueryEncoding {
     }()
 }
 
-public nonisolated enum SearchEngine: String, CaseIterable, Sendable {
+public enum SearchEngine: String, CaseIterable, Sendable {
     case google
     case duckDuckGo
     case bing
@@ -60,7 +60,7 @@ public final class WebSearchProvider: ResultProvider {
         self.engine = engine
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }

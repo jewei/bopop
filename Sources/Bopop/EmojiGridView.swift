@@ -9,7 +9,11 @@ import BopopKit
 /// (same pattern as `tableView`), and toggles `isHidden` opposite the
 /// table's scroll view — the two never show simultaneously.
 final class EmojiGridView: NSScrollView {
-    let collectionView = PaletteCollectionView()
+    private let collectionView = PaletteCollectionView()
+
+    var itemCount: Int {
+        collectionView.numberOfItems(inSection: 0)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -55,6 +59,38 @@ final class EmojiGridView: NSScrollView {
         )
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
+    }
+
+    func connect(
+        dataSource: NSCollectionViewDataSource,
+        delegate: NSCollectionViewDelegate
+    ) {
+        collectionView.dataSource = dataSource
+        collectionView.delegate = delegate
+    }
+
+    func reloadData() {
+        collectionView.reloadData()
+    }
+
+    func clearSelection() {
+        collectionView.deselectAll(nil)
+    }
+
+    /// Applies and reveals a row-major selection. Both the plan count and the
+    /// collection view's actual count are checked: AppKit can lag during a
+    /// draw, and scrolling to an item the view does not hold can wedge it.
+    func selectAndReveal(index: Int, availableResultCount: Int) {
+        guard (0..<availableResultCount).contains(index), index < itemCount else {
+            clearSelection()
+            return
+        }
+        let indexPath = IndexPath(item: index, section: 0)
+        collectionView.selectionIndexPaths = [indexPath]
+        collectionView.scrollToItems(
+            at: [indexPath],
+            scrollPosition: .nearestHorizontalEdge
+        )
     }
 }
 

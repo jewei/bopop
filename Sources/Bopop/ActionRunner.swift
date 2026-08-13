@@ -36,6 +36,9 @@ final class ActionRunner {
     }
 
     func perform(_ result: SearchResult) {
+        guard result.action.isExecutable else {
+            return
+        }
         if case let .enterMode(mode) = result.action {
             onModeChange?(mode)
             return
@@ -119,6 +122,8 @@ final class ActionRunner {
     /// app moved since the last catalog scan just did nothing at all.
     private func execute(_ action: ResultAction) {
         switch action {
+        case .disabled:
+            break
         case let .openApp(path):
             guard effects.fileExists(path) else {
                 onFailure?(.applicationMissing(path: path))

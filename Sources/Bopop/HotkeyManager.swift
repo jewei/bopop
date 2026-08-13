@@ -18,6 +18,7 @@ private nonisolated func handleHotkeyEvent(
     return noErr
 }
 
+@MainActor
 final class HotkeyManager {
     var onHotkey: (() -> Void)?
 
@@ -26,21 +27,20 @@ final class HotkeyManager {
     private var eventHandlerRef: EventHandlerRef?
     private var attemptedEventHandlerInstallation = false
 
-    /// Whether the last `register` actually took the shortcut. `false` means
-    /// the hotkey will not fire — most often because another app already holds
-    /// the combination.
+    /// Whether Bopop's last local Carbon registration succeeded. Carbon does
+    /// not establish exclusivity against registrations in other processes.
     private(set) var isRegistered = false
 
-    /// Returns whether the shortcut was taken. Carbon reports a conflict here
-    /// and it used to go only to the log, so an app holding the combination
-    /// left Bopop running with a dead hotkey and nothing said so. Callers
-    /// surface the failure; see `SettingsModel.hotkeyUnavailable`.
+    /// Returns Carbon's local registration outcome. This reports Bopop's own
+    /// handler/registration failures; it does not establish exclusivity across
+    /// processes, so callers must not label it as another-app conflict.
     @discardableResult
-    func register(_ config: HotkeyConfig) -> Bool {
+    func register(_ config: HotkeyConfig) -> HotkeyRegistrationOutcome {
         unregister()
-        guard installEventHandlerIfNeeded() else {
+        let handlerStatus = installEventHandlerIfNeeded()
+        guard handlerStatus == noErr else {
             isRegistered = false
-            return false
+            return .eventHandlerFailed(handlerStatus)
         }
 
         var ref: EventHotKeyRef?
@@ -57,11 +57,11 @@ final class HotkeyManager {
         guard status == noErr else {
             logger.error("Could not register global hotkey; Carbon status: \(status)")
             isRegistered = false
-            return false
+            return .registrationFailed(status)
         }
         hotkeyRef = ref
         isRegistered = true
-        return true
+        return .registered
     }
 
     func unregister() {
@@ -90,7 +90,7 @@ final class HotkeyManager {
         }
     }
 
-    private func installEventHandlerIfNeeded() -> Bool {
+    private func installEventHandlerIfNeeded() -> OSStatus {
         // Only latch `attemptedEventHandlerInstallation` on SUCCESS. If we
         // latched it unconditionally (as before), one transient
         // InstallEventHandler failure (e.g. an app launched before the
@@ -102,7 +102,7 @@ final class HotkeyManager {
         // attempt, while a successful install is still cached rather than
         // redone on every register().
         if attemptedEventHandlerInstallation {
-            return eventHandlerRef != nil
+            return eventHandlerRef == nil ? OSStatus(eventInternalErr) : noErr
         }
 
         var eventType = EventTypeSpec(
@@ -120,9 +120,42 @@ final class HotkeyManager {
 
         guard status == noErr else {
             logger.error("Could not install hotkey event handler; Carbon status: \(status)")
-            return false
+            return status
         }
         attemptedEventHandlerInstallation = true
-        return true
+        return noErr
     }
 }
+
+/// The local result of asking Carbon to install Bopop's handler and register a
+/// shortcut. This is deliberately not called a "conflict" result:
+/// `RegisterEventHotKey` does not report another process holding the same
+/// combination, so a failure here is an internal registration failure whose
+/// status should be surfaced without guessing at its cause.
+enum HotkeyRegistrationOutcome: Equatable {
+    case registered
+    case eventHandlerFailed(OSStatus)
+    case registrationFailed(OSStatus)
+
+    var isRegistered: Bool { self == .registered }
+
+    var failureMessage: String? {
+        switch self {
+        case .registered:
+            nil
+        case let .eventHandlerFailed(status):
+            "Bopop couldn't install its shortcut handler (Carbon status \(status))."
+        case let .registrationFailed(status):
+            "Bopop couldn't register this shortcut (Carbon status \(status))."
+        }
+    }
+}
+
+@MainActor
+protocol HotkeyRegistering: AnyObject {
+    @discardableResult
+    func register(_ config: HotkeyConfig) -> HotkeyRegistrationOutcome
+    func unregister()
+}
+
+extension HotkeyManager: HotkeyRegistering {}

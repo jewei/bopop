@@ -105,6 +105,7 @@ func unsupportedRow() async throws {
     )
     let results = try await provider.results(for: ParsedQuery(mode: .translation, term: "hello"))
     #expect(results.first?.title == "Translation not available on this Mac")
+    #expect(results.first?.action == .disabled)
     #expect(await translator.translateCallCount == 0)
 }
 

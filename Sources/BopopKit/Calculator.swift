@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum CalculatorFormatter {
+public enum CalculatorFormatter {
     private static let posixLocale = Locale(identifier: "en_US_POSIX")
 
     public static func string(from value: Double) -> String {
@@ -65,7 +65,7 @@ public final class CalculatorProvider: ResultProvider {
 
     public init() {}
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, Self.isCandidate(query.term) else {
             return []
         }
@@ -103,7 +103,7 @@ public final class CalculatorProvider: ResultProvider {
         ]
     }
 
-    private nonisolated static func operationBadge(_ expression: String) -> String? {
+    private static func operationBadge(_ expression: String) -> String? {
         var depth = 0
         var categories: Set<String> = []
         var previousSignificant: Character?
@@ -136,7 +136,7 @@ public final class CalculatorProvider: ResultProvider {
         return categories.count == 1 ? categories.first : nil
     }
 
-    private nonisolated static func operatorCategory(_ character: Character) -> String? {
+    private static func operatorCategory(_ character: Character) -> String? {
         switch character {
         case "*", "×": return "Product"
         case "+": return "Sum"
@@ -151,14 +151,14 @@ public final class CalculatorProvider: ResultProvider {
     /// Hoisted for the same reason as `CalculatorFormatter.groupingFormatter`
     /// — and more so here, since `.spellOut` is the most expensive style to
     /// construct and this ran once per keystroke.
-    private nonisolated static let spellOutFormatter: FormatterBox<NumberFormatter> = {
+    private static let spellOutFormatter: FormatterBox<NumberFormatter> = {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US")
         formatter.numberStyle = .spellOut
         return FormatterBox(formatter)
     }()
 
-    private nonisolated static func spellOutBadge(_ value: Double) -> String? {
+    private static func spellOutBadge(_ value: Double) -> String? {
         guard value.rounded(.towardZero) == value, abs(value) < 1e9 else {
             return nil
         }
@@ -171,7 +171,7 @@ public final class CalculatorProvider: ResultProvider {
         return spelled.capitalized
     }
 
-    public nonisolated static func isCandidate(_ term: String) -> Bool {
+    public static func isCandidate(_ term: String) -> Bool {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return false

@@ -1,12 +1,12 @@
 import Foundation
 
-public nonisolated struct CleanedURL: Equatable, Sendable {
+public struct CleanedURL: Equatable, Sendable {
     public let original: String
     public let cleaned: String
     public let removedCount: Int
 }
 
-public nonisolated enum URLCleaner {
+public enum URLCleaner {
     private static let globalPrefixes = ["utm_", "vero_", "oly_", "pd_rd_", "pf_rd_"]
 
     // Bare "ref" is overwhelmingly a referral tracker on shared links
@@ -134,7 +134,7 @@ public final class URLCleanProvider: ResultProvider {
 
     public init() {}
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }

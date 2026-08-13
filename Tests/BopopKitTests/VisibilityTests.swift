@@ -24,6 +24,26 @@ func visibilityStoreHidesShowsAndPersists() throws {
     #expect(VisibilityStore(storage: fixture.storage).hiddenIDs.isEmpty)
 }
 
+@MainActor
+@Test
+func visibilityStoreRollsBackWhenPersistenceFails() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = VisibilityStore(
+        storage: fixture.storage,
+        saveIDs: { _ in throw ExpectedFailure() }
+    )
+
+    let result = store.hide("app:failed")
+
+    #expect(!store.isHidden("app:failed"))
+    guard case .failure = result else {
+        Issue.record("expected persistence failure")
+        return
+    }
+}
+
 /// Hidden apps are dropped before scoring, so they cost nothing downstream
 /// and `sortHint` numbers only what's visible.
 @MainActor

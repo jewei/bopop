@@ -3,7 +3,7 @@ import os
 
 public protocol ResultProvider: Sendable {
     var id: ProviderID { get }
-    nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult]
+    func results(for query: ParsedQuery) async throws -> [SearchResult]
 }
 
 /// A batched frecency lookup: given the full list of ids a provider is about
@@ -23,7 +23,7 @@ public typealias BatchFrecencyLookup = @Sendable ([String]) async -> [String: Do
 /// serialization guarantee Sendable would provide — so bypassing the
 /// compile-time check here is sound, and `OSAllocatedUnfairLock` remains
 /// unconditionally `Sendable` regardless of what it locks.
-nonisolated final class FormatterBox<Formatter>: Sendable {
+final class FormatterBox<Formatter>: Sendable {
     private let lock: OSAllocatedUnfairLock<Formatter>
 
     init(_ formatter: Formatter) {

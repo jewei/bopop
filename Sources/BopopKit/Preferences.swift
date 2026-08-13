@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct PersistedPreferenceKey<Value: Sendable>: Hashable, Sendable {
+public struct PersistedPreferenceKey<Value: Sendable>: Hashable, Sendable {
     public let rawValue: String
 
     public init(_ rawValue: String) {
@@ -8,7 +8,7 @@ public nonisolated struct PersistedPreferenceKey<Value: Sendable>: Hashable, Sen
     }
 }
 
-public nonisolated enum PersistedPreferenceKeys {
+public enum PersistedPreferenceKeys {
     public static let hotkeyKeyCode = PersistedPreferenceKey<UInt32>("hotkeyKeyCode")
     public static let hotkeyModifiers = PersistedPreferenceKey<UInt>("hotkeyModifiers")
     public static let clipboardLimit = PersistedPreferenceKey<Int>("clipboardLimit")
@@ -39,57 +39,57 @@ public nonisolated enum PersistedPreferenceKeys {
 }
 
 public extension UserDefaults {
-    nonisolated func number<Value>(
+    func number<Value>(
         for key: PersistedPreferenceKey<Value>
     ) -> NSNumber? {
         object(forKey: key.rawValue) as? NSNumber
     }
 
-    nonisolated func bool(for key: PersistedPreferenceKey<Bool>) -> Bool {
+    func bool(for key: PersistedPreferenceKey<Bool>) -> Bool {
         bool(forKey: key.rawValue)
     }
 
-    nonisolated func string(for key: PersistedPreferenceKey<String>) -> String? {
+    func string(for key: PersistedPreferenceKey<String>) -> String? {
         string(forKey: key.rawValue)
     }
 
-    nonisolated func stringArray(for key: PersistedPreferenceKey<[String]>) -> [String]? {
+    func stringArray(for key: PersistedPreferenceKey<[String]>) -> [String]? {
         stringArray(forKey: key.rawValue)
     }
 
-    nonisolated func data(for key: PersistedPreferenceKey<Data>) -> Data? {
+    func data(for key: PersistedPreferenceKey<Data>) -> Data? {
         data(forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: UInt32, for key: PersistedPreferenceKey<UInt32>) {
+    func set(_ value: UInt32, for key: PersistedPreferenceKey<UInt32>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: UInt, for key: PersistedPreferenceKey<UInt>) {
+    func set(_ value: UInt, for key: PersistedPreferenceKey<UInt>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: Int, for key: PersistedPreferenceKey<Int>) {
+    func set(_ value: Int, for key: PersistedPreferenceKey<Int>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: Bool, for key: PersistedPreferenceKey<Bool>) {
+    func set(_ value: Bool, for key: PersistedPreferenceKey<Bool>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: String, for key: PersistedPreferenceKey<String>) {
+    func set(_ value: String, for key: PersistedPreferenceKey<String>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: [String], for key: PersistedPreferenceKey<[String]>) {
+    func set(_ value: [String], for key: PersistedPreferenceKey<[String]>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: Data, for key: PersistedPreferenceKey<Data>) {
+    func set(_ value: Data, for key: PersistedPreferenceKey<Data>) {
         set(value, forKey: key.rawValue)
     }
 
-    nonisolated func set(_ value: Double, for key: PersistedPreferenceKey<Double>) {
+    func set(_ value: Double, for key: PersistedPreferenceKey<Double>) {
         set(value, forKey: key.rawValue)
     }
 }

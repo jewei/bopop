@@ -68,6 +68,84 @@ func clipboardStoreForgetsEveryRecentCaptureOnUpstreamClear() throws {
     #expect(reloaded.entries.isEmpty)
 }
 
+@MainActor
+@Test
+func clipboardStoreRollsBackOrdinaryMutationWhenPersistenceFails() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = ClipboardStore(
+        storage: fixture.storage,
+        saveEntries: { _ in throw ExpectedFailure() }
+    )
+
+    let result = store.add("must not exist only in memory")
+
+    #expect(store.entries.isEmpty)
+    guard case .failure(.writeFailed) = result else {
+        Issue.record("expected write failure")
+        return
+    }
+}
+
+@MainActor
+@Test
+func clipboardPrivacyScrubRemovesOldFileWhenRewriteFails() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let writer = ClipboardStore(storage: fixture.storage, now: { currentDate })
+    writer.add("secret")
+    #expect(FileManager.default.fileExists(atPath: fixture.storage.clipboardFileURL.path))
+
+    currentDate.addTimeInterval(30)
+    let failingStore = ClipboardStore(
+        storage: fixture.storage,
+        now: { currentDate },
+        saveEntries: { _ in throw ExpectedFailure() },
+        removePersistedEntries: {
+            try FileManager.default.removeItem(at: fixture.storage.clipboardFileURL)
+        }
+    )
+    let result = failingStore.forgetCaptures(within: 120)
+
+    #expect(failingStore.entries.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: fixture.storage.clipboardFileURL.path))
+    guard case .failure(.writeFailed) = result else {
+        Issue.record("expected write failure")
+        return
+    }
+    #expect(ClipboardStore(storage: fixture.storage).entries.isEmpty)
+}
+
+@MainActor
+@Test
+func clipboardPrivacyScrubReportsWhenRewriteAndDeletionBothFail() throws {
+    struct ExpectedWriteFailure: Error {}
+    struct ExpectedDeletionFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var currentDate = Date(timeIntervalSince1970: 1_000)
+    let writer = ClipboardStore(storage: fixture.storage, now: { currentDate })
+    writer.add("secret")
+
+    currentDate.addTimeInterval(30)
+    let failingStore = ClipboardStore(
+        storage: fixture.storage,
+        now: { currentDate },
+        saveEntries: { _ in throw ExpectedWriteFailure() },
+        removePersistedEntries: { throw ExpectedDeletionFailure() }
+    )
+    let result = failingStore.forgetCaptures(within: 120)
+
+    #expect(failingStore.entries.isEmpty)
+    guard case .failure(.privacyScrubFailed) = result else {
+        Issue.record("expected privacy scrub failure")
+        return
+    }
+}
+
 /// The window still bounds it: a capture older than the window survives a
 /// clear it had nothing to do with.
 @MainActor

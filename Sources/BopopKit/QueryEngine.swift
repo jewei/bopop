@@ -1,6 +1,7 @@
 import Foundation
 import os
 
+@MainActor
 public final class QueryEngine {
     public struct Update: Sendable {
         /// The query this update answers.

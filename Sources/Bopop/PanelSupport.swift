@@ -14,6 +14,46 @@ import Quartz
 /// window itself) took key back" defers one turn and asks this the same
 /// question against the same allowlist.
 enum FocusLossCheck {
+    enum Successor: Equatable {
+        case none
+        case owner
+        case bopopOverlay
+        case otherWindow
+    }
+
+    enum Decision: Equatable {
+        case keepFocus
+        case loseFocus
+        case retry
+    }
+
+    /// Pure event/state decision used by the deferred runner. Quick Look
+    /// opening is an explicit internal handoff, while Quick Look resigning is
+    /// ambiguous only until AppKit has had a bounded chance to choose the next
+    /// key window. Visibility alone is intentionally absent: a visible Quick
+    /// Look panel can also be resigning because the user changed applications.
+    static func decision(
+        successor: Successor,
+        handoff: FocusHandoffState,
+        retriesRemaining: Int
+    ) -> Decision {
+        switch successor {
+        case .owner, .bopopOverlay:
+            return .keepFocus
+        case .otherWindow:
+            return .loseFocus
+        case .none:
+            switch handoff {
+            case .openingQuickLook:
+                return .keepFocus
+            case .resolvingQuickLookResign where retriesRemaining > 0:
+                return .retry
+            case .stable, .resolvingQuickLookResign:
+                return .loseFocus
+            }
+        }
+    }
+
     /// `ownPanel` is the window this check runs on behalf of, so regaining
     /// its own key status also reads as a non-loss. `condition` gates
     /// whether a genuine loss should even fire `onFocusLoss` — e.g.
@@ -21,21 +61,68 @@ enum FocusLossCheck {
     /// (caused by its own `orderOut`, not a real focus change).
     static func runDeferred(
         ownPanel: NSWindow?,
+        handoff: @escaping () -> FocusHandoffState = { .stable },
         condition: @escaping () -> Bool = { true },
+        onSettled: @escaping () -> Void = {},
         onFocusLoss: @escaping () -> Void
     ) {
         DispatchQueue.main.async {
-            guard isForeign(
-                successor: NSApp.keyWindow,
+            resolveDeferred(
                 ownPanel: ownPanel,
-                quickLookIsVisible: QLPreviewPanel.sharedPreviewPanelExists()
-                    && QLPreviewPanel.shared().isVisible
-            ) else {
-                return
-            }
+                handoff: handoff,
+                condition: condition,
+                retriesRemaining: 12,
+                onSettled: onSettled,
+                onFocusLoss: onFocusLoss
+            )
+        }
+    }
+
+    private static func resolveDeferred(
+        ownPanel: NSWindow?,
+        handoff: @escaping () -> FocusHandoffState,
+        condition: @escaping () -> Bool,
+        retriesRemaining: Int,
+        onSettled: @escaping () -> Void,
+        onFocusLoss: @escaping () -> Void
+    ) {
+        let successor = classify(NSApp.keyWindow, ownPanel: ownPanel)
+        switch decision(
+            successor: successor,
+            handoff: handoff(),
+            retriesRemaining: retriesRemaining
+        ) {
+        case .keepFocus:
+            onSettled()
+        case .loseFocus:
+            onSettled()
             if condition() {
                 onFocusLoss()
             }
+        case .retry:
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
+                resolveDeferred(
+                    ownPanel: ownPanel,
+                    handoff: handoff,
+                    condition: condition,
+                    retriesRemaining: retriesRemaining - 1,
+                    onSettled: onSettled,
+                    onFocusLoss: onFocusLoss
+                )
+            }
+        }
+    }
+
+    private static func classify(_ successor: NSWindow?, ownPanel: NSWindow?) -> Successor {
+        switch successor {
+        case .none:
+            .none
+        case ownPanel:
+            .owner
+        case is PalettePanel, is LargeTypePanel, is QLPreviewPanel:
+            .bopopOverlay
+        default:
+            .otherWindow
         }
     }
 
@@ -51,28 +138,13 @@ enum FocusLossCheck {
     /// has to either subclass one of these or join the list.
     static func isForeign(
         successor: NSWindow?,
-        ownPanel: NSWindow?,
-        quickLookIsVisible: Bool = false
+        ownPanel: NSWindow?
     ) -> Bool {
-        switch successor {
-        case ownPanel, is PalettePanel, is LargeTypePanel, is QLPreviewPanel:
-            return false
-        case .none:
-            // Nothing holds key. That reads the same whether the user left the
-            // app or an in-app handover simply has not settled — one deferred
-            // runloop turn is not enough for Quick Look, which takes key only
-            // after it has loaded its preview, and gives it up again on the
-            // way out. Both were seen live as `successor=nil`.
-            //
-            // Quick Look specifically, not "any overlay of ours is visible":
-            // the palette sits visible behind every overlay, so the broader
-            // rule stopped Large Type dismissing when the user switched away.
-            // Quick Look is the only overlay that takes key late, and the only
-            // one that cannot be subclassed to say so itself.
-            return !quickLookIsVisible
-        default:
-            return true
-        }
+        decision(
+            successor: classify(successor, ownPanel: ownPanel),
+            handoff: .stable,
+            retriesRemaining: 0
+        ) == .loseFocus
     }
 }
 

@@ -77,6 +77,29 @@ private func effects(
     return value
 }
 
+@MainActor
+@Test func disabledResultDoesNotDismissOrRecordExecution() throws {
+    var failures: [ActionFailure] = []
+    let (runner, root) = try makeRunner(
+        effects: effects(),
+        onFailure: { failures.append($0) }
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+    var didHide = false
+    var didExecute = false
+    runner.hidePalette = { didHide = true }
+    runner.onExecuted = { _ in didExecute = true }
+
+    runner.perform(SearchResult(
+        id: "info", providerID: .currency, title: "Unavailable",
+        action: .disabled, sortHint: 0
+    ))
+
+    #expect(!didHide)
+    #expect(!didExecute)
+    #expect(failures.isEmpty)
+}
+
 /// An app moved or deleted since the last catalog scan used to do nothing at
 /// all: `openApplication`'s completion error was discarded.
 @MainActor

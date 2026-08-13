@@ -36,7 +36,8 @@ The global shortcut is configurable.
 
 ## Build
 
-Requires macOS 15+, Xcode 26, and Swift 6.2. Bopop's only dependency is Sparkle (updates).
+Requires macOS 15+, Xcode 26, and Swift 6.2. The only third-party runtime
+dependency is Sparkle (updates).
 
 ```sh
 make test   # swift test — full suite
@@ -54,12 +55,14 @@ identifier, preferences, and Application Support directory), so running from
 source never touches an installed Bopop's data.
 
 `Sources/BopopKit/Resources/emoji.json` is generated and committed — regenerate
-with `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json`
-(needs network access).
+with `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json`.
+Without local source-file arguments the generator fetches current Unicode and
+CLDR data; pass pinned downloads for reproducible offline generation.
 
 Engineering invariants worth knowing before changing anything live in
 [`CLAUDE.md`](CLAUDE.md). Instruments signposts and measurement procedure live in
-[`docs/performance-baseline.md`](docs/performance-baseline.md).
+[`docs/performance-baseline.md`](docs/performance-baseline.md). The full
+engineering-documentation map is [`docs/README.md`](docs/README.md).
 
 Bopop runs as a background agent with no Dock icon or menu-bar item. Open Settings, Scripts, or Quit from the gear button in the launcher.
 
@@ -76,8 +79,16 @@ Bopop is local-first.
 - Scripts run only after explicit confirmation with `Return`.
 - Scripts use `Process` directly, without shell interpolation.
 - Accessibility permission is not required.
-- Currency conversion is the only network-backed feature. It ships **off**, asks before its first fetch, names what it requests, and deletes its cached rates when you turn it off.
-- Copies marked secret by the source app or by macOS (password, one-time code, autofill) are never recorded.
+- Currency conversion is the only query feature that contacts a server. It
+  ships **off**, asks before its first fetch, names what it requests, and deletes
+  its cached rates when you turn it off.
+- Released builds also use Sparkle to check the GitHub-hosted update feed;
+  source-built `.dev` bundles do not.
+- Copies marked secret by the source app or macOS are never recorded. Some
+  sources, notably Apple Passwords on the verified macOS path, expose copied
+  passwords as unmarked plain text; those can appear temporarily until the
+  source clears the pasteboard and Bopop scrubs recent unpinned captures. See
+  the exact behavior and tradeoff in [`docs/privacy.md`](docs/privacy.md).
 
 ## Architecture
 
@@ -100,7 +111,7 @@ Implementation details:
 - Carbon `RegisterEventHotKey` for the global shortcut.
 - Versioned JSON storage with atomic writes.
 - Hand-written calculator parser with a closed token set.
-- No plugin platform and no third-party dependencies.
+- No plugin platform; Sparkle is the single third-party runtime dependency.
 
 Run the full test suite with:
 

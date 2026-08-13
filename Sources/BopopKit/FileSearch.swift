@@ -1,18 +1,22 @@
 import Foundation
+import os
 import UniformTypeIdentifiers
 
-final class SingleResume {
-    private var resumed = false
+final class SingleResume: Sendable {
+    private let resumed = OSAllocatedUnfairLock(initialState: false)
 
     func claim() -> Bool {
-        guard !resumed else {
-            return false
+        resumed.withLock { resumed in
+            guard !resumed else {
+                return false
+            }
+            resumed = true
+            return true
         }
-        resumed = true
-        return true
     }
 }
 
+@MainActor
 public final class FileSearcher {
     public struct Item: Equatable, Sendable {
         public let path: String
@@ -251,7 +255,7 @@ public final class FileSearchProvider: ResultProvider {
         self.searchImpl = searchImpl
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .fileSearch, !query.term.isEmpty else { return [] }
 
         let items = await searchImpl(query.term)

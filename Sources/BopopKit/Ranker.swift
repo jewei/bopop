@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum MatchTier: Int, Comparable, Sendable {
+public enum MatchTier: Int, Comparable, Sendable {
     case none = 0
     case subsequence
     case substring
@@ -13,7 +13,7 @@ public nonisolated enum MatchTier: Int, Comparable, Sendable {
     }
 }
 
-public nonisolated enum Ranker {
+public enum Ranker {
     public static let defaultWeights: [ProviderID: Double] = [
         .urlClean: 112,
         .currency: 110,

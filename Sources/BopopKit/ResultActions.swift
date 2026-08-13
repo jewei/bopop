@@ -3,7 +3,7 @@ import Foundation
 /// The ordered action list the ⌘K Actions panel shows for a result — and
 /// the single source of the primary-action verb the footer displays.
 /// Pure logic so the ordering/applicability/dedup rules stay unit-tested.
-public nonisolated enum ResultActions {
+public enum ResultActions {
     public enum Kind: Equatable, Sendable {
         case primary
         case copy
@@ -26,26 +26,17 @@ public nonisolated enum ResultActions {
 
     /// Lowercase verb for the footer's "↵ open" label; the panel shows it
     /// capitalized as the primary row's title.
-    public static func verb(for action: ResultAction) -> String {
-        switch action {
-        case .openApp, .openFile, .openURL: "open"
-        case .copyText: "copy"
-        case .clearClipboardHistory: "clear"
-        case .pinClipboard: "pin"
-        case .unpinClipboard: "unpin"
-        case .quitApp: "quit"
-        case .hideResult: "hide"
-        case .runScript, .systemCommand: "run"
-        case .enterMode: "select"
-        case .downloadTranslation: "download"
-        case .revealFile: "reveal"
-        }
+    public static func verb(for action: ResultAction) -> String? {
+        action.role.verb
     }
 
     public static func items(for result: SearchResult) -> [ActionItem] {
+        guard let verb = verb(for: result.action) else {
+            return []
+        }
         var items = [ActionItem(
             kind: .primary,
-            title: verb(for: result.action).capitalized,
+            title: verb.capitalized,
             shortcut: "⏎"
         )]
         if let pin = pinAction(in: result) {
@@ -94,45 +85,31 @@ public nonisolated enum ResultActions {
     }
 
     public static func hideAction(in result: SearchResult) -> ResultAction? {
-        result.secondaryActions.first { action in
-            if case .hideResult = action {
-                return true
-            }
-            return false
-        }
+        secondaryAction(with: .hide, in: result)
     }
 
     public static func quitAction(in result: SearchResult) -> ResultAction? {
-        result.secondaryActions.first { action in
-            if case .quitApp = action {
-                return true
-            }
-            return false
-        }
+        secondaryAction(with: .quit, in: result)
     }
 
     public static func pinAction(in result: SearchResult) -> ResultAction? {
-        result.secondaryActions.first(where: isPinAction)
+        result.secondaryActions.first { action in
+            action.role == .pin || action.role == .unpin
+        }
     }
 
     private static func isCopyAction(_ action: ResultAction) -> Bool {
-        if case .copyText = action {
-            return true
-        }
-        return false
-    }
-
-    private static func isPinAction(_ action: ResultAction) -> Bool {
-        switch action {
-        case .pinClipboard, .unpinClipboard: true
-        default: false
-        }
+        action.role == .copy
     }
 
     private static func pinTitle(for action: ResultAction) -> String {
-        switch action {
-        case .unpinClipboard: "Unpin"
-        default: "Pin"
-        }
+        action.role == .unpin ? "Unpin" : "Pin"
+    }
+
+    private static func secondaryAction(
+        with role: ResultAction.Role,
+        in result: SearchResult
+    ) -> ResultAction? {
+        result.secondaryActions.first { $0.role == role }
     }
 }

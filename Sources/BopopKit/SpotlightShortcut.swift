@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum SpotlightShortcut {
+public enum SpotlightShortcut {
     /// Returns whether the Spotlight search symbolic hotkey is enabled.
     /// Missing or malformed values use the macOS default of enabled.
     public static func isEnabled(inSymbolicHotkeys dict: [String: Any]?) -> Bool {

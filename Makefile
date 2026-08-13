@@ -1,6 +1,6 @@
 APP := Bopop
-BIN := .build/release/$(APP)
 DIST := dist/$(APP).app
+SWIFT_BUILD := swift build -c release --arch arm64 --arch x86_64
 
 # `run`/`open` override these so a build from source gets its own identity.
 # UserDefaults, the login item, Sparkle's state and (via
@@ -10,26 +10,16 @@ DIST := dist/$(APP).app
 # its own bundle and never goes through these targets.
 BUNDLE_ID ?= com.oneone.bopop
 BUNDLE_NAME ?= Bopop
-SPARKLE_FMWK := .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
-
 .PHONY: build test app run open clean release
 
 build:
-	swift build -c release
+	$(SWIFT_BUILD)
 
 test:
 	swift test
 
 app: build
-	rm -rf $(DIST)
-	mkdir -p $(DIST)/Contents/MacOS
-	cp $(BIN) $(DIST)/Contents/MacOS/$(APP)
-	cp Support/Info.plist $(DIST)/Contents/Info.plist
-	mkdir -p $(DIST)/Contents/Resources
-	cp Resources/AppIcon.icns $(DIST)/Contents/Resources/AppIcon.icns
-	mkdir -p $(DIST)/Contents/Frameworks
-	cp -R $(SPARKLE_FMWK) $(DIST)/Contents/Frameworks/
-	printf 'APPL????' > $(DIST)/Contents/PkgInfo
+	Support/assemble-app.sh "$$( $(SWIFT_BUILD) --show-bin-path )" Support/Info.plist $(DIST)
 	/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $(BUNDLE_ID)" $(DIST)/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleName $(BUNDLE_NAME)" $(DIST)/Contents/Info.plist
 	codesign --force --deep --sign - $(DIST)

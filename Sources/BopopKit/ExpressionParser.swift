@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum ExpressionParser {
+public enum ExpressionParser {
     public enum ParseError: Error, Equatable {
         case empty
         case unexpectedCharacter(Character)

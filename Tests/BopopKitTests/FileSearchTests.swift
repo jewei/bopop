@@ -94,7 +94,6 @@ func fileSearcherReadsScopeProviderPerSearchAndSkipsMissingPaths() async {
     _ = await task.value
 }
 
-@MainActor
 @Test
 func singleResumeCanOnlyBeClaimedOnce() {
     let resumeGuard = SingleResume()
@@ -103,7 +102,6 @@ func singleResumeCanOnlyBeClaimedOnce() {
     #expect(!resumeGuard.claim())
 }
 
-@MainActor
 @Test
 func singleResumeAllowsOneClaimAcrossTasks() async {
     let resumeGuard = SingleResume()
@@ -114,7 +112,7 @@ func singleResumeAllowsOneClaimAcrossTasks() async {
     ) { group in
         for _ in 0..<2 {
             group.addTask {
-                await resumeGuard.claim()
+                resumeGuard.claim()
             }
         }
         var values: [Bool] = []

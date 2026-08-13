@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct AppInfo: Equatable, Sendable {
+public struct AppInfo: Equatable, Sendable {
     public let bundleID: String?
     public let name: String
     public let path: String
@@ -19,6 +19,7 @@ public nonisolated struct AppInfo: Equatable, Sendable {
     }
 }
 
+@MainActor
 public final class AppCatalog {
     public static var defaultDirectories: [URL] {
         [
@@ -158,7 +159,7 @@ public final class AppCatalog {
     /// that scan put 9.2 ms of its 13.3 ms in `Bundle`/`Info.plist` reads
     /// against 0.4 ms of directory walking. Almost none of that work is ever
     /// different from last time.
-    public nonisolated struct MetadataCache: Sendable {
+    public struct MetadataCache: Sendable {
         fileprivate var entries: [String: Entry] = [:]
 
         fileprivate struct Entry: Sendable {
@@ -169,7 +170,7 @@ public final class AppCatalog {
         public init() {}
     }
 
-    public static nonisolated func scan(
+    public static func scan(
         directories: [URL],
         extraApplicationPaths: [String] = []
     ) async -> [AppInfo] {
@@ -180,7 +181,7 @@ public final class AppCatalog {
         ).apps
     }
 
-    public static nonisolated func scan(
+    public static func scan(
         directories: [URL],
         extraApplicationPaths: [String] = [],
         cache: MetadataCache
@@ -271,7 +272,7 @@ public final class AppCatalog {
     /// whose contents this cache stands in for, and an in-place edit to it need
     /// not touch the enclosing directory's timestamp. Renaming or moving the
     /// bundle changes the path, which is the cache key.
-    private static nonisolated func infoPlistModificationDate(
+    private static func infoPlistModificationDate(
         for appURL: URL,
         using fileManager: FileManager
     ) -> Date? {
@@ -282,7 +283,7 @@ public final class AppCatalog {
             .contentModificationDate
     }
 
-    private static nonisolated func directoryEntries(
+    private static func directoryEntries(
         at directory: URL,
         resourceKeys: [URLResourceKey],
         using fileManager: FileManager
@@ -295,18 +296,18 @@ public final class AppCatalog {
         return (entries ?? []).sorted { $0.path < $1.path }
     }
 
-    private static nonisolated func isApplication(_ url: URL) -> Bool {
+    private static func isApplication(_ url: URL) -> Bool {
         url.pathExtension.caseInsensitiveCompare("app") == .orderedSame
     }
 
-    private static nonisolated func isDirectory(
+    private static func isDirectory(
         _ url: URL,
         resourceKeys: [URLResourceKey]
     ) -> Bool {
         (try? url.resourceValues(forKeys: Set(resourceKeys)).isDirectory) == true
     }
 
-    private static nonisolated func appInfo(
+    private static func appInfo(
         at url: URL,
         using fileManager: FileManager
     ) -> AppInfo {
@@ -341,7 +342,7 @@ public final class AppsProvider: ResultProvider {
     private let catalog: AppCatalog
     private let frecencyFor: BatchFrecencyLookup
     /// Bundle ids of apps that can be quit right now. Injected because
-    /// `NSRunningApplication` is AppKit and this target is Foundation-only;
+    /// `NSRunningApplication` is AppKit and this target is UI-framework independent;
     /// the app target filters out Bopop itself and Finder before this sees it.
     /// Defaults to empty so the Quit row simply never appears if unwired.
     private let runningBundleIDs: @Sendable () async -> Set<String>
@@ -361,7 +362,7 @@ public final class AppsProvider: ResultProvider {
         self.hiddenIDs = hiddenIDs
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general || query.mode == .apps else {
             return []
         }
@@ -445,11 +446,11 @@ public final class AppsProvider: ResultProvider {
         }
     }
 
-    private nonisolated func resultID(for app: AppInfo) -> String {
+    private func resultID(for app: AppInfo) -> String {
         "app:\(app.bundleID ?? app.path)"
     }
 
-    private nonisolated func matchesTier(foldedTerm: String, app: AppInfo) -> Bool {
+    private func matchesTier(foldedTerm: String, app: AppInfo) -> Bool {
         ([app.name] + app.keywords).contains {
             Ranker.tier(foldedQuery: foldedTerm, candidate: $0) != .none
         }

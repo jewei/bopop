@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum Mode: String, Hashable, Sendable {
+public enum Mode: String, CaseIterable, Hashable, Sendable {
     case general
     case apps
     case fileSearch
@@ -10,7 +10,7 @@ public nonisolated enum Mode: String, Hashable, Sendable {
     case snippets
 }
 
-public nonisolated struct ParsedQuery: Equatable, Sendable {
+public struct ParsedQuery: Equatable, Sendable {
     public let mode: Mode
     public let term: String
 
@@ -20,7 +20,7 @@ public nonisolated struct ParsedQuery: Equatable, Sendable {
     }
 }
 
-public nonisolated enum QueryParser {
+public enum QueryParser {
     /// Two-character mode prefixes (`"f "`, `"t "`, …), each followed by a
     /// space, checked case-insensitively against `raw`'s first two
     /// characters. The `:` emoji prefix stays a separate branch below — it's

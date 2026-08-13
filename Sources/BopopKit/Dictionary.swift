@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum DictionaryQuery {
+public enum DictionaryQuery {
     public static func word(from term: String) -> String? {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
         for prefix in ["define ", "def "] {
@@ -22,7 +22,7 @@ public final class DictionaryProvider: ResultProvider {
         self.lookup = lookup
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general,
               let word = DictionaryQuery.word(from: query.term),
               // lookup wraps DCSCopyTextDefinition, a thread-safe C API — safe to
@@ -59,7 +59,7 @@ public final class DictionaryProvider: ResultProvider {
 
     /// The system definition begins by repeating the headword; drop it so the
     /// hero pane leads with the sense text.
-    private nonisolated static func excerpt(
+    private static func excerpt(
         _ definition: String,
         droppingLeading word: String,
         limit: Int

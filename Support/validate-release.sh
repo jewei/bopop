@@ -25,6 +25,27 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 xcrun stapler validate "$APP_PATH"
 spctl --assess --type execute --verbose=2 "$APP_PATH"
 
+echo "▶ Verifying universal executable slices and packaged resources"
+require_universal_macho() {
+    local binary="$1"
+    local architectures
+    architectures="$(lipo -archs "$binary")"
+    [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]] || {
+        echo "error: $binary is not universal arm64+x86_64 (found: $architectures)" >&2
+        exit 1
+    }
+}
+require_universal_macho "$APP_PATH/Contents/MacOS/Bopop"
+while IFS= read -r binary; do
+    if file "$binary" | grep -q 'Mach-O'; then
+        require_universal_macho "$binary"
+    fi
+done < <(find "$APP_PATH/Contents/Frameworks" -type f -perm -111)
+[[ -f "$APP_PATH/Contents/Resources/emoji.json" ]] || {
+    echo "error: emoji catalog is missing from the app resources" >&2
+    exit 1
+}
+
 echo "▶ Verifying DMG integrity and mounted app"
 hdiutil verify "$DMG_PATH"
 MOUNT_DIR="$(mktemp -d)"

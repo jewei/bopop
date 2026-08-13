@@ -1,6 +1,15 @@
 import Foundation
 
-public nonisolated struct CustomWebSearch: Codable, Equatable, Sendable, Identifiable {
+public struct CustomWebSearch: Codable, Equatable, Sendable, Identifiable {
+    public enum ValidationError: Equatable, Sendable {
+        case nameMissing
+        case keywordMissing
+        case keywordHasWhitespace
+        case keywordReserved
+        case keywordTaken
+        case templateMissingQueryToken
+    }
+
     public let id: UUID
     public var name: String
     public var keyword: String
@@ -14,11 +23,34 @@ public nonisolated struct CustomWebSearch: Codable, Equatable, Sendable, Identif
     }
 
     public var isValid: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
-            && !keyword.isEmpty
-            && !keyword.contains(where: \.isWhitespace)
-            && !Self.isReservedKeyword(keyword)
-            && urlTemplate.contains("{query}")
+        validationError() == nil
+    }
+
+    /// The single domain validation path used by both providers and Settings.
+    /// Passing existing searches adds the collection-level keyword uniqueness
+    /// rule; `isValid` intentionally checks only this value in isolation.
+    public func validationError(
+        existing: [CustomWebSearch] = []
+    ) -> ValidationError? {
+        if name.trimmingCharacters(in: .whitespaces).isEmpty {
+            return .nameMissing
+        }
+        if keyword.isEmpty {
+            return .keywordMissing
+        }
+        if keyword.contains(where: \.isWhitespace) {
+            return .keywordHasWhitespace
+        }
+        if Self.isReservedKeyword(keyword) {
+            return .keywordReserved
+        }
+        if !urlTemplate.contains("{query}") {
+            return .templateMissingQueryToken
+        }
+        let keywordTaken = existing.contains {
+            $0.id != id && $0.keyword.caseInsensitiveCompare(keyword) == .orderedSame
+        }
+        return keywordTaken ? .keywordTaken : nil
     }
 
     public func url(for term: String) -> URL? {
@@ -70,7 +102,7 @@ public final class CustomSearchProvider: ResultProvider {
         self.searches = searches
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }

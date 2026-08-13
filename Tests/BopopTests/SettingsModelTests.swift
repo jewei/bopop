@@ -62,9 +62,13 @@ private func makeDefaults() -> UserDefaults {
 }
 
 @MainActor
-private func makeModel(defaults: UserDefaults, storage: Storage) -> SettingsModel {
+private func makeModel(
+    defaults: UserDefaults,
+    storage: Storage,
+    hotkeyManager: any HotkeyRegistering = HotkeyManager()
+) -> SettingsModel {
     SettingsModel(
-        hotkeyManager: HotkeyManager(),
+        hotkeyManager: hotkeyManager,
         clipboardStore: ClipboardStore(storage: storage),
         snippetStore: SnippetStore(storage: storage),
         visibilityStore: VisibilityStore(storage: storage),
@@ -75,13 +79,22 @@ private func makeModel(defaults: UserDefaults, storage: Storage) -> SettingsMode
 }
 
 @MainActor
-private func withModel(_ body: (SettingsModel) throws -> Void) throws {
+private func withModel(
+    hotkeyManager: any HotkeyRegistering = HotkeyManager(),
+    _ body: (SettingsModel) throws -> Void
+) throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("bopop-settings-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
     let storage = Storage(baseDirectory: root)
     try storage.ensureDirectories()
-    try body(makeModel(defaults: makeDefaults(), storage: storage))
+    try body(
+        makeModel(
+            defaults: makeDefaults(),
+            storage: storage,
+            hotkeyManager: hotkeyManager
+        )
+    )
 }
 
 /// A rejected custom search used to return `false` and vanish — the row stayed
@@ -255,24 +268,55 @@ private func withModel(_ body: (SettingsModel) throws -> Void) throws {
     #expect(!FileManager.default.fileExists(atPath: storage.snippetsFileURL.path))
 }
 
-/// Carbon reports a taken shortcut at registration time, and that used to go
-/// only to the log — Bopop ran on with a dead hotkey and nothing said so. QA
-/// report: "when i relaunch bopop from raycast, it was like nothing happened,
-/// bopop launch silently in the background".
+private final class StubHotkeyRegistrar: HotkeyRegistering {
+    var outcomes: [HotkeyRegistrationOutcome]
+    private(set) var registered: [HotkeyConfig] = []
+    private(set) var unregisterCount = 0
+
+    init(_ outcomes: [HotkeyRegistrationOutcome]) {
+        self.outcomes = outcomes
+    }
+
+    func register(_ config: HotkeyConfig) -> HotkeyRegistrationOutcome {
+        registered.append(config)
+        return outcomes.isEmpty ? .registered : outcomes.removeFirst()
+    }
+
+    func unregister() {
+        unregisterCount += 1
+    }
+}
+
 @MainActor
 @Test
-func hotkeyUnavailableIsSurfacedAndClearsOnRecheck() throws {
-    try withModel { model in
-        #expect(!model.hotkeyUnavailable, "registration succeeded, nothing to report")
+func registrationFailureIsSurfacedAndRecheckPublishesRecovery() throws {
+    let registrar = StubHotkeyRegistrar([.registered])
+    try withModel(hotkeyManager: registrar) { model in
+        model.setHotkeyRegistrationOutcome(.registrationFailed(-50))
+        #expect(
+            model.hotkeyRegistrationOutcome?.failureMessage
+                == "Bopop couldn't register this shortcut (Carbon status -50)."
+        )
 
-        // A launch-time failure, seeded the way AppDelegate does — the model
-        // does not exist yet when that registration runs.
-        model.setHotkeyUnavailable(true)
-        #expect(model.hotkeyUnavailable)
-
-        // Re-check retries the registration, so freeing the shortcut in the
-        // other app and pressing it clears the banner without a relaunch.
         model.recheckConflict()
-        #expect(!model.hotkeyUnavailable)
+        #expect(model.hotkeyRegistrationOutcome == .registered)
+        #expect(registrar.registered == [model.hotkey])
+    }
+}
+
+@MainActor
+@Test
+func recordingRegistersExactlyOnceAndPublishesItsOutcome() throws {
+    let registrar = StubHotkeyRegistrar([.registrationFailed(-9878)])
+    try withModel(hotkeyManager: registrar) { model in
+        model.isRecording = true
+        model.hotkey = HotkeyConfig(keyCode: 12, modifiers: [.command, .option])
+        #expect(registrar.registered.isEmpty)
+
+        model.isRecording = false
+
+        #expect(registrar.unregisterCount == 1)
+        #expect(registrar.registered == [model.hotkey])
+        #expect(model.hotkeyRegistrationOutcome == .registrationFailed(-9878))
     }
 }

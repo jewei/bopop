@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum SystemCommandInvocation: Equatable, Sendable {
+public enum SystemCommandInvocation: Equatable, Sendable {
     case process(executable: String, arguments: [String])
     /// Four-char AppleEvent ID sent to loginwindow. Only the dialog-showing
     /// variants belong here — macOS presents its own confirmation.
@@ -10,7 +10,7 @@ public nonisolated enum SystemCommandInvocation: Equatable, Sendable {
     case finderScript(source: String)
 }
 
-public nonisolated enum SystemCommand: String, CaseIterable, Sendable {
+public enum SystemCommand: String, CaseIterable, Sendable {
     case lockScreen, sleep, screenSaver, logOut, restart, shutDown, emptyTrash, ejectAll
 
     /// Copy for a Bopop-side confirmation, for destructive commands macOS
@@ -21,7 +21,7 @@ public nonisolated enum SystemCommand: String, CaseIterable, Sendable {
     /// warning before emptying the Trash" preference is on — a setting this
     /// app can't read and users commonly turn off — so one Return could
     /// irreversibly delete everything in it.
-    public nonisolated struct Confirmation: Equatable, Sendable {
+    public struct Confirmation: Equatable, Sendable {
         public let message: String
         public let informative: String
         public let confirmTitle: String
@@ -105,7 +105,7 @@ public final class SystemCommandsProvider: ResultProvider {
 
     public init() {}
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general,
               !query.term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []

@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct HotkeyConfig: Equatable, Codable, Sendable {
+public struct HotkeyConfig: Equatable, Codable, Sendable {
     public var keyCode: UInt32
     public var modifiers: Modifiers
 
@@ -9,7 +9,7 @@ public nonisolated struct HotkeyConfig: Equatable, Codable, Sendable {
         self.modifiers = modifiers
     }
 
-    public nonisolated struct Modifiers: OptionSet, Codable, Equatable, Sendable {
+    public struct Modifiers: OptionSet, Codable, Equatable, Sendable {
         public let rawValue: UInt
 
         public init(rawValue: UInt) {

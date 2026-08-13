@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct Snippet: Codable, Equatable, Sendable, Identifiable {
+public struct Snippet: Codable, Equatable, Sendable, Identifiable {
     public let id: UUID
     public var name: String
     public var keyword: String?
@@ -17,8 +17,9 @@ public nonisolated struct Snippet: Codable, Equatable, Sendable, Identifiable {
 /// Snippets are authored data — the user typed them and nothing can regenerate
 /// them — so this store is durable-first, unlike the regenerable caches
 /// elsewhere. Every mutation reaches disk BEFORE it is published, and a failure
-/// is reported rather than swallowed. Compare `ClipboardStore`, where losing a
-/// capture to a failed write costs the user a clip they can copy again.
+/// is reported rather than swallowed. Clipboard captures are regenerable, but
+/// that store now also reports failures and rolls ordinary mutations back.
+@MainActor
 public final class SnippetStore {
     public enum StoreError: Error, Equatable {
         /// The file existed but could not be read, so it was quarantined. The
@@ -112,7 +113,7 @@ public final class SnippetsProvider: ResultProvider {
         self.store = store
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         switch query.mode {
         case .general:
             guard !query.term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-public nonisolated struct CurrencyQuery: Equatable, Sendable {
+public struct CurrencyQuery: Equatable, Sendable {
     public let amount: Double
     public let from: String
     public let to: String
@@ -13,7 +13,7 @@ public nonisolated struct CurrencyQuery: Equatable, Sendable {
     }
 }
 
-public nonisolated enum CurrencyParser {
+public enum CurrencyParser {
     /// Frankfurter (ECB) coverage plus USD/JPY/etc — the only codes we can ever
     /// price, so anything outside this set is an unknown-code rejection.
     public static let supportedCodes: Set<String> = [
@@ -194,7 +194,7 @@ public final class LiveRateFetcher: RateFetcher {
     }
 }
 
-public nonisolated struct CachedRates: Codable, Equatable, Sendable {
+public struct CachedRates: Codable, Equatable, Sendable {
     public let rates: [String: Double]
     public let fetchedAt: Date
 
@@ -217,6 +217,7 @@ public nonisolated struct CachedRates: Codable, Equatable, Sendable {
     }
 }
 
+@MainActor
 public final class RateStore {
     private static let version = 1
 
@@ -226,9 +227,36 @@ public final class RateStore {
     // typed re-reads and re-decodes rates.json from disk.
     private var memoryCache: CachedRates?
     private var hasLoaded = false
+    private let saveRates: (CachedRates) throws -> Void
+    private let removeRates: () throws -> Void
 
-    public init(storage: Storage) {
+    public convenience init(storage: Storage) {
+        self.init(
+            storage: storage,
+            saveRates: { cachedRates in
+                try storage.save(
+                    cachedRates,
+                    version: RateStore.version,
+                    to: storage.ratesFileURL
+                )
+            },
+            removeRates: {
+                guard FileManager.default.fileExists(atPath: storage.ratesFileURL.path) else {
+                    return
+                }
+                try FileManager.default.removeItem(at: storage.ratesFileURL)
+            }
+        )
+    }
+
+    init(
+        storage: Storage,
+        saveRates: @escaping (CachedRates) throws -> Void,
+        removeRates: @escaping () throws -> Void
+    ) {
         self.storage = storage
+        self.saveRates = saveRates
+        self.removeRates = removeRates
     }
 
     public func cached() -> CachedRates? {
@@ -246,25 +274,36 @@ public final class RateStore {
     }
 
     /// Opting out has to leave nothing behind, so the cached table goes too.
-    public func clearCache() {
-        memoryCache = nil
-        hasLoaded = true
-        try? FileManager.default.removeItem(at: storage.ratesFileURL)
+    @discardableResult
+    public func clearCache() -> Result<Void, PersistenceFailure> {
+        do {
+            try removeRates()
+            memoryCache = nil
+            hasLoaded = true
+            return .success(())
+        } catch {
+            return .failure(PersistenceFailure(error.localizedDescription))
+        }
     }
 
-    public func save(rates: [String: Double], fetchedAt: Date) {
+    @discardableResult
+    public func save(
+        rates: [String: Double],
+        fetchedAt: Date
+    ) -> Result<Void, PersistenceFailure> {
         let cachedRates = CachedRates(rates: rates, fetchedAt: fetchedAt)
-        try? storage.save(
-            cachedRates,
-            version: Self.version,
-            to: storage.ratesFileURL
-        )
-        memoryCache = cachedRates
-        hasLoaded = true
+        do {
+            try saveRates(cachedRates)
+            memoryCache = cachedRates
+            hasLoaded = true
+            return .success(())
+        } catch {
+            return .failure(PersistenceFailure(error.localizedDescription))
+        }
     }
 }
 
-public nonisolated final class CurrencyProvider: ResultProvider {
+public final class CurrencyProvider: ResultProvider {
     public let id: ProviderID = .currency
 
     /// EUR-base cross-rates convert every code, but only these have a
@@ -290,7 +329,7 @@ public nonisolated final class CurrencyProvider: ResultProvider {
     // rather than constructing one per call.
     private let relativeDateFormatter: FormatterBox<RelativeDateTimeFormatter>
     // Guards the refresh-in-flight flag against the same cross-thread race
-    // now that results(for:) is nonisolated.
+    // because provider results may run concurrently.
     private let refreshInFlight = OSAllocatedUnfairLock(initialState: false)
 
     public init(
@@ -309,7 +348,7 @@ public nonisolated final class CurrencyProvider: ResultProvider {
         relativeDateFormatter = FormatterBox(formatter)
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general, let parsed = CurrencyParser.parse(query.term) else {
             return []
         }
@@ -337,7 +376,7 @@ public nonisolated final class CurrencyProvider: ResultProvider {
             return [Self.disabledResult(rawTerm: query.term)]
         }
         let fetchedAt = now()
-        await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
+        _ = await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
         return makeResults(
             for: parsed,
             rawTerm: query.term,
@@ -351,7 +390,7 @@ public nonisolated final class CurrencyProvider: ResultProvider {
     /// Typing a conversion with the feature off should explain itself rather
     /// than silently produce nothing. Inert action, like the other
     /// informational rows.
-    private nonisolated static func disabledResult(rawTerm: String) -> SearchResult {
+    private static func disabledResult(rawTerm: String) -> SearchResult {
         SearchResult(
             id: "currency:disabled",
             providerID: .currency,
@@ -359,12 +398,12 @@ public nonisolated final class CurrencyProvider: ResultProvider {
             subtitle: "Turn it on in Settings → Currency to fetch exchange rates.",
             icon: .symbol("wifi.slash"),
             keywords: [rawTerm],
-            action: .enterMode(.general),
+            action: .disabled,
             sortHint: 0
         )
     }
 
-    private nonisolated func refreshInBackground() {
+    private func refreshInBackground() {
         // One refresh at a time — while the cache is stale, every keystroke of
         // the query re-enters here, and each must not become its own request.
         // The test-and-set has to be atomic now that multiple provider
@@ -389,11 +428,11 @@ public nonisolated final class CurrencyProvider: ResultProvider {
                 return
             }
             let fetchedAt = now()
-            await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
+            _ = await MainActor.run { store.save(rates: freshRates, fetchedAt: fetchedAt) }
         }
     }
 
-    private nonisolated func makeResults(
+    private func makeResults(
         for query: CurrencyQuery,
         rawTerm: String,
         rates: CachedRates
@@ -434,18 +473,17 @@ public nonisolated final class CurrencyProvider: ResultProvider {
         ]
     }
 
-    private nonisolated static func unavailableResult() -> SearchResult {
+    private static func unavailableResult() -> SearchResult {
         SearchResult(
             id: "currency:unavailable",
             providerID: .currency,
             title: "Exchange rates unavailable — check connection",
             icon: .symbol("wifi.slash"),
-            // Informational row, so it takes the same inert `.enterMode`
-            // action TranslationProvider's unsupported row uses: `perform`
-            // returns before both `execute` and `onExecuted`. A `.copyText("")`
-            // here made ⏎ wipe the user's real clipboard, record a frecency
-            // hit, and give ⌘L an empty string to blow up full-screen.
-            action: .enterMode(.general),
+            // Informational rows have an explicit non-action. A fake mode
+            // change used to make Return clear the query while pretending the
+            // row was inert; an empty copy action was even worse because it
+            // erased the user's clipboard.
+            action: .disabled,
             sortHint: 0
         )
     }
@@ -476,16 +514,16 @@ public nonisolated final class CurrencyProvider: ResultProvider {
         return FormatterBox(formatter)
     }()
 
-    private nonisolated static func formattedAmount(_ value: Double) -> String {
+    private static func formattedAmount(_ value: Double) -> String {
         amountFormatter.withLock { $0.string(from: NSNumber(value: value)) } ?? String(value)
     }
 
-    private nonisolated static func formattedTargetAmount(_ value: Double) -> String {
+    private static func formattedTargetAmount(_ value: Double) -> String {
         targetAmountFormatter.withLock { $0.string(from: NSNumber(value: value)) }
             ?? String(format: "%.2f", value)
     }
 
-    private nonisolated static func currencyDisplayName(_ code: String) -> String? {
+    private static func currencyDisplayName(_ code: String) -> String? {
         Locale(identifier: "en_US").localizedString(forCurrencyCode: code)
     }
 }

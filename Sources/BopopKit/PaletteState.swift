@@ -6,7 +6,7 @@ import Foundation
 /// card. That sentinel had to be spelled correctly at nine write sites and was
 /// spelled two ways in one file; `.row(4)` over an empty list is simply not
 /// constructible here.
-public nonisolated enum PaletteFocus: Equatable, Sendable {
+public enum PaletteFocus: Equatable, Sendable {
     case none
     case hero
     case row(Int)
@@ -22,12 +22,12 @@ public nonisolated enum PaletteFocus: Equatable, Sendable {
 /// Which results surface is on screen. The grid and the table never show
 /// together — emoji mode never produces a hero, so a grid presentation always
 /// implies no hero card.
-public nonisolated enum PalettePresentation: Equatable, Sendable {
+public enum PalettePresentation: Equatable, Sendable {
     case list
     case grid
 }
 
-public nonisolated enum PaletteSelectionMove: Equatable, Sendable {
+public enum PaletteSelectionMove: Equatable, Sendable {
     case up
     case down
     case left
@@ -37,16 +37,16 @@ public nonisolated enum PaletteSelectionMove: Equatable, Sendable {
 /// Work the adapter must do that isn't drawing.
 ///
 /// Deliberately small. Overlay mechanics, the actions panel and panel geometry
-/// stay in the adapter: this is a Foundation-only module and the plan is not a
+/// stay in the adapter: this module is UI-framework independent and the plan is not a
 /// place to accumulate AppKit instructions.
-public nonisolated enum PaletteEffect: Equatable, Sendable {
+public enum PaletteEffect: Equatable, Sendable {
     /// Hand this query to `QueryEngine`. Already parsed — do not parse again.
     case runQuery(ParsedQuery)
     case closePalette
 }
 
 /// Everything the adapter needs to draw one turn, and nothing else.
-public nonisolated struct PaletteRenderPlan: Equatable, Sendable {
+public struct PaletteRenderPlan: Equatable, Sendable {
     public let queryText: String
     /// The query the rows below answer, parsed exactly once.
     public let query: ParsedQuery
@@ -77,7 +77,7 @@ public nonisolated struct PaletteRenderPlan: Equatable, Sendable {
     }
 }
 
-public nonisolated struct PaletteStateConfiguration: Equatable, Sendable {
+public struct PaletteStateConfiguration: Equatable, Sendable {
     /// The resting tab row in display order — what ⇥ and ⇧⇥ cycle through.
     /// Transient modes with no pill are omitted, and cycling from one lands on
     /// the first ordered mode.
@@ -105,6 +105,7 @@ public nonisolated struct PaletteStateConfiguration: Equatable, Sendable {
 ///
 /// Every command returns a `PaletteRenderPlan`. The adapter draws the plan and
 /// runs its effects; it never reads state back out, and nothing else writes.
+@MainActor
 public final class PaletteState {
     private let configuration: PaletteStateConfiguration
 
@@ -114,6 +115,10 @@ public final class PaletteState {
     private var hero: SearchResult?
     private var rows: [SearchResult] = []
     private var focus: PaletteFocus = .none
+    /// Rows may remain on screen while a replacement query is in flight to
+    /// avoid a blank frame, but they must not remain executable. True only
+    /// after an update answering the current query has been applied.
+    private var rowsAnswerCurrentQuery = false
     /// Id of the result the next update should re-select, set by a stay-open
     /// mutation (pin/unpin/hide). Pinning moves the row into or out of the
     /// pinned block, so the default snap back to row 0 would silently retarget
@@ -127,7 +132,10 @@ public final class PaletteState {
     }
 
     public var focusedResult: SearchResult? {
-        currentPlan(contentChanged: false).focusedResult
+        guard rowsAnswerCurrentQuery else {
+            return nil
+        }
+        return currentPlan(contentChanged: false).focusedResult
     }
 
     // MARK: - Query and mode
@@ -154,6 +162,7 @@ public final class PaletteState {
         let parsed = QueryParser.parse(raw: raw, stickyMode: stickyMode)
         let modeChanged = parsed.mode != query.mode
         query = parsed
+        rowsAnswerCurrentQuery = false
         if modeChanged {
             clearResults()
         }
@@ -208,6 +217,7 @@ public final class PaletteState {
             hero = nil
             rows = update.results
         }
+        rowsAnswerCurrentQuery = true
 
         if let restorationID,
            let restored = rows.firstIndex(where: { $0.id == restorationID }) {
@@ -309,7 +319,7 @@ public final class PaletteState {
     // MARK: - Implementation
 
     private var presentation: PalettePresentation {
-        query.mode == .emoji ? .grid : .list
+        query.mode.descriptor.presentation
     }
 
     /// Readable by the key-routing extension, which lives in another file and
@@ -323,6 +333,12 @@ public final class PaletteState {
         hero = nil
         rows = []
         focus = .none
+        rowsAnswerCurrentQuery = false
+        // The adapter draws this empty transition immediately. The next
+        // publication must therefore be compared with that empty surface, not
+        // with content from before the clear (which can be byte-for-byte equal
+        // across two list modes such as General and Apps).
+        lastRenderKey = nil
     }
 
     private func nextMode(offset: Int) -> Mode {

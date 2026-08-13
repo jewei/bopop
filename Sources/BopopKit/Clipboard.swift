@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated enum ClipboardCapturePolicy {
+public enum ClipboardCapturePolicy {
     /// Markers a source puts on a copy it considers secret — a password, a
     /// one-time code, an autofill value. Never recorded, whatever app set
     /// them. The two `org.nspasteboard.*` ones are the cross-app convention;
@@ -73,7 +73,13 @@ public struct ClipboardEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+@MainActor
 public final class ClipboardStore {
+    public enum StoreError: Error, Equatable {
+        case writeFailed(String)
+        case privacyScrubFailed(writeError: String, deletionError: String)
+    }
+
     public private(set) var entries: [ClipboardEntry]
 
     private static let version = 1
@@ -86,6 +92,8 @@ public final class ClipboardStore {
 
     private let storage: Storage
     private let now: () -> Date
+    private let saveEntries: ([ClipboardEntry]) throws -> Void
+    private let removePersistedEntries: () throws -> Void
     private var limit: Int
 
     public init(
@@ -96,6 +104,16 @@ public final class ClipboardStore {
         self.storage = storage
         self.limit = max(1, limit)
         self.now = now
+        saveEntries = { entries in
+            try storage.save(
+                entries,
+                version: ClipboardStore.version,
+                to: storage.clipboardFileURL
+            )
+        }
+        removePersistedEntries = {
+            try FileManager.default.removeItem(at: storage.clipboardFileURL)
+        }
         let persistedEntries = storage.loadElements(
             ClipboardEntry.self,
             expectedVersion: Self.version,
@@ -105,12 +123,37 @@ public final class ClipboardStore {
         enforceLimits()
     }
 
-    public func add(_ text: String) {
+    /// Test seam for a storage failure. Production always uses `Storage.save`;
+    /// exposing only the write closure lets tests prove that memory never gets
+    /// ahead of disk without weakening Storage's atomic-write implementation.
+    init(
+        storage: Storage,
+        limit: Int = 100,
+        now: @escaping () -> Date = Date.init,
+        saveEntries: @escaping ([ClipboardEntry]) throws -> Void,
+        removePersistedEntries: @escaping () throws -> Void = {}
+    ) {
+        self.storage = storage
+        self.limit = max(1, limit)
+        self.now = now
+        self.saveEntries = saveEntries
+        self.removePersistedEntries = removePersistedEntries
+        let persistedEntries = storage.loadElements(
+            ClipboardEntry.self,
+            expectedVersion: Self.version,
+            from: storage.clipboardFileURL
+        ) ?? []
+        entries = persistedEntries.sorted(by: Self.entrySort)
+        enforceLimits()
+    }
+
+    @discardableResult
+    public func add(_ text: String) -> Result<Void, StoreError> {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
+            return .success(())
         }
         guard text.utf8.count <= Self.maximumTextSize else {
-            return
+            return .success(())
         }
         // Dedup is deliberately consecutive-only: re-copying an older history
         // row promotes it as a fresh capture. Pinned text is the exception —
@@ -119,55 +162,69 @@ public final class ClipboardStore {
         // every pin the user actually uses grows an unpinned twin.
         if let newest = entries.max(by: { $0.capturedAt < $1.capturedAt }),
            newest.text == text {
-            return
+            return .success(())
         }
         guard !entries.contains(where: { $0.pinnedAt != nil && $0.text == text }) else {
-            return
+            return .success(())
         }
 
+        let previous = entries
         let entry = ClipboardEntry(text: text, capturedAt: now())
         entries.insert(entry, at: pinnedCount)
         enforceLimits()
-        persist()
+        return persistOrRollBack(to: previous)
     }
 
-    public func pin(id: UUID) {
+    @discardableResult
+    public func pin(id: UUID) -> Result<Void, StoreError> {
         guard let index = entries.firstIndex(where: { $0.id == id }),
               entries[index].pinnedAt == nil else {
-            return
+            return .success(())
         }
+        let previous = entries
         entries[index] = entries[index].pinned(at: now())
         sortEntries()
         enforceLimits()
-        persist()
+        return persistOrRollBack(to: previous)
     }
 
-    public func unpin(id: UUID) {
+    @discardableResult
+    public func unpin(id: UUID) -> Result<Void, StoreError> {
         guard let index = entries.firstIndex(where: { $0.id == id }),
               entries[index].pinnedAt != nil else {
-            return
+            return .success(())
         }
+        let previous = entries
         entries[index] = entries[index].pinned(at: nil)
         sortEntries()
         // The entry rejoins the unpinned pool, which can push it over `limit`
         // — every other mutation trims, and this one used to be the exception.
         enforceLimits()
-        persist()
+        return persistOrRollBack(to: previous)
     }
 
-    public func setLimit(_ newLimit: Int) {
+    @discardableResult
+    public func setLimit(_ newLimit: Int) -> Result<Void, StoreError> {
+        let previous = entries
+        let previousLimit = limit
         limit = max(1, newLimit)
         enforceLimits()
-        persist()
+        let result = persistOrRollBack(to: previous)
+        if case .failure = result {
+            limit = previousLimit
+        }
+        return result
     }
 
     /// Drops unpinned history only — a pin is the user's explicit "keep this".
     /// `ClipboardProvider` hides the Clear row entirely when nothing is left
     /// to drop, and names what it keeps when some of it is pinned, so this
     /// never reads as a full wipe that quietly wasn't.
-    public func clear() {
+    @discardableResult
+    public func clear() -> Result<Void, StoreError> {
+        let previous = entries
         entries.removeAll { $0.pinnedAt == nil }
-        persist()
+        return persistOrRollBack(to: previous)
     }
 
     /// Upstream sensitive-clear scrub: when something wipes the pasteboard with
@@ -188,7 +245,8 @@ public final class ClipboardStore {
     /// Pinned entries are never scrubbed. This heuristic can't tell a password
     /// manager's clear from any other app's (see the comment above), so it must
     /// not be able to destroy something the user explicitly asked to keep.
-    public func forgetCaptures(within window: TimeInterval) {
+    @discardableResult
+    public func forgetCaptures(within window: TimeInterval) -> Result<Void, StoreError> {
         // `entrySort` puts pins first and orders the unpinned tail newest-first,
         // so the unpinned run starts right after the pins.
         let cutoff = now().addingTimeInterval(-window)
@@ -196,10 +254,10 @@ public final class ClipboardStore {
             index < pinnedCount || entry.capturedAt < cutoff
         }
         guard survivors.count != entries.count else {
-            return
+            return .success(())
         }
         entries = survivors.map(\.element)
-        persist()
+        return persistPrivacyScrub()
     }
 
     /// Length of the leading pinned run — `entrySort`'s invariant is that pins
@@ -255,12 +313,37 @@ public final class ClipboardStore {
     /// the newest capture or pin. Durability is worth more than a millisecond
     /// here. If a profile ever shows this mattering, the fix is an incremental
     /// store (one row per entry), not a deferred whole-file write.
-    private func persist() {
-        try? storage.save(
-            entries,
-            version: Self.version,
-            to: storage.clipboardFileURL
-        )
+    private func persistOrRollBack(
+        to previous: [ClipboardEntry]
+    ) -> Result<Void, StoreError> {
+        do {
+            try saveEntries(entries)
+            return .success(())
+        } catch {
+            entries = previous
+            return .failure(.writeFailed(error.localizedDescription))
+        }
+    }
+
+    /// Privacy deletion fails closed. If rewriting the scrubbed history fails,
+    /// remove the old file so it cannot resurrect the captures next launch.
+    /// The in-memory scrub remains applied and the error still reaches callers.
+    private func persistPrivacyScrub() -> Result<Void, StoreError> {
+        do {
+            try saveEntries(entries)
+            return .success(())
+        } catch {
+            let writeError = error.localizedDescription
+            do {
+                try removePersistedEntries()
+                return .failure(.writeFailed(writeError))
+            } catch {
+                return .failure(.privacyScrubFailed(
+                    writeError: writeError,
+                    deletionError: error.localizedDescription
+                ))
+            }
+        }
     }
 }
 
@@ -282,7 +365,7 @@ public final class ClipboardProvider: ResultProvider {
         relativeDateFormatter = FormatterBox(formatter)
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .clipboard else {
             return []
         }
@@ -298,7 +381,7 @@ public final class ClipboardProvider: ResultProvider {
         }
     }
 
-    private nonisolated func buildResults(
+    private func buildResults(
         from entries: [ClipboardEntry]
     ) -> [SearchResult] {
         // No pre-filter here, unlike AppsProvider. Measured: filtering first

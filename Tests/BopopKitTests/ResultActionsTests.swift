@@ -74,6 +74,7 @@ import Testing
 }
 
 @Test func verbsMatchFooterVocabulary() {
+    #expect(ResultActions.verb(for: .disabled) == nil)
     #expect(ResultActions.verb(for: .openApp("/a")) == "open")
     #expect(ResultActions.verb(for: .openFile("/f")) == "open")
     #expect(ResultActions.verb(for: .openURL("https://x")) == "open")
@@ -85,6 +86,13 @@ import Testing
     #expect(ResultActions.verb(for: .enterMode(.apps)) == "select")
     #expect(ResultActions.verb(for: .downloadTranslation) == "download")
     #expect(ResultActions.verb(for: .revealFile("/f")) == "reveal")
+}
+
+@Test func disabledResultsOfferNoActions() {
+    let result = SearchResult(
+        id: "info", providerID: .currency, title: "Unavailable",
+        action: .disabled, sortHint: 0)
+    #expect(ResultActions.items(for: result).isEmpty)
 }
 
 @Test func hasCopyActionSeesPrimaryAndSecondary() {

@@ -22,6 +22,48 @@ func currencyParserAcceptsValidExpressions() {
         == CurrencyQuery(amount: 100, from: "USD", to: "USD"))
 }
 
+@MainActor
+@Test func rateStoreDoesNotPublishCacheWhenSaveFails() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let store = RateStore(
+        storage: fixture.storage,
+        saveRates: { _ in throw ExpectedFailure() },
+        removeRates: {}
+    )
+
+    let result = store.save(rates: ["EUR": 1], fetchedAt: .now)
+
+    #expect(store.cached() == nil)
+    guard case .failure = result else {
+        Issue.record("expected persistence failure")
+        return
+    }
+}
+
+@MainActor
+@Test func rateStoreKeepsCacheVisibleWhenDeletionFails() throws {
+    struct ExpectedFailure: Error {}
+    let fixture = try makeTestStorage()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var persisted: CachedRates?
+    let store = RateStore(
+        storage: fixture.storage,
+        saveRates: { persisted = $0 },
+        removeRates: { throw ExpectedFailure() }
+    )
+    store.save(rates: ["EUR": 1], fetchedAt: .now)
+
+    let result = store.clearCache()
+
+    #expect(store.cached() == persisted)
+    guard case .failure = result else {
+        Issue.record("expected deletion failure")
+        return
+    }
+}
+
 @Test
 func currencyParserRejectsInvalidExpressions() {
     #expect(CurrencyParser.parse("hello world") == nil)
@@ -543,7 +585,7 @@ func currencyProviderIsOffUnlessExplicitlyEnabled() async throws {
     #expect(await fetcher.callCount == 0)
     #expect(store.cached() == nil)
     // Informational row: no copy payload to activate, nothing recorded.
-    #expect(results.first?.action == .enterMode(.general))
+    #expect(results.first?.action == .disabled)
 }
 
 /// Consent can be withdrawn while a request is in flight, so it is re-checked

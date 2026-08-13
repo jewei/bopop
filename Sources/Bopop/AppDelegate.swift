@@ -21,9 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     override init() {
         let defaults = UserDefaults.standard
+        let preferences = PreferencesRepository(defaults: defaults)
         let storage = Storage.production()
         let usageStore = UsageStore(storage: storage)
-        let clipboardLimit = SettingsModel.storedClipboardLimit(in: defaults)
+        let clipboardLimit = preferences.clipboardLimit
         let clipboardStore = ClipboardStore(storage: storage, limit: clipboardLimit)
         let snippetStore = SnippetStore(storage: storage)
         let visibilityStore = VisibilityStore(storage: storage)
@@ -49,25 +50,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hiddenIDs: { await MainActor.run { visibilityStore.hiddenIDs } }
         )
         let scriptCatalog = ScriptCatalog(directory: storage.scriptsDirectory)
-        // settingsModel is constructed AFTER this engine (it needs
-        // hotkeyManager/clipboardStore which are wired up below), so these
-        // closures must not capture settingsModel — they read defaults
-        // directly via the same static-read pattern as
-        // storedClipboardLimit, avoiding the ordering trap. They're invoked
-        // off the main actor during concurrent provider ranking (same
-        // reasoning as batchFrecencyFor above), so hop via MainActor.run
-        // rather than the banned assumeIsolated shortcut.
+        // Providers read one typed preference boundary instead of knowing
+        // UserDefaults keys or serialization details themselves.
         let chineseVariantFor: @Sendable () async -> TranslationTarget = {
-            await MainActor.run { SettingsModel.storedChineseVariant(in: .standard) }
+            await MainActor.run { preferences.chineseVariant }
         }
         let searchEngineFor: @Sendable () async -> SearchEngine = {
-            await MainActor.run { SettingsModel.storedSearchEngine(in: .standard) }
+            await MainActor.run { preferences.searchEngine }
         }
         let fileSearchFoldersFor: @Sendable () async -> [String] = {
-            await MainActor.run { SettingsModel.storedFileSearchFolders(in: .standard) }
+            await MainActor.run { preferences.fileSearchFolders }
         }
         let customSearchesFor: @Sendable () async -> [CustomWebSearch] = {
-            await MainActor.run { SettingsModel.storedCustomSearches(in: .standard) }
+            await MainActor.run { preferences.customSearches }
         }
         let appleTranslator = AppleTranslator(defaults: defaults)
         let engine = QueryEngine(
@@ -81,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         fetcher: LiveRateFetcher(),
                         isEnabled: {
                             await MainActor.run {
-                                SettingsModel.storedCurrencyEnabled(in: .standard)
+                                preferences.currencyEnabled
                             }
                         }
                     ),
@@ -155,7 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             visibilityStore: visibilityStore,
             rateStore: rateStore,
             storage: storage,
-            defaults: defaults
+            defaults: defaults,
+            preferences: preferences
         )
         self.settingsModel = settingsModel
         // settingsWindowController is built here, ahead of paletteController,
@@ -173,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             engine: engine,
             actionRunner: actionRunner,
             brandImageURL: storage.brandImageURL,
-            defaults: defaults,
+            preferences: preferences,
             refreshAppsOnShow: appCatalog.refreshNow,
             onShowSettings: { settingsWindowController.show() },
             onOpenScriptsFolder: { NSWorkspace.shared.open(storage.scriptsDirectory) },
@@ -198,8 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // Seeded into the model so Settings can show it: registration
             // happens here, before any Settings window exists.
-            let registered = hotkeyManager.register(hotkeyConfig)
-            settingsModel.setHotkeyUnavailable(!registered)
+            let registration = hotkeyManager.register(hotkeyConfig)
+            settingsModel.setHotkeyRegistrationOutcome(registration)
             DispatchQueue.main.async {
                 SpotlightConflict.warnIfConflicting(with: hotkeyConfig)
             }

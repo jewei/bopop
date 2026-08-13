@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct EmojiEntry: Codable, Equatable, Sendable {
+public struct EmojiEntry: Codable, Equatable, Sendable {
     public let char: String
     public let name: String
     public let keywords: [String]
@@ -12,6 +12,7 @@ public nonisolated struct EmojiEntry: Codable, Equatable, Sendable {
     }
 }
 
+@MainActor
 public final class EmojiCatalog {
     private var cached: [EmojiEntry]?
 
@@ -40,7 +41,7 @@ public final class EmojiCatalog {
         }
         // `Bundle.module` is main-actor isolated, so resolve the URL here and
         // send only that across — the decode is the expensive half anyway.
-        let url = Bundle.module.url(forResource: "emoji", withExtension: "json")
+        let url = Self.resourceURL()
         let decoded = await Task.detached(priority: .utility) {
             Self.decodeEntries(at: url)
         }.value
@@ -51,7 +52,15 @@ public final class EmojiCatalog {
     }
 
     private static func loadEntries() -> [EmojiEntry] {
-        decodeEntries(at: Bundle.module.url(forResource: "emoji", withExtension: "json"))
+        decodeEntries(at: resourceURL())
+    }
+
+    /// Distributed apps copy the catalog into the conventional app Resources
+    /// directory. SwiftPM tests/build products retain their generated module
+    /// bundle, so use it only as a development fallback.
+    private static func resourceURL() -> URL? {
+        Bundle.main.url(forResource: "emoji", withExtension: "json")
+            ?? Bundle.module.url(forResource: "emoji", withExtension: "json")
     }
 
     private nonisolated static func decodeEntries(at url: URL?) -> [EmojiEntry] {
@@ -76,7 +85,7 @@ public final class EmojiProvider: ResultProvider {
         self.frecencyFor = frecencyFor
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .emoji else {
             return []
         }
@@ -118,13 +127,13 @@ public final class EmojiProvider: ResultProvider {
         return matching.map { makeResult($0.element, catalogIndex: $0.offset) }
     }
 
-    private nonisolated func matchesTier(foldedTerm: String, entry: EmojiEntry) -> Bool {
+    private func matchesTier(foldedTerm: String, entry: EmojiEntry) -> Bool {
         ([entry.name] + entry.keywords).contains {
             Ranker.tier(foldedQuery: foldedTerm, candidate: $0) != .none
         }
     }
 
-    private nonisolated func makeResult(_ entry: EmojiEntry, catalogIndex: Int) -> SearchResult {
+    private func makeResult(_ entry: EmojiEntry, catalogIndex: Int) -> SearchResult {
         SearchResult(
             id: entry.char,
             providerID: .emoji,

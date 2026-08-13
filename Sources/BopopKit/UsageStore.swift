@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 public final class UsageStore {
     private static let version = 1
     private static let maximumHits = 999
@@ -10,15 +11,30 @@ public final class UsageStore {
     private let now: () -> Date
     private let maxEntries: Int
     private var entries: [String: Entry]
+    private let saveEntries: ([String: Entry]) throws -> Void
+    public private(set) var persistenceError: PersistenceFailure?
 
-    public init(
+    public convenience init(
         storage: Storage,
         now: @escaping () -> Date = Date.init,
         maxEntries: Int = 500
     ) {
+        self.init(storage: storage, now: now, maxEntries: maxEntries) { entries in
+            try storage.save(entries, version: UsageStore.version, to: storage.usageFileURL)
+        }
+    }
+
+    init(
+        storage: Storage,
+        now: @escaping () -> Date = Date.init,
+        maxEntries: Int = 500,
+        saveEntries: @escaping ([String: Entry]) throws -> Void
+    ) {
         self.storage = storage
         self.now = now
         self.maxEntries = max(0, maxEntries)
+        self.saveEntries = saveEntries
+        persistenceError = nil
         let loadedEntries = storage.load(
             [String: Entry].self,
             expectedVersion: Self.version,
@@ -30,15 +46,17 @@ public final class UsageStore {
         // otherwise a rejected or evicted record stays on disk and a later
         // launch with a larger cap resurrects it into the ranking.
         if entries != loadedEntries {
-            try? storage.save(
-                entries,
-                version: Self.version,
-                to: storage.usageFileURL
-            )
+            do {
+                try saveEntries(entries)
+            } catch {
+                persistenceError = PersistenceFailure(error.localizedDescription)
+            }
         }
     }
 
-    public func record(_ id: String) {
+    @discardableResult
+    public func record(_ id: String) -> Result<Void, PersistenceFailure> {
+        let previousEntries = entries
         let currentDate = now()
         let previousHits = entries[id]?.hits ?? 0
         let hits = previousHits >= Self.maximumHits
@@ -46,11 +64,15 @@ public final class UsageStore {
             : previousHits + 1
         entries[id] = Entry(hits: hits, lastUsed: currentDate)
         evictEntriesIfNeeded(at: currentDate)
-        try? storage.save(
-            entries,
-            version: Self.version,
-            to: storage.usageFileURL
-        )
+        do {
+            try saveEntries(entries)
+            return .success(())
+        } catch {
+            entries = previousEntries
+            let failure = PersistenceFailure(error.localizedDescription)
+            persistenceError = failure
+            return .failure(failure)
+        }
     }
 
     public func score(_ id: String) -> Double {
@@ -118,7 +140,7 @@ public final class UsageStore {
         }
     }
 
-    private struct Entry: Codable, Equatable {
+    struct Entry: Codable, Equatable {
         let hits: Int
         let lastUsed: Date
     }

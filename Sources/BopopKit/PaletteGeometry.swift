@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The rules live here; the numbers do not. Row heights and insets are design
 /// tokens that belong with the rest of the design system in the app target —
-/// what belongs in a Foundation-only module is the arithmetic those tokens
+/// what belongs in the UI-framework-independent module is the arithmetic those tokens
 /// feed: cap the list at `maxVisibleRows` then scroll, cap the grid at
 /// `gridVisibleRows`, round a partial last tile-row up, and add the hero's
 /// band only when there is a hero.
@@ -17,7 +17,7 @@ import Foundation
 /// Dimensions are `Double` rather than `CGFloat` to keep CoreGraphics out of
 /// the module. The adapter converts at the call site, where it already deals
 /// in `NSRect`.
-public nonisolated struct PaletteGeometry: Equatable, Sendable {
+public struct PaletteGeometry: Equatable, Sendable {
     /// Everything that is on screen regardless of the results: query field,
     /// its separator, the tab row, the footer.
     public let chromeHeight: Double

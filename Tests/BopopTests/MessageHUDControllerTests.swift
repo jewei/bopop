@@ -12,7 +12,8 @@ import Testing
 
     hud.show("a message worth reading", isFailure: false)
 
-    let panel = try? #require(hud.visiblePanelForTesting)
+    let panel = hud.visiblePanelForTesting
+    #expect(panel != nil)
     #expect(panel?.isVisible == true)
     #expect((panel?.frame.height ?? 0) > 0)
     #expect((panel?.frame.width ?? 0) > 0)
@@ -28,7 +29,8 @@ import Testing
     defer { hud.hide() }
 
     hud.show("a message", isFailure: false)
-    let panel = try? #require(hud.visiblePanelForTesting)
+    let panel = hud.visiblePanelForTesting
+    #expect(panel != nil)
 
     // Not asserting the level: `applyBopopOverlayStyle` sets `.statusBar` and
     // then `isFloatingPanel = true`, which resets it to `.floating`. Every

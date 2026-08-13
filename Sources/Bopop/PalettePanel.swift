@@ -4,6 +4,7 @@ import Quartz
 
 final class PalettePanel: NSPanel {
     var onResign: (() -> Void)?
+    var focusHandoff: (() -> FocusHandoffState)?
     /// Every ⌘-chord the palette understands, decoded to a semantic key.
     /// Returns whether it was handled; false falls through to AppKit.
     var onKey: ((PaletteKey) -> Bool)?
@@ -49,6 +50,7 @@ final class PalettePanel: NSPanel {
         // closes.
         FocusLossCheck.runDeferred(
             ownPanel: self,
+            handoff: { [weak self] in self?.focusHandoff?() ?? .stable },
             condition: { [weak self] in self?.isVisible == true }
         ) { [weak self] in
             self?.onResign?()

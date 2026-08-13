@@ -32,10 +32,14 @@ BUILD="${2:-$(git -C "$PROJECT_DIR" rev-list --count HEAD)}"
 DMG_NAME="$APP_NAME-$VERSION.dmg"
 TAG="v$VERSION"
 
-# Branch, clean tree, up-to-date with origin, and tag availability — all
-# read-only, all before anything is built or submitted. See
-# Support/preflight-release.sh.
-"$SCRIPT_DIR/preflight-release.sh" "$VERSION"
+# Branch, clean tree, exact remote SHA, successful CI for that SHA, publication
+# credentials, and tag availability — all read-only, all before anything is
+# built or submitted. See Support/preflight-release.sh.
+"$SCRIPT_DIR/preflight-release.sh" "$VERSION" "$GITHUB_REPO"
+# Manual behavior checks are commit- and version-bound. A release cannot rely
+# on a stale or partially reviewed worksheet.
+"$SCRIPT_DIR/qa-release.sh" --version "$VERSION" --check
+BASE_COMMIT="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
 
 echo "▶ Releasing $APP_NAME $VERSION (build $BUILD)"
 
@@ -50,20 +54,32 @@ SPARKLE_FMWK="$SPARKLE_ARTIFACTS/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.
 SIGN_UPDATE="$SPARKLE_ARTIFACTS/bin/sign_update"
 
 echo "▶ Building…"
-swift build -c release --package-path "$PROJECT_DIR"
+PRODUCTS_DIR="$(swift build \
+    -c release \
+    --arch arm64 \
+    --arch x86_64 \
+    --package-path "$PROJECT_DIR" \
+    --show-bin-path)"
 
 if [[ ! -x "$SIGN_UPDATE" ]]; then
     echo "error: $SIGN_UPDATE not found — did swift build resolve the Sparkle package?" >&2
     exit 1
 fi
 
-rm -rf "$APP_PATH" "$DMG_PATH" "$NOTARIZE_ZIP"
-mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Contents/Frameworks"
-cp "$PROJECT_DIR/.build/release/$APP_NAME" "$APP_PATH/Contents/MacOS/$APP_NAME"
-cp "$PLIST_SRC" "$APP_PATH/Contents/Info.plist"
-cp "$PROJECT_DIR/Resources/AppIcon.icns" "$APP_PATH/Contents/Resources/AppIcon.icns"
-cp -R "$SPARKLE_FMWK" "$APP_PATH/Contents/Frameworks/"
-printf 'APPL????' > "$APP_PATH/Contents/PkgInfo"
+# Exercise the Sparkle key before signing or notarizing the real artifact. The
+# binary being present proves only that the dependency resolved; sign_update
+# still fails later if the EdDSA private key is missing or inaccessible.
+SIGNING_PROBE="$(mktemp)"
+printf 'Bopop release signing preflight\n' > "$SIGNING_PROBE"
+if ! "$SIGN_UPDATE" "$SIGNING_PROBE" >/dev/null 2>&1; then
+    rm -f "$SIGNING_PROBE"
+    echo "error: Sparkle sign_update cannot access a signing key." >&2
+    exit 1
+fi
+rm -f "$SIGNING_PROBE"
+
+rm -rf "$DMG_PATH" "$NOTARIZE_ZIP"
+"$SCRIPT_DIR/assemble-app.sh" "$PRODUCTS_DIR" "$PLIST_SRC" "$APP_PATH"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$APP_PATH/Contents/Info.plist"
@@ -122,11 +138,19 @@ echo "   length:      $LENGTH"
 
 # ── Rewrite appcast.xml ───────────────────────────────────────────────────────
 
-echo "▶ Updating appcast.xml…"
+echo "▶ Preparing appcast.xml…"
 PUBDATE=$(date -u '+%a, %d %b %Y %H:%M:%S +0000')
 DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$DMG_NAME"
+STAGED_APPCAST="$(mktemp)"
+STAGED_PLIST="$(mktemp)"
+TEMP_INDEX="$(mktemp)"
+rm -f "$TEMP_INDEX"
+cleanup_staged_files() {
+    rm -f "$STAGED_APPCAST" "$STAGED_PLIST" "$TEMP_INDEX"
+}
+trap cleanup_staged_files EXIT
 
-cat > "$PROJECT_DIR/appcast.xml" <<XML
+cat > "$STAGED_APPCAST" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
@@ -154,44 +178,73 @@ XML
 
 # Fail before changing git state or publishing anything if the signed
 # artifacts, mounted DMG, or appcast metadata do not agree.
-"$SCRIPT_DIR/validate-release.sh" "$APP_PATH" "$DMG_PATH" "$PROJECT_DIR/appcast.xml"
+"$SCRIPT_DIR/validate-release.sh" "$APP_PATH" "$DMG_PATH" "$STAGED_APPCAST"
 
-# ── Commit, push, release ─────────────────────────────────────────────────────
-# Push BEFORE creating the release: GitHub's target_commitish must already
-# exist on the remote. The appcast download URL points at the release asset
-# (uploaded below), so publishing the commit first never exposes a dangling
-# appcast — clients fetch the new feed only after the asset is live or 404
-# harmlessly for the moment in between.
+# ── Stage, publish asset, then expose appcast ─────────────────────────────────
+# The release commit first goes to a temporary remote ref. That gives GitHub a
+# reachable target without changing main (and therefore without exposing the
+# new appcast). The release asset is published next; only then is main
+# fast-forwarded. A failure before that final push leaves the live feed intact.
 
-# Write the shipped version back to the source plist, so it tracks reality
+# Write the shipped version into a staged plist, so the repository tracks reality
 # rather than drifting behind (it sat at 0.1.1 through the 0.1.2 and 0.1.3
 # releases, which made the no-argument default useless — it would resolve to
 # an already-tagged version and fail preflight). Deliberately last: everything
-# above is read-only with respect to the repo, so a run that dies during
-# build, notarization, or validation leaves the tree exactly as it found it.
+# above is read-only with respect to the repo, and the release commit below is
+# built with git plumbing without moving the local branch. A failed publication
+# therefore leaves the checkout exactly as preflight found it.
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST_SRC")"
+cp "$PLIST_SRC" "$STAGED_PLIST"
 if [[ "$PLIST_VERSION" != "$VERSION" ]]; then
     # Braces are load-bearing: bash 3.2 on macOS takes the bytes of the
     # following "…" as part of the variable name, so `$VERSION…` looks up
     # VERSION… and `set -u` kills the release after notarization.
     echo "▶ Updating Support/Info.plist $PLIST_VERSION → ${VERSION}…"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST_SRC"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$STAGED_PLIST"
 fi
 
-echo "▶ Committing appcast.xml + version…"
-git -C "$PROJECT_DIR" add appcast.xml Support/Info.plist
-git -C "$PROJECT_DIR" commit -m "Release $TAG"
-RELEASE_COMMIT="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
+echo "▶ Creating isolated release commit…"
+APPCAST_BLOB="$(git -C "$PROJECT_DIR" hash-object -w "$STAGED_APPCAST")"
+PLIST_BLOB="$(git -C "$PROJECT_DIR" hash-object -w "$STAGED_PLIST")"
+GIT_INDEX_FILE="$TEMP_INDEX" git -C "$PROJECT_DIR" read-tree "$BASE_COMMIT"
+GIT_INDEX_FILE="$TEMP_INDEX" git -C "$PROJECT_DIR" update-index \
+    --cacheinfo "100644,$APPCAST_BLOB,appcast.xml"
+GIT_INDEX_FILE="$TEMP_INDEX" git -C "$PROJECT_DIR" update-index \
+    --cacheinfo "100644,$PLIST_BLOB,Support/Info.plist"
+RELEASE_TREE="$(GIT_INDEX_FILE="$TEMP_INDEX" git -C "$PROJECT_DIR" write-tree)"
+RELEASE_COMMIT="$(printf 'Release %s\n' "$TAG" | \
+    git -C "$PROJECT_DIR" commit-tree "$RELEASE_TREE" -p "$BASE_COMMIT")"
+STAGING_REF="refs/heads/release-staging/$TAG"
 
-echo "▶ Pushing to origin…"
-git -C "$PROJECT_DIR" push
+echo "▶ Staging release commit without changing main…"
+git -C "$PROJECT_DIR" push origin "$RELEASE_COMMIT:$STAGING_REF"
 
-echo "▶ Creating GitHub release ${TAG}…"
+echo "▶ Publishing GitHub release ${TAG} and asset…"
 gh release create "$TAG" "$DMG_PATH" \
     --repo "$GITHUB_REPO" \
     --target "$RELEASE_COMMIT" \
     --title "$APP_NAME $VERSION" \
     --generate-notes
+
+# Verify the published URL before main starts advertising it. `gh release view`
+# proves publication state; the asset lookup proves the exact expected name was
+# attached rather than relying on gh's successful exit alone.
+PUBLISHED_ASSET="$(gh release view "$TAG" \
+    --repo "$GITHUB_REPO" \
+    --json assets \
+    --jq ".assets[] | select(.name == \"$DMG_NAME\") | .name")"
+if [[ "$PUBLISHED_ASSET" != "$DMG_NAME" ]]; then
+    echo "error: published release is missing $DMG_NAME; main was not changed." >&2
+    exit 1
+fi
+
+echo "▶ Fast-forwarding main after the release asset is live…"
+RECOVERY_COMMAND="git push --force-with-lease=refs/heads/main:$BASE_COMMIT origin $RELEASE_COMMIT:refs/heads/main"
+echo "   If this final push is interrupted, recover with: $RECOVERY_COMMAND"
+git -C "$PROJECT_DIR" push --force-with-lease="refs/heads/main:$BASE_COMMIT" \
+    origin "$RELEASE_COMMIT:refs/heads/main"
+git -C "$PROJECT_DIR" merge --ff-only "$RELEASE_COMMIT"
+git -C "$PROJECT_DIR" push origin --delete "release-staging/$TAG" || true
 
 echo ""
 echo "✓ Released $APP_NAME $VERSION"

@@ -59,54 +59,56 @@ func anUnrelatedWindowTakingKeyIsAFocusLoss() {
     #expect(FocusLossCheck.isForeign(successor: foreign, ownPanel: own))
 }
 
-/// No key window at all reads the same whether the user left or an in-app
-/// handover has not settled, so the successor alone cannot decide it.
-///
-/// Seen live, both as `successor=nil`: Quick Look takes key only after loading
-/// its preview and gives it up again on the way out, and one deferred runloop
-/// turn lands in between. Hiding on the bare nil tore the palette down mid-open
-/// and took Quick Look with it.
 @MainActor
 @Test
-func noSuccessorIsAFocusLossOnlyWhenNoOverlayIsLeft() {
-    let own = makePalettePanel()
-
+func quickLookOpeningIsAnExplicitInternalHandoff() {
     #expect(
-        FocusLossCheck.isForeign(
-            successor: nil,
-            ownPanel: own,
-            quickLookIsVisible: false
-        ),
-        "nothing of ours on screen — the user really has gone"
-    )
-    #expect(
-        !FocusLossCheck.isForeign(
-            successor: nil,
-            ownPanel: own,
-            quickLookIsVisible: true
-        ),
-        "Quick Look is still up, so focus never left the app"
+        FocusLossCheck.decision(
+            successor: .none,
+            handoff: .openingQuickLook,
+            retriesRemaining: 0
+        ) == .keepFocus
     )
 }
 
-/// A window that is not ours still wins, Quick Look or not: the user clicked
-/// into another app while Quick Look happened to be open.
 @MainActor
 @Test
-func aForeignSuccessorWinsEvenWithAnOverlayUp() {
-    let foreign = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
-        styleMask: [.titled],
-        backing: .buffered,
-        defer: false
-    )
-
+func quickLookResignWaitsForAKeySuccessorThenKeepsOrLosesFocus() {
     #expect(
-        FocusLossCheck.isForeign(
-            successor: foreign,
-            ownPanel: makePalettePanel(),
-            quickLookIsVisible: true
-        )
+        FocusLossCheck.decision(
+            successor: .none,
+            handoff: .resolvingQuickLookResign,
+            retriesRemaining: 1
+        ) == .retry
+    )
+    #expect(
+        FocusLossCheck.decision(
+            successor: .bopopOverlay,
+            handoff: .resolvingQuickLookResign,
+            retriesRemaining: 0
+        ) == .keepFocus,
+        "Quick Look's own close handed key back to the palette"
+    )
+    #expect(
+        FocusLossCheck.decision(
+            successor: .none,
+            handoff: .resolvingQuickLookResign,
+            retriesRemaining: 0
+        ) == .loseFocus,
+        "no successor after the handoff window means the user left the app"
+    )
+}
+
+@MainActor
+@Test
+func anotherApplicationsFocusLossIsNilNotItsWindow() {
+    #expect(
+        FocusLossCheck.decision(
+            successor: .none,
+            handoff: .stable,
+            retriesRemaining: 12
+        ) == .loseFocus,
+        "NSApp.keyWindow cannot expose another process's key window"
     )
 }
 
@@ -154,8 +156,7 @@ func anOverlayOtherThanTheOwnerStillDismissesOnAGenuineLoss() {
     #expect(
         FocusLossCheck.isForeign(
             successor: nil,
-            ownPanel: largeType,
-            quickLookIsVisible: false
+            ownPanel: largeType
         ),
         "Large Type must still dismiss with the palette sitting behind it"
     )

@@ -29,6 +29,20 @@ private let youtube = CustomWebSearch(
                              urlTemplate: "https://x.com/").isValid) // no {query}
 }
 
+@Test func customSearchValidationReportsDomainErrorsAndDuplicateKeywords() {
+    #expect(CustomWebSearch(
+        id: UUID(), name: " ", keyword: "x", urlTemplate: "https://x.com/{query}"
+    ).validationError() == .nameMissing)
+    #expect(CustomWebSearch(
+        id: UUID(), name: "X", keyword: "two words", urlTemplate: "https://x.com/{query}"
+    ).validationError() == .keywordHasWhitespace)
+
+    let duplicate = CustomWebSearch(
+        id: UUID(), name: "Other", keyword: "YT", urlTemplate: "https://x.com/{query}"
+    )
+    #expect(duplicate.validationError(existing: [youtube]) == .keywordTaken)
+}
+
 /// "f"/"t" are permanently shadowed by QueryParser's "f "/"t " sticky-mode
 /// prefixes, and a leading ":" is shadowed by the emoji prefix — none of
 /// these keywords could ever reach CustomSearchProvider in .general mode, so

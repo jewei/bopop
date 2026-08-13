@@ -5,7 +5,7 @@ import Foundation
 /// `NSEvent` chords and `NSResponder` selectors are two different spellings of
 /// the same intent, and both used to carry their own copy of the routing
 /// rules. Decoding stays in the adapter; what a key *means* is decided here.
-public nonisolated enum PaletteKey: Equatable, Sendable, CaseIterable {
+public enum PaletteKey: Equatable, Sendable, CaseIterable {
     case up
     case down
     case left
@@ -32,7 +32,7 @@ public nonisolated enum PaletteKey: Equatable, Sendable, CaseIterable {
 /// Which of the palette's own overlays are up. The only thing the routing
 /// decision needs from AppKit, and it is three booleans rather than three
 /// window references.
-public nonisolated struct PaletteOverlays: Equatable, Sendable {
+public struct PaletteOverlays: Equatable, Sendable {
     public let actionsPanelIsVisible: Bool
     public let quickLookIsVisible: Bool
     public let largeTypeIsVisible: Bool
@@ -49,7 +49,7 @@ public nonisolated struct PaletteOverlays: Equatable, Sendable {
 }
 
 /// What the adapter should do with a key.
-public nonisolated enum PaletteKeyOutcome: Equatable, Sendable {
+public enum PaletteKeyOutcome: Equatable, Sendable {
     case perform(PaletteKeyAction)
     /// Not the palette's key. The adapter must report it unhandled so AppKit
     /// carries on — this is what lets ← and → move the caret, and ⌘C copy
@@ -58,7 +58,7 @@ public nonisolated enum PaletteKeyOutcome: Equatable, Sendable {
     case passThrough
 }
 
-public nonisolated enum PaletteKeyAction: Equatable, Sendable {
+public enum PaletteKeyAction: Equatable, Sendable {
     case moveSelection(PaletteSelectionMove)
     case cycleTab(shift: Bool)
     case runFocused

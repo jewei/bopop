@@ -1,6 +1,6 @@
 import Foundation
 
-public nonisolated struct TimeConversion: Equatable, Sendable {
+public struct TimeConversion: Equatable, Sendable {
     public let sourceDescription: String
     public let localDescription: String
     public let instant: Date
@@ -12,7 +12,7 @@ public nonisolated struct TimeConversion: Equatable, Sendable {
     }
 }
 
-public nonisolated enum TimeQueryParser {
+public enum TimeQueryParser {
     /// Parses phrases like "9am eastern", "oct 13 9pm PST", "time in tokyo",
     /// or "tomorrow 3pm london". Returns nil when no recognizable timezone
     /// token is present (bare times/expressions are left to other providers).
@@ -354,7 +354,7 @@ public final class TimeProvider: ResultProvider {
         self.localTimeZone = localTimeZone
     }
 
-    public nonisolated func results(for query: ParsedQuery) async throws -> [SearchResult] {
+    public func results(for query: ParsedQuery) async throws -> [SearchResult] {
         guard query.mode == .general else {
             return []
         }
@@ -387,7 +387,7 @@ public final class TimeProvider: ResultProvider {
         ]
     }
 
-    private nonisolated static func splitGMTSuffix(
+    private static func splitGMTSuffix(
         _ sourceDescription: String
     ) -> (text: String, badge: String?) {
         guard let range = sourceDescription.range(of: ", GMT", options: .backwards) else {
