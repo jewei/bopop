@@ -157,7 +157,7 @@ public enum ScriptRunner {
 
         var stderrString = String(decoding: capturedStderr, as: UTF8.self)
         if timedOut {
-            stderrString += stderrString.isEmpty ? truncationMarker : "\n\(truncationMarker)"
+            stderrString = stderrString.isEmpty ? truncationMarker : "\(truncationMarker)\n\(stderrString)"
         }
 
         return ScriptRunResult(
@@ -254,9 +254,12 @@ private actor ScriptTermination {
 }
 
 private final class ScriptPipeCapture: @unchecked Sendable {
+    private static let sizeMarker = Data("(earlier output omitted: size limit)\n".utf8)
     private let limit: Int
     private let lock = NSLock()
     private var data = Data()
+    private var nextWriteOffset = 0
+    private var wasTruncated = false
     private var continuation: CheckedContinuation<Data, Never>?
     private var finished = false
 
@@ -273,11 +276,36 @@ private final class ScriptPipeCapture: @unchecked Sendable {
 
     func append(_ chunk: Data) {
         lock.lock()
-        let remaining = limit - data.count
-        if remaining > 0 {
-            data.append(chunk.prefix(remaining))
+        defer { lock.unlock() }
+        guard !finished else {
+            return
         }
-        lock.unlock()
+        if chunk.count >= limit {
+            wasTruncated = wasTruncated || !data.isEmpty || chunk.count > limit
+            data = Data(chunk.suffix(limit))
+            nextWriteOffset = 0
+            return
+        }
+
+        let initialCount = min(limit - data.count, chunk.count)
+        data.append(chunk.prefix(initialCount))
+        let overflow = chunk.dropFirst(initialCount)
+        guard !overflow.isEmpty else {
+            return
+        }
+
+        // Overwrite the oldest bytes in place; the buffer never grows past limit.
+        wasTruncated = true
+        let firstCount = min(overflow.count, limit - nextWriteOffset)
+        data.replaceSubrange(
+            nextWriteOffset..<(nextWriteOffset + firstCount),
+            with: overflow.prefix(firstCount)
+        )
+        let secondCount = overflow.count - firstCount
+        if secondCount > 0 {
+            data.replaceSubrange(0..<secondCount, with: overflow.suffix(secondCount))
+        }
+        nextWriteOffset = (nextWriteOffset + overflow.count) % limit
     }
 
     func finish() {
@@ -288,7 +316,19 @@ private final class ScriptPipeCapture: @unchecked Sendable {
         }
         finished = true
         self.continuation = nil
-        let result = data
+        let result: Data
+        if wasTruncated {
+            var ordered = Data(data[nextWriteOffset...])
+            ordered.append(data[..<nextWriteOffset])
+            var tail = ordered.suffix(limit - Self.sizeMarker.count)
+            // Discard only UTF-8 continuation bytes cut off by the size boundary.
+            while let byte = tail.first, (0x80..<0xC0).contains(byte) {
+                tail = tail.dropFirst()
+            }
+            result = Self.sizeMarker + tail
+        } else {
+            result = data
+        }
         lock.unlock()
         continuation.resume(returning: result)
     }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Bopop
@@ -65,7 +66,8 @@ private func makeDefaults() -> UserDefaults {
 private func makeModel(
     defaults: UserDefaults,
     storage: Storage,
-    hotkeyManager: any HotkeyRegistering = HotkeyManager()
+    hotkeyManager: any HotkeyRegistering = HotkeyManager(),
+    setClipboardRecordingEnabled: @escaping (Bool) -> Void = { _ in }
 ) -> SettingsModel {
     SettingsModel(
         hotkeyManager: hotkeyManager,
@@ -74,8 +76,63 @@ private func makeModel(
         visibilityStore: VisibilityStore(storage: storage),
         rateStore: RateStore(storage: storage),
         storage: storage,
-        defaults: defaults
+        defaults: defaults,
+        setClipboardRecordingEnabled: setClipboardRecordingEnabled
     )
+}
+
+@MainActor
+@Test
+func settingsRecordingSwitchPersistsAndConfiguresWatcherOnReload() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("bopop-recording-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let storage = Storage(baseDirectory: root)
+    try storage.ensureDirectories()
+    let defaults = makeDefaults()
+    let pasteboard = NSPasteboard(name: .init("bopop-recording-\(UUID().uuidString)"))
+    defer { pasteboard.releaseGlobally() }
+    let store = ClipboardStore(storage: storage)
+    let watcher = PasteboardWatcher(
+        store: store, pasteboard: pasteboard, frontmostBundleID: { "com.apple.TextEdit" }
+    )
+    let model = makeModel(
+        defaults: defaults, storage: storage,
+        setClipboardRecordingEnabled: watcher.setRecordingEnabled
+    )
+    #expect(model.clipboardRecordingEnabled)
+    model.clipboardRecordingEnabled = false
+    pasteboard.clearContents()
+    pasteboard.setString("disabled", forType: .string)
+    watcher.pollPasteboard()
+    #expect(store.entries.isEmpty)
+    watcher.stop()
+
+    let restartedWatcher = PasteboardWatcher(
+        store: store, pasteboard: pasteboard, interval: 3_600,
+        frontmostBundleID: { "com.apple.TextEdit" }
+    )
+    let reloaded = makeModel(
+        defaults: defaults, storage: storage,
+        setClipboardRecordingEnabled: restartedWatcher.setRecordingEnabled
+    )
+    #expect(!reloaded.clipboardRecordingEnabled)
+    restartedWatcher.start()
+    defer { restartedWatcher.stop() }
+    pasteboard.clearContents()
+    pasteboard.setString("disabled after restart", forType: .string)
+    restartedWatcher.pollPasteboard()
+    #expect(store.entries.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: storage.clipboardFileURL.path))
+
+    reloaded.clipboardRecordingEnabled = true
+    restartedWatcher.pollPasteboard()
+    #expect(store.entries.isEmpty)
+    pasteboard.clearContents()
+    pasteboard.setString("enabled", forType: .string)
+    restartedWatcher.pollPasteboard()
+    #expect(store.entries.map(\.text) == ["enabled"])
+    #expect(PreferencesRepository(defaults: defaults).clipboardRecordingEnabled)
 }
 
 @MainActor

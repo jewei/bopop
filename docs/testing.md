@@ -26,6 +26,15 @@ swift test -c release
 This catches isolation and optimization-only compilation failures that the
 debug configuration cannot expose.
 
+File-search tests inject Spotlight metadata through the real retrieval,
+provider, and engine path. They cover an exact match beyond the old retrieval
+cutoff and the separate candidate and display limits. They do not establish
+latency or recall for a live Spotlight index.
+
+Clipboard tests cover pause, resume, persisted recording state, and cleanup
+while recording is off. Script tests cover output overflow, UTF-8 boundaries,
+final-line feedback, and the existing pipe-drain deadline.
+
 ## What green tests do not prove
 
 Mutation checking proves that a test notices a code change. It does not prove

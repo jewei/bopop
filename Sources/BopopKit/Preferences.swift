@@ -12,6 +12,7 @@ public enum PersistedPreferenceKeys {
     public static let hotkeyKeyCode = PersistedPreferenceKey<UInt32>("hotkeyKeyCode")
     public static let hotkeyModifiers = PersistedPreferenceKey<UInt>("hotkeyModifiers")
     public static let clipboardLimit = PersistedPreferenceKey<Int>("clipboardLimit")
+    public static let clipboardRecordingEnabled = PersistedPreferenceKey<Bool>("clipboardRecordingEnabled")
     public static let currencyEnabled = PersistedPreferenceKey<Bool>("currencyConversionEnabled")
     public static let chineseVariant = PersistedPreferenceKey<String>("chineseVariant")
     public static let searchEngine = PersistedPreferenceKey<String>("searchEngine")
@@ -27,6 +28,7 @@ public enum PersistedPreferenceKeys {
         hotkeyKeyCode.rawValue,
         hotkeyModifiers.rawValue,
         clipboardLimit.rawValue,
+        clipboardRecordingEnabled.rawValue,
         currencyEnabled.rawValue,
         chineseVariant.rawValue,
         searchEngine.rawValue,

@@ -34,6 +34,7 @@ public final class QueryEngine {
 
     private let providers: [Mode: [any ResultProvider]]
     private let debounce: [Mode: Duration]
+    private let resultLimits: [Mode: Int]
     private let settle: Duration
     private let frecencyFor: (String) -> Double
     private let providerWeights: [ProviderID: Double]
@@ -55,12 +56,14 @@ public final class QueryEngine {
     public init(
         providers: [Mode: [any ResultProvider]],
         debounce: [Mode: Duration] = [.fileSearch: .milliseconds(250)],
+        resultLimits: [Mode: Int] = [.fileSearch: 40],
         settle: Duration = .milliseconds(50),
         frecencyFor: @escaping (String) -> Double = { _ in 0 },
         providerWeights: [ProviderID: Double] = Ranker.defaultWeights
     ) {
         self.providers = providers
         self.debounce = debounce
+        self.resultLimits = resultLimits
         self.settle = settle
         self.frecencyFor = frecencyFor
         self.providerWeights = providerWeights
@@ -270,9 +273,15 @@ public final class QueryEngine {
                 providerWeights: providerWeights
             )
         }
+        let results: [SearchResult]
+        if let limit = resultLimits[query.mode] {
+            results = Array(ranked.prefix(max(0, limit)))
+        } else {
+            results = ranked
+        }
         emit(
             query: query,
-            results: ranked,
+            results: results,
             generation: taskGeneration,
             isFinal: isFinal
         )

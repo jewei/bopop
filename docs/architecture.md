@@ -48,6 +48,11 @@ state receives an explicit snapshot; it must not reach through UI objects from
 provider work. Parsed queries travel into the engine and return on each update,
 so stale results can be rejected without reparsing against a second clock.
 
+File retrieval and display have separate limits. `FileSearcher` converts a
+bounded set of Spotlight candidates, ordered by modification date.
+`QueryEngine` applies the mode's result limit after ranking. This lets older
+exact matches compete with newer partial matches within the candidate set.
+
 ## State and persistence
 
 User defaults hold small preferences keyed by bundle identifier. Domain records

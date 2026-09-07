@@ -45,6 +45,7 @@ EXPECTED_CHECKS=(
   QA_TRASH_CONFIRM QA_FINDER_CONSENT QA_EJECT
   QA_LOGOUT QA_RESTART QA_SHUTDOWN
   QA_PW_CAPTURED QA_PW_SCRUBBED
+  QA_CLIPBOARD_PAUSE QA_CLIPBOARD_PAUSE_PERSIST QA_CLIPBOARD_RESUME
   QA_QL_OPEN QA_QL_ESC QA_QL_TOGGLE QA_REVEAL
   QA_LT_OPEN QA_LT_TOGGLE QA_LT_AUTODISMISS
   QA_SNIPPETS_CRUD QA_SNIPPETS_PERSIST
@@ -224,11 +225,21 @@ verdict QA_SHUTDOWN 'Shut Down dialog appeared and cancel was safe?'
 
 stage 'Apple Passwords clipboard scrub'
 note 'Apple Passwords does not mark copied text secret. This checks the upstream-clear heuristic.'
+step 'Turn on Record clipboard history in Settings > Clipboard.'
 step 'Copy two passwords, then open Clipboard mode.'
 verdict QA_PW_CAPTURED 'Both are temporarily visible (the observed platform behavior)?'
+step 'Turn off Record clipboard history before the source clears the pasteboard.'
 step 'Wait a full two minutes without copying anything else, then check again.'
 pause 'Press Enter after two minutes.'
 verdict QA_PW_SCRUBBED 'Both passwords are gone, not just the newest?'
+
+stage 'Clipboard recording control'
+step 'With recording off, copy disposable sample text and open Clipboard mode.'
+verdict QA_CLIPBOARD_PAUSE 'The new copy is absent and saved history remains available?'
+step "Quit and relaunch with 'make -C $PROJECT_DIR open', then copy different sample text."
+verdict QA_CLIPBOARD_PAUSE_PERSIST 'Recording remains off and the new copy is absent?'
+step 'Turn recording on. Check history, then copy new sample text and check again.'
+verdict QA_CLIPBOARD_RESUME 'Only the copy made after recording was enabled appears?'
 
 stage 'Quick Look key handoff and toggle'
 step "Select a file result, open actions with Command-K, then press Command-Y."

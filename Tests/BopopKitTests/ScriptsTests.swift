@@ -75,6 +75,62 @@ func scriptRunnerReturnsExitCode() async throws {
 }
 
 @Test(.timeLimit(.minutes(1)))
+func scriptRunnerRetainsFinalOutputAfterBothStreamsOverflow() async throws {
+    let fixture = try makeRunnerFixture(body: """
+        i=0
+        while [ "$i" -lt 3500 ]; do
+          printf '%04d 进度🙂abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\\n' "$i"
+          printf '%04d 进度🙂abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\\n' "$i" >&2
+          i=$((i + 1))
+        done
+        printf 'final stdout\\n'
+        printf 'final failure\\n' >&2
+        exit 7
+        """)
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+    let result = await ScriptRunner.run(
+        scriptAt: fixture.script.path,
+        workingDirectory: fixture.directory
+    )
+
+    #expect(result.exitCode == 7)
+    let hasFinalOutput = result.stdout.hasSuffix("final stdout\n")
+    let hasFinalFailure = result.stderr.hasSuffix("final failure\n")
+    #expect(hasFinalOutput)
+    #expect(hasFinalFailure)
+    let expectedTail = (3_400..<3_500).map {
+        "\($0) 进度🙂abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n"
+    }.joined()
+    let stdoutIsOrdered = result.stdout.hasSuffix(expectedTail + "final stdout\n")
+    let stderrIsOrdered = result.stderr.hasSuffix(expectedTail + "final failure\n")
+    #expect(stdoutIsOrdered)
+    #expect(stderrIsOrdered)
+    for output in [result.stdout, result.stderr] {
+        let hasSizeMarker = output.hasPrefix("(earlier output omitted: size limit)\n")
+        #expect(hasSizeMarker)
+        #expect(output.utf8.count <= 65_536)
+        let hasReplacementCharacter = output.contains("\u{FFFD}")
+        #expect(!hasReplacementCharacter)
+    }
+}
+
+@Test(.timeLimit(.minutes(1)), arguments: [65_535, 65_536, 65_537])
+func scriptRunnerMarksOnlyOutputThatExceedsTheByteLimit(byteCount: Int) async throws {
+    let fixture = try makeRunnerFixture(body: "printf '%\(byteCount)s' x")
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+    let result = await ScriptRunner.run(scriptAt: fixture.script.path, workingDirectory: fixture.directory)
+
+    #expect(result.exitCode == 0)
+    #expect(result.stdout.utf8.count == min(byteCount, 65_536))
+    let hasMarker = result.stdout.hasPrefix("(earlier output omitted: size limit)\n")
+    #expect(hasMarker == (byteCount > 65_536))
+    let hasLastByte = result.stdout.hasSuffix("x")
+    #expect(hasLastByte)
+}
+
+@Test(.timeLimit(.minutes(1)))
 func scriptRunnerDrainsLargeStderrWithoutDeadlock() async throws {
     let body = """
     i=0

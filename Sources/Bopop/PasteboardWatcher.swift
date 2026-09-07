@@ -25,6 +25,7 @@ final class PasteboardWatcher {
     private var sessionObservers: [NotificationToken] = []
     private var isStarted = false
     private var isSessionActive = true
+    private var isRecordingEnabled = true
 
     init(
         store: ClipboardStore,
@@ -58,6 +59,17 @@ final class PasteboardWatcher {
         timer?.invalidate()
         timer = nil
         sessionObservers.removeAll()
+    }
+
+    func setRecordingEnabled(_ enabled: Bool) {
+        guard enabled != isRecordingEnabled else {
+            return
+        }
+        if enabled {
+            // Consume pending copies and clears while capture is still disabled.
+            pollPasteboard()
+        }
+        isRecordingEnabled = enabled
     }
 
     private func startTimer() {
@@ -131,6 +143,10 @@ final class PasteboardWatcher {
             // copy) means the source considered the content sensitive — forget
             // our newest capture too.
             store.forgetCaptures(within: Self.upstreamClearScrubWindow)
+            return
+        }
+        // Pausing capture must not disable the upstream-clear privacy cleanup.
+        guard isRecordingEnabled else {
             return
         }
         // The secrecy-marker check lives entirely in ClipboardCapturePolicy —

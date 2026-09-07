@@ -7,7 +7,7 @@ final class ScriptFeedback {
     /// Wired to the message HUD by `AppDelegate`. This used to post a user
     /// notification, which meant asking for the Notifications permission the
     /// first time a script finished — and losing every result thereafter if the
-    /// user said no. The full output still goes to `scripts.log` either way.
+    /// user said no. The captured output still goes to `scripts.log` either way.
     var present: ((String, Bool) -> Void)?
 
     init(storage: Storage) {
@@ -26,8 +26,10 @@ final class ScriptFeedback {
         succeeded: Bool
     ) -> String {
         let output = succeeded ? result.stdout : result.stderr
-        let excerpt = String(output.prefix(120))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastLine = output.split(whereSeparator: \.isNewline).last {
+            !$0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        let excerpt = String((lastLine?.trimmingCharacters(in: .whitespaces) ?? "").prefix(120))
         if succeeded {
             return excerpt.isEmpty ? "\(name) finished." : "\(name): \(excerpt)"
         }

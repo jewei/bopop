@@ -151,7 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rateStore: rateStore,
             storage: storage,
             defaults: defaults,
-            preferences: preferences
+            preferences: preferences,
+            setClipboardRecordingEnabled: pasteboardWatcher.setRecordingEnabled
         )
         self.settingsModel = settingsModel
         // settingsWindowController is built here, ahead of paletteController,

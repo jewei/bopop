@@ -204,6 +204,38 @@ A bundle whose date cannot be read is re-read every scan rather than cached
 against a date that cannot be compared. The cache is rebuilt from each pass, so
 uninstalled apps fall out.
 
+## File candidate processing
+
+Measured on 2026-09-07 with the candidate-limit change on base commit
+`3b24c518`, Apple M2, macOS 15.7.9, Swift 6.2.4, release configuration.
+The optional fixture measurement is repeatable with:
+
+```sh
+BOPOP_FILE_SEARCH_BENCHMARK=1 swift test -c release --filter fileSearchCandidateProcessingBenchmark
+```
+
+The fixture supplies 1,000 ordered metadata items to the real `FileSearcher`,
+provider mapping, and ranker. Each candidate limit has one discarded warmup
+and 30 measured samples. Times include conversion, mapping, ranking, and task
+scheduling. They exclude Spotlight gathering and UI rendering.
+
+| Candidate limit | Median processing time | p95 processing time |
+|---|---|---|
+| 40 | 0.81 ms | 0.87 ms |
+| 200 | 3.67 ms | 3.93 ms |
+| 1,000 | 17.88 ms | 19.48 ms |
+
+The 200-candidate case added about 2.9 ms to median processing time in this
+fixture. Bopop therefore starts with 200 candidates and keeps the displayed
+result limit at 40. This is a bounded increase in match coverage, not a
+guarantee that every exact match reaches the ranker.
+
+A separate live Spotlight query scoped to this checkout returned no matches.
+Those empty-result timings cannot establish the cost of real metadata reads.
+Live search latency and memory still need measurement against indexed folders
+before increasing the candidate limit. These fixture results are observations,
+not CI timing gates.
+
 ## Release-configuration tests
 
 `swift test -c release` is part of the supported release matrix. The signpost

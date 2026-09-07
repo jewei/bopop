@@ -19,6 +19,13 @@ uses Spotlight only after a file query.
 
 ## Clipboard history
 
+Settings > Clipboard > Record clipboard history controls new captures. It
+defaults on and persists across restarts. Turning it off preserves saved
+history and its Clear action. Enabling it skips text copied while it was off.
+The watcher continues to check for upstream clears while recording is off,
+so the privacy cleanup below remains active. Inactive login sessions still
+suspend all polling.
+
 Bopop ignores pasteboard entries marked concealed, transient, or otherwise
 sensitive by their source or macOS. That protection depends on the source
 setting a marker.
@@ -42,6 +49,9 @@ unpinned entries; unpin an item before clearing if it must be removed.
 
 - Scripts execute only after Return, via `Process`, using absolute paths and no
   shell interpolation. Script arguments are intentionally unsupported.
+- Script capture retains the final 64 KiB of each output stream, including a
+  size-omission marker when needed. Captured output goes to the local script
+  log. Completion feedback uses the last non-empty output line.
 - Bopop does not require Accessibility permission and does not synthesize paste
   or keyboard events into other applications.
 - Destructive commands confirm either in Bopop or in the responsible macOS

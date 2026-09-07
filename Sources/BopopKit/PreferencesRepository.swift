@@ -32,6 +32,15 @@ public final class PreferencesRepository {
         defaults.set(Self.clampClipboardLimit(limit), for: PersistedPreferenceKeys.clipboardLimit)
     }
 
+    public var clipboardRecordingEnabled: Bool {
+        // Preserve recording for existing installations without this preference.
+        defaults.number(for: PersistedPreferenceKeys.clipboardRecordingEnabled)?.boolValue ?? true
+    }
+
+    public func setClipboardRecordingEnabled(_ enabled: Bool) {
+        defaults.set(enabled, for: PersistedPreferenceKeys.clipboardRecordingEnabled)
+    }
+
     public var currencyEnabled: Bool {
         defaults.bool(for: PersistedPreferenceKeys.currencyEnabled)
     }

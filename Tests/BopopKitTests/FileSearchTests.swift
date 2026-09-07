@@ -230,3 +230,135 @@ private actor FileSearchGate {
         releaseContinuation = nil
     }
 }
+
+@MainActor
+@Test
+func fileSearchRanksOlderExactMatchBeforeLimitingResults() async throws {
+    let names = (0..<80).map { "report.pdf revision \($0)" } + ["report.pdf"]
+    let query = FixtureMetadataQuery(names: names)
+    let searcher = FileSearcher(queryFactory: { query })
+    let provider = FileSearchProvider(searcher: searcher)
+    let engine = QueryEngine(providers: [.fileSearch: [provider]], debounce: [:])
+    var final: QueryEngine.Update?
+    engine.onUpdate = { if $0.isFinal { final = $0 } }
+
+    engine.update(query: ParsedQuery(mode: .fileSearch, term: "report.pdf"))
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(20)
+    while !searcher.didBuildQuery, clock.now < deadline {
+        await Task.yield()
+    }
+    try #require(searcher.didBuildQuery)
+    NotificationCenter.default.post(name: .NSMetadataQueryDidFinishGathering, object: query)
+    while final == nil, clock.now < deadline {
+        await Task.yield()
+    }
+
+    let results = try #require(final).results
+    #expect(results.count == 40)
+    #expect(results.first?.title == "report.pdf")
+    // Equal-tier matches keep Spotlight's recency order, not alphabetical order.
+    #expect(results.dropFirst().map(\.title) == Array(names.prefix(39)))
+}
+
+@MainActor
+@Test(arguments: [0, 3, 200])
+func fileSearchBoundsCandidateConversion(limit: Int) async throws {
+    let query = FixtureMetadataQuery(names: (0..<1_000).map { "report \($0)" })
+    let searcher = FileSearcher(candidateLimit: limit, queryFactory: { query })
+    let task = Task { await searcher.search(term: "report") }
+    defer { task.cancel() }
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(20)
+    while !searcher.didBuildQuery, clock.now < deadline {
+        await Task.yield()
+    }
+    try #require(searcher.didBuildQuery)
+    NotificationCenter.default.post(name: .NSMetadataQueryDidFinishGathering, object: query)
+
+    #expect(await task.value.count == limit)
+    #expect(query.readCount == limit)
+}
+
+private final class FixtureMetadataQuery: NSMetadataQuery {
+    private let items: [FixtureMetadataItem]
+    private(set) var readCount = 0
+
+    init(names: [String]) {
+        items = names.enumerated().map { FixtureMetadataItem(name: $1, index: $0) }
+        super.init()
+    }
+
+    override var resultCount: Int { items.count }
+    override func start() -> Bool { true }
+    override func stop() {}
+    override func disableUpdates() {}
+
+    override func result(at index: Int) -> Any {
+        readCount += 1
+        return items[index]
+    }
+}
+
+// Optional fixed-data measurement. Spotlight gathering and UI rendering are excluded.
+@MainActor
+@Test(.enabled(if: ProcessInfo.processInfo.environment["BOPOP_FILE_SEARCH_BENCHMARK"] == "1"))
+func fileSearchCandidateProcessingBenchmark() async throws {
+    let clock = ContinuousClock()
+    let names = (0..<1_000).map { "Document \($0).pdf" }
+    for limit in [40, 200, 1_000] {
+        for sample in 0..<31 {
+            let query = FixtureMetadataQuery(names: names)
+            let searcher = FileSearcher(candidateLimit: limit, queryFactory: { query })
+            let provider = FileSearchProvider(searcher: searcher)
+            let start = clock.now
+            let task = Task {
+                try await provider.results(for: ParsedQuery(mode: .fileSearch, term: "pdf"))
+            }
+            defer { task.cancel() }
+            let deadline = start + .seconds(20)
+            while !searcher.didBuildQuery, clock.now < deadline { await Task.yield() }
+            try #require(searcher.didBuildQuery)
+            NotificationCenter.default.post(name: .NSMetadataQueryDidFinishGathering, object: query)
+            let candidates = try await task.value
+            let converted = clock.now
+            let ranked = Ranker.rank(
+                candidates, query: "pdf", frecencyFor: { _ in 0 },
+                providerWeights: Ranker.defaultWeights
+            )
+            let finished = clock.now
+            #expect(ranked.count == limit)
+
+            func milliseconds(_ duration: Duration) -> Double {
+                Double(duration.components.seconds) * 1_000
+                    + Double(duration.components.attoseconds) / 1e15
+            }
+            print(
+                "FILE_BENCHMARK limit=\(limit) sample=\(sample) "
+                    + "convertAndMapMs=\(milliseconds(start.duration(to: converted))) "
+                    + "rankMs=\(milliseconds(converted.duration(to: finished)))"
+            )
+        }
+    }
+}
+
+private final class FixtureMetadataItem: NSMetadataItem {
+    private let name: String
+    private let index: Int
+
+    init(name: String, index: Int) {
+        self.name = name
+        self.index = index
+        super.init()
+    }
+
+    override func value(forAttribute key: String) -> Any? {
+        switch key {
+        case NSMetadataItemPathKey: "/fixture/\(index)/\(name)"
+        case NSMetadataItemDisplayNameKey: name
+        case NSMetadataItemContentTypeKey: "com.adobe.pdf"
+        case NSMetadataItemFSContentChangeDateKey: Date(timeIntervalSince1970: Double(10_000 - index))
+        default: nil
+        }
+    }
+}

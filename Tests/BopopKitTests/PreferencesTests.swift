@@ -8,6 +8,7 @@ func persistedPreferenceKeysMatchShippedNamesAndAreUnique() {
         "hotkeyKeyCode",
         "hotkeyModifiers",
         "clipboardLimit",
+        "clipboardRecordingEnabled",
         "currencyConversionEnabled",
         "chineseVariant",
         "searchEngine",

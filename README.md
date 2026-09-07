@@ -76,6 +76,7 @@ Bopop is local-first.
 - Translation runs on-device.
 - Clipboard entries marked concealed or transient are ignored.
 - Clipboard history is stored locally. Clearing it drops unpinned entries; pinned entries are kept until you unpin them, so unpin first to remove one.
+- Turn off **Record clipboard history** in Settings to pause new captures. The choice survives restart; saved history remains available and privacy cleanup continues.
 - Scripts run only after explicit confirmation with `Return`.
 - Scripts use `Process` directly, without shell interpolation.
 - Accessibility permission is not required.

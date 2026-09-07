@@ -9,7 +9,7 @@ private let liveEnabled = ProcessInfo.processInfo.environment["BOPOP_LIVE_SPOTLI
 @Test(.enabled(if: liveEnabled))
 @MainActor
 func liveSpotlightSearchReturnsResults() async {
-    let searcher = FileSearcher(maxResults: 10)
+    let searcher = FileSearcher(candidateLimit: 10)
     let items = await searcher.search(term: "Package.swift")
     #expect(!items.isEmpty)
     #expect(items.allSatisfy { !$0.path.isEmpty })
@@ -18,7 +18,7 @@ func liveSpotlightSearchReturnsResults() async {
 @Test(.enabled(if: liveEnabled))
 @MainActor
 func liveSearchCancellationResumesEmpty() async {
-    let searcher = FileSearcher(maxResults: 10)
+    let searcher = FileSearcher(candidateLimit: 10)
     let task = Task { await searcher.search(term: "a") }
     task.cancel()
     let items = await task.value

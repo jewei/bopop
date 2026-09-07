@@ -98,6 +98,16 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    @Published var clipboardRecordingEnabled: Bool {
+        didSet {
+            guard clipboardRecordingEnabled != oldValue else {
+                return
+            }
+            preferences.setClipboardRecordingEnabled(clipboardRecordingEnabled)
+            setClipboardRecordingEnabled(clipboardRecordingEnabled)
+        }
+    }
+
     /// Read-only from the view's perspective: turning it ON goes through
     /// `confirmCurrencyConsent()` so the disclosure can't be bypassed by
     /// binding a toggle straight to it.
@@ -173,6 +183,7 @@ final class SettingsModel: ObservableObject {
     private let storage: Storage
     private let defaults: UserDefaults
     private let preferences: PreferencesRepository
+    private let setClipboardRecordingEnabled: (Bool) -> Void
     private var isRevertingLaunchAtLogin = false
 
     init(
@@ -183,7 +194,8 @@ final class SettingsModel: ObservableObject {
         rateStore: RateStore,
         storage: Storage,
         defaults: UserDefaults = .standard,
-        preferences: PreferencesRepository? = nil
+        preferences: PreferencesRepository? = nil,
+        setClipboardRecordingEnabled: @escaping (Bool) -> Void = { _ in }
     ) {
         let hotkey = HotkeyConfig.load(from: defaults)
         let preferences = preferences ?? PreferencesRepository(defaults: defaults)
@@ -195,8 +207,10 @@ final class SettingsModel: ObservableObject {
         self.storage = storage
         self.defaults = defaults
         self.preferences = preferences
+        self.setClipboardRecordingEnabled = setClipboardRecordingEnabled
         self.hotkey = hotkey
         clipboardLimit = preferences.clipboardLimit
+        clipboardRecordingEnabled = preferences.clipboardRecordingEnabled
         currencyEnabled = preferences.currencyEnabled
         launchAtLogin = SMAppService.mainApp.status == .enabled
         spotlightConflict = SpotlightConflict.isConflicting(with: hotkey)
@@ -208,6 +222,7 @@ final class SettingsModel: ObservableObject {
         snippetsAvailable = snippetStore.isAvailable
         hiddenResultIDs = visibilityStore.hiddenIDs.sorted()
         hasCustomBrandImage = FileManager.default.fileExists(atPath: storage.brandImageURL.path)
+        setClipboardRecordingEnabled(clipboardRecordingEnabled)
     }
 
     static func storedClipboardLimit(in defaults: UserDefaults) -> Int {

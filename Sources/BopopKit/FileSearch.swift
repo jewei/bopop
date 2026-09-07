@@ -46,18 +46,21 @@ public final class FileSearcher {
     /// this is a stuck-forever backstop, not a latency budget.
     static let gatheringDeadline: Duration = .seconds(5)
 
-    private let maxResults: Int
+    private let candidateLimit: Int
     private let scopeProvider: @Sendable () async -> [String]
+    private let queryFactory: () -> NSMetadataQuery
     private var active: ActiveSearch?
     private var nextSearchID = 0
     private var timeoutTask: Task<Void, Never>?
 
     public init(
-        maxResults: Int = 40,
-        scopeProvider: @escaping @Sendable () async -> [String] = { [] }
+        candidateLimit: Int = 200,
+        scopeProvider: @escaping @Sendable () async -> [String] = { [] },
+        queryFactory: @escaping () -> NSMetadataQuery = { NSMetadataQuery() }
     ) {
-        self.maxResults = max(0, maxResults)
+        self.candidateLimit = max(0, candidateLimit)
         self.scopeProvider = scopeProvider
+        self.queryFactory = queryFactory
     }
 
     /// Resolves user-chosen folder paths into NSMetadataQuery scope entries.
@@ -101,7 +104,7 @@ public final class FileSearcher {
                     didBuildQuery = true
                     let scopes = Self.resolveScopes(paths: scopePaths)
                     lastSearchScopes = scopes
-                    let query = NSMetadataQuery()
+                    let query = queryFactory()
                     query.predicate = NSPredicate(
                         format: "%K CONTAINS[cd] %@",
                         NSMetadataItemFSNameKey,
@@ -170,7 +173,8 @@ public final class FileSearcher {
 
         let query = active.query
         query.disableUpdates()
-        let resultCount = min(query.resultCount, maxResults)
+        // Gather beyond the display limit so older exact matches can reach Ranker.
+        let resultCount = min(query.resultCount, candidateLimit)
         var items: [Item] = []
         items.reserveCapacity(resultCount)
         for index in 0..<resultCount {

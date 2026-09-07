@@ -30,6 +30,22 @@ func queryEngineDiscardsStaleGeneration() async {
 
 @MainActor
 @Test
+func queryEngineLeavesOtherModesUncapped() async throws {
+    let provider = FakeProvider(id: .apps) { _ in
+        (0..<80).map { engineResult(id: "app:\($0)", title: "App \($0)") }
+    }
+    let engine = QueryEngine(providers: [.apps: [provider]], debounce: [:])
+    let recorder = UpdateRecorder()
+    engine.onUpdate = recorder.record
+
+    engine.update(query: ParsedQuery(mode: .apps, term: "app"))
+
+    let final = try #require(await recorder.waitForUpdate(matching: \.isFinal))
+    #expect(final.results.count == 80)
+}
+
+@MainActor
+@Test
 func queryEngineCancellationStopsPublish() async {
     let state = CancellationState()
     let provider = FakeProvider(id: .apps) { _ in

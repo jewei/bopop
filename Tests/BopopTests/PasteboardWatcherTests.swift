@@ -249,3 +249,89 @@ func watcherScrubsEveryRecentCaptureOnOneUpstreamClear() throws {
         "a password left behind by the scrub stays in history for good"
     )
 }
+
+@MainActor
+@Test
+func watcherSkipsPausedCopiesIncludingOnePendingAtResume() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let watcher = makeWatcher(fixture)
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("before", forType: .string)
+    watcher.pollPasteboard()
+    watcher.setRecordingEnabled(false)
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("paused", forType: .string)
+    watcher.pollPasteboard()
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("pending", forType: .string)
+    watcher.setRecordingEnabled(true)
+    watcher.pollPasteboard()
+    #expect(fixture.store.entries.map(\.text) == ["before"])
+
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("after", forType: .string)
+    watcher.pollPasteboard()
+    #expect(fixture.store.entries.map(\.text) == ["after", "before"])
+    let reloaded = ClipboardStore(storage: Storage(baseDirectory: fixture.root))
+    #expect(reloaded.entries.map(\.text) == ["after", "before"])
+}
+
+@MainActor
+@Test(arguments: [false, true])
+func watcherScrubsPausedHistoryAndKeepsPins(clearOnResume: Bool) throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let watcher = makeWatcher(fixture)
+
+    for text in ["pinned", "first", "second"] {
+        fixture.pasteboard.clearContents()
+        fixture.pasteboard.setString(text, forType: .string)
+        watcher.pollPasteboard()
+    }
+    let pinned = try #require(fixture.store.entries.first { $0.text == "pinned" })
+    fixture.store.pin(id: pinned.id)
+    watcher.setRecordingEnabled(false)
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("paused", forType: .string)
+    watcher.pollPasteboard()
+
+    fixture.pasteboard.clearContents()
+    if clearOnResume {
+        watcher.setRecordingEnabled(true)
+    } else {
+        watcher.pollPasteboard()
+    }
+
+    #expect(fixture.store.entries.map(\.text) == ["pinned"])
+    let reloaded = ClipboardStore(storage: Storage(baseDirectory: fixture.root))
+    #expect(reloaded.entries.map(\.text) == ["pinned"])
+}
+
+@MainActor
+@Test
+func watcherRemainsPausedAcrossSessionSwitch() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let center = NotificationCenter()
+    let watcher = PasteboardWatcher(
+        store: fixture.store,
+        pasteboard: fixture.pasteboard,
+        interval: 3_600,
+        workspaceNotificationCenter: center,
+        frontmostBundleID: { "com.apple.TextEdit" }
+    )
+    watcher.setRecordingEnabled(false)
+    watcher.start()
+    defer { watcher.stop() }
+    center.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+    center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+    fixture.pasteboard.clearContents()
+    fixture.pasteboard.setString("still paused", forType: .string)
+    watcher.pollPasteboard()
+
+    #expect(fixture.store.entries.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: Storage(baseDirectory: fixture.root).clipboardFileURL.path))
+}

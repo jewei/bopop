@@ -34,6 +34,10 @@ struct SettingsView: View {
             }
 
             Section("Clipboard") {
+                Toggle("Record clipboard history", isOn: $model.clipboardRecordingEnabled)
+                Text("When off, no new copies are saved. Saved history remains available and privacy cleanup continues.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Stepper(
                     "Keep last \(model.clipboardLimit) unpinned items",
                     value: $model.clipboardLimit,

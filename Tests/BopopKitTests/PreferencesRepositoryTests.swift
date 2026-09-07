@@ -43,3 +43,15 @@ private func repository() -> (PreferencesRepository, UserDefaults) {
     try preferences.setCustomSearches([search])
     #expect(preferences.customSearches == [search])
 }
+
+@MainActor
+@Test func clipboardRecordingPreferencePreservesDisabledValueOnReload() {
+    let (preferences, defaults) = repository()
+    #expect(preferences.clipboardRecordingEnabled)
+
+    preferences.setClipboardRecordingEnabled(false)
+    #expect(!PreferencesRepository(defaults: defaults).clipboardRecordingEnabled)
+
+    preferences.setClipboardRecordingEnabled(true)
+    #expect(PreferencesRepository(defaults: defaults).clipboardRecordingEnabled)
+}
