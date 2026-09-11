@@ -191,13 +191,17 @@ func aSynchronousNestedDrawIsQueuedUntilTheOuterDrawCompletes() async throws {
 /// Titles have to contain the term: `Ranker` filters non-matching candidates,
 /// so a fixture titled "hit0" would be dropped before it ever reached a view
 /// and the test would be asserting on the ranker, not the palette.
-private nonisolated func row(_ id: String, matching term: String = "") -> SearchResult {
+private nonisolated func row(
+    _ id: String,
+    matching term: String = "",
+    sortHint: Int = 0
+) -> SearchResult {
     SearchResult(
         id: id,
         providerID: .apps,
         title: term.isEmpty ? id : "\(term) \(id)",
         action: .copyText(id),
-        sortHint: 0
+        sortHint: sortHint
     )
 }
 
@@ -280,4 +284,82 @@ func commandCloseHidesThePalette() async throws {
     #expect(controller.hideCountForTesting == 1)
     #expect(controller.handleKeyForTesting(.commandClose))
     #expect(controller.hideCountForTesting == 1, "dismissal is idempotent within one session")
+}
+
+/// The card is one of the things ⏎ can be aimed at, so it has to look aimed-at.
+///
+/// `applyFocus` deselects the table when focus is `.hero`, so before the card
+/// carried its own selection the palette showed no highlight anywhere and the
+/// user could not tell what ⏎ would do. That is harmless when the hero is the
+/// only answer on screen (a calculation), and not harmless for the password
+/// generator, which puts four near-identical payloads up at once.
+@MainActor
+@Test
+func theHeroCardLooksSelectedWhenItOwnsReturn() async throws {
+    let (controller, root) = try makeController { query in
+        guard !query.term.isEmpty else { return [] }
+        // Explicit sort hints, like `PasswordProvider`: these rows all tie on
+        // score, and without them the alphabetical tiebreak puts a hero-less
+        // row first and the card never appears.
+        return [heroRow("top", matching: query.term, sortHint: 0)]
+            + (0..<2).map { row("rest\($0)", matching: query.term, sortHint: $0 + 1) }
+    }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    controller.typeForTesting("pw")
+    try await wait(on: controller) { $0.hero != nil }
+
+    // First paint: the card owns ⏎, and nothing in the table is lit.
+    #expect(controller.renderedPlanForTesting.focus == .hero)
+    #expect(controller.isHeroSelectedForTesting)
+    #expect(controller.selectedTableRowForTesting == -1)
+
+    // ↓ hands ⏎ to the first row, so the card must stop looking aimed-at.
+    _ = controller.handleKeyForTesting(.down)
+    #expect(controller.renderedPlanForTesting.focus == .row(0))
+    #expect(!controller.isHeroSelectedForTesting)
+    #expect(controller.selectedTableRowForTesting == 0)
+
+    // ↑ hands it back.
+    _ = controller.handleKeyForTesting(.up)
+    #expect(controller.renderedPlanForTesting.focus == .hero)
+    #expect(controller.isHeroSelectedForTesting)
+    #expect(controller.selectedTableRowForTesting == -1)
+}
+
+/// A hero-less mode must not leave the card lit from a previous query.
+@MainActor
+@Test
+func theHeroCardIsNotSelectedWhenThereIsNoHero() async throws {
+    let (controller, root) = try makeController { query in
+        guard !query.term.isEmpty else { return [] }
+        return query.term == "pw"
+            ? [heroRow("top", matching: query.term)]
+            : [row("plain", matching: query.term)]
+    }
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    controller.typeForTesting("pw")
+    try await wait(on: controller) { $0.hero != nil }
+    #expect(controller.isHeroSelectedForTesting)
+
+    controller.typeForTesting("xy")
+    try await wait(on: controller) { $0.hero == nil && !$0.rows.isEmpty }
+    #expect(!controller.isHeroSelectedForTesting)
+    #expect(controller.selectedTableRowForTesting == 0)
+}
+
+private nonisolated func heroRow(
+    _ id: String,
+    matching term: String = "",
+    sortHint: Int = 0
+) -> SearchResult {
+    SearchResult(
+        id: id,
+        providerID: .apps,
+        title: term.isEmpty ? id : "\(term) \(id)",
+        action: .copyText(id),
+        hero: HeroContent(left: "in", right: "out"),
+        sortHint: sortHint
+    )
 }

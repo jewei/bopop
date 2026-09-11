@@ -49,10 +49,15 @@ RESOURCE_DIRECTORY="$PRODUCTS_DIR/$RESOURCE_BUNDLE"
 if [[ -d "$RESOURCE_DIRECTORY/Contents/Resources" ]]; then
     RESOURCE_DIRECTORY="$RESOURCE_DIRECTORY/Contents/Resources"
 fi
-if [[ ! -f "$RESOURCE_DIRECTORY/emoji.json" ]]; then
-    echo "error: emoji.json is missing from $PRODUCTS_DIR/$RESOURCE_BUNDLE" >&2
-    exit 1
-fi
+# Named individually despite the blanket copy below: a missing resource is
+# silent at runtime. No emoji.json means an empty grid; no wordlist.txt means
+# the passphrase row just isn't there. Both are better caught here.
+for required in emoji.json wordlist.txt; do
+    if [[ ! -f "$RESOURCE_DIRECTORY/$required" ]]; then
+        echo "error: $required is missing from $PRODUCTS_DIR/$RESOURCE_BUNDLE" >&2
+        exit 1
+    fi
+done
 # Copy the generated resource payload rather than naming every resource here;
 # future SwiftPM resources then enter both local and release apps automatically.
 cp -R "$RESOURCE_DIRECTORY/." "$APP_PATH/Contents/Resources/"

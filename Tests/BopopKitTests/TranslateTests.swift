@@ -122,31 +122,42 @@ func translateFailureReturnsNoResults() async throws {
     #expect(results.isEmpty)
 }
 
+/// A cancelled translation query must perform no translation.
+///
+/// Ordering is arranged, not raced. The mock pins the provider inside
+/// `availability(target:)` until this test releases it, so cancellation is
+/// guaranteed to be in place before the provider can reach its debounce sleep.
+///
+/// It used to cancel after merely *observing* that availability had been
+/// checked, and lean on a five-second debounce as the margin. That is a wall
+/// clock, not a guarantee: this body is `@MainActor`, so its resumption queues
+/// behind every other MainActor test, and under a parallel `swift test` the
+/// queue delay passed five seconds often enough to fail about one run in four.
+/// Raising the debounce lowered the rate and could never remove it, because no
+/// number of cancellation checks inside the provider can close a window that
+/// opens after the last one.
 @MainActor
 @Test
 func debounceCancellationStopsTranslate() async {
-    let translator = MockTranslator(availability: .ready, translationResult: .success("你好"))
-    // results(for:) is nonisolated now, so its continuation past the
-    // availability() await resumes on the concurrent executor rather than
-    // being serialized behind this MainActor test body the way it used to
-    // be — under a fully parallel `swift test` run, both this test body's
-    // own resumption and the provider's are competing for worker threads,
-    // so a short debounce window is no longer a reliable margin. A long
-    // window costs nothing here (cancellation still returns immediately,
-    // long before the window would elapse) but makes the race effectively
-    // impossible to lose.
+    let translator = MockTranslator(
+        availability: .ready,
+        translationResult: .success("你好"),
+        holdsAfterAvailability: true
+    )
     let provider = TranslationProvider(
         translator: translator,
         chineseVariant: { .chineseSimplified },
-        debounceNanoseconds: 5_000_000_000
+        debounceNanoseconds: 50_000_000
     )
 
     let task = Task {
         try await provider.results(for: ParsedQuery(mode: .translation, term: "hello"))
     }
 
+    // The provider is now parked inside availability(), ahead of the debounce.
     await translator.waitUntilAvailabilityChecked()
     task.cancel()
+    await translator.release()
     let results = try? await task.value
 
     #expect(results == [])
@@ -166,13 +177,18 @@ private actor MockTranslator: Translator {
     private(set) var lastTranslateTarget: TranslationTarget?
     private var availabilityChecked = false
     private var availabilityCheckedContinuations: [CheckedContinuation<Void, Never>] = []
+    private let holdsAfterAvailability: Bool
+    private var isReleased = false
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(
         availability: TranslatorAvailability = .ready,
-        translationResult: Result<String, Error> = .success("")
+        translationResult: Result<String, Error> = .success(""),
+        holdsAfterAvailability: Bool = false
     ) {
         scriptedAvailability = availability
         scriptedTranslation = translationResult
+        self.holdsAfterAvailability = holdsAfterAvailability
     }
 
     func availability(target: TranslationTarget) async -> TranslatorAvailability {
@@ -180,7 +196,24 @@ private actor MockTranslator: Translator {
         availabilityChecked = true
         availabilityCheckedContinuations.forEach { $0.resume() }
         availabilityCheckedContinuations.removeAll()
+        // Held here, not merely observed, when a test asked to hold. Signalling
+        // and returning tells the caller only that the provider *reached* this
+        // point; it is already running on by the time the caller wakes, which
+        // is what made the cancellation test race a wall clock.
+        if holdsAfterAvailability, !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
         return scriptedAvailability
+    }
+
+    /// Lets `availability(target:)` return. Call after whatever the test needed
+    /// to arrange while the provider was pinned.
+    func release() {
+        isReleased = true
+        releaseContinuations.forEach { $0.resume() }
+        releaseContinuations.removeAll()
     }
 
     func translate(_ text: String, to target: TranslationTarget) async throws -> String {

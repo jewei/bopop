@@ -45,6 +45,30 @@ also recorded in gotcha 3 and are mandatory manual release QA.
 Clipboard history is stored locally. “Clear Clipboard History” removes
 unpinned entries; unpin an item before clearing if it must be removed.
 
+## Generated passwords
+
+The password generator runs entirely locally and draws from
+`SecRandomCopyBytes`. Nothing it produces is written to disk: the result row's
+identifier names the recipe (`password:strong`), never the password, so the
+frecency file records only which recipe was chosen.
+
+The passphrase recipe draws words from a committed local file
+(`Resources/wordlist.txt`, BIP-39 English). It contacts no network and consults
+no system dictionary or personal word list. Words are drawn with replacement, so
+a phrase may repeat a word; rejecting repeats would reduce the entropy that the
+row reports on screen.
+
+Copying a generated password uses `ResultAction.copySecret` rather than the
+ordinary copy path. That write declares `org.nspasteboard.ConcealedType`
+alongside the plain text, which is the marker Bopop's own watcher — and any
+clipboard manager following the convention — treats as "never record this".
+The password therefore reaches the pasteboard and not the history.
+
+The automated test writes to a scratch pasteboard. The real pasteboard, the
+0.5-second poll, and the paste itself are covered by the "Generated passwords
+stay out of history" stage in `Support/qa-release.sh`, which is mandatory
+release QA.
+
 ## Local execution and permissions
 
 - Scripts execute only after Return, via `Process`, using absolute paths and no

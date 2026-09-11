@@ -74,6 +74,11 @@ effects.
   candidate and blanks the list mid-word.
 - **Selection is `PaletteFocus`** — `.none`, `.hero`, `.row(Int)`. Not an index
   with a sentinel, so `.row(4)` over an empty list is unconstructible.
+  The table therefore needs `allowsEmptySelection = true`: two of those three
+  states belong to no row, and while it was false `applyFocus`'s `deselectAll`
+  was a no-op that left row 0 lit — and drawing its ↵ keycap — while Return
+  acted on the hero card. The hero draws its own selection via
+  `PaletteHeroView.setSelected`, since AppKit has no selection machinery for it.
   `apply(_:)` resets focus each update unless a stay-open action (pin, unpin,
   hide) named a row to restore; that restoration survives interim updates and
   is spent on the final one, keeping ⏎ on the row the action touched.
@@ -100,7 +105,16 @@ effects.
   record doesn't cost the rest. Additive fields use `decodeIfPresent` — a
   version bump quarantines existing data.
 - **`ClipboardCapturePolicy.sensitiveTypes` is the single place** deciding what
-  is never recorded.
+  is never recorded. It also owns the write side: `concealedMarkerTypes` is the
+  subset Bopop declares on its own secret copies, so the marker the pasteboard
+  is given and the marker the watcher looks for cannot drift apart.
+- **A generated password is `.copySecret`, never `.copyText`.** The plain copy
+  reaches the pasteboard unmarked and Bopop's own watcher records it half a
+  second later. Nothing generated is persisted either: the row id names the
+  recipe (`password:strong`), because `UsageStore` writes that id to disk on
+  every ⏎. `PasswordQuery.lengthLimits` caps at what the hero card can render
+  in full at its smallest font — the card is what ⏎ copies, so it must never
+  show a shorter password than the one on the pasteboard.
 - **Pins are exempt from the history limit, not from everything.** They survive
   Clear and the trim, have their own cap, and the upstream-clear heuristic
   leaves them alone — it can't identify who cleared the pasteboard, so it must

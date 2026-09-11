@@ -1,4 +1,5 @@
 import AppKit
+import BopopKit
 
 /// The platform side effects `ActionRunner` performs, behind one injectable
 /// value. Production wires these to `NSWorkspace`/`Process`; tests substitute
@@ -19,6 +20,8 @@ struct ActionEffects {
     var runProcess: (String, [String]) -> Result<Void, Error>
     var sendLoginwindowEvent: (String) -> Bool
     var copyText: (String) -> Void
+    /// Same write, plus the markers that keep it out of clipboard history.
+    var copySecret: (String) -> Void
 
     static let live = ActionEffects(
         openApplication: { url in
@@ -67,8 +70,29 @@ struct ActionEffects {
         copyText: { text in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-        }
+        },
+        copySecret: { SecretPasteboard.write($0, to: .general) }
     )
+}
+
+/// The writing half of the concealed-copy convention.
+///
+/// Split out of the `live` closure so a test can round-trip it through a real
+/// `PasteboardWatcher` on a scratch pasteboard instead of the user's own —
+/// "a generated password never reaches clipboard history" is a claim the
+/// README makes, and it spans both halves.
+enum SecretPasteboard {
+    static func write(_ text: String, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        // nspasteboard.org's convention: the marker carries the same payload,
+        // and a manager honouring it drops the whole item. Reusing
+        // ClipboardCapturePolicy's own list keeps the writing side and the
+        // reading side spelling the type the same way.
+        for type in ClipboardCapturePolicy.concealedMarkerTypes {
+            pasteboard.setString(text, forType: .init(type))
+        }
+    }
 }
 
 /// Why an action did not do what the row promised. Every case carries enough

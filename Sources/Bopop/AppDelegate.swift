@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     CustomSearchProvider(searches: customSearchesFor),
                     SnippetsProvider(store: snippetStore),
                     CommandsProvider(),
+                    PasswordProvider(),
                     DictionaryProvider(lookup: { DictionaryLookup.definition(for: $0) })
                 ],
                 .apps: [appsProvider],

@@ -460,6 +460,10 @@ final class PaletteController: NSObject {
     /// `isApplyingPlan` guard, which owns the flag — clearing it here would
     /// reopen the write-back path for the rest of the draw.
     private func applyFocus(_ focus: PaletteFocus, isGrid: Bool) {
+        // Ahead of the switch so every branch clears it: the card is one of
+        // the things ⏎ can be aimed at, and it has to stop looking aimed-at
+        // the moment focus moves into the rows.
+        heroView.setSelected(focus == .hero)
         switch focus {
         case .none, .hero:
             tableView.deselectAll(nil)
@@ -874,6 +878,7 @@ extension PaletteController {
     var isTableVisibleForTesting: Bool { !scrollView.isHidden }
     var isGridVisibleForTesting: Bool { !gridView.isHidden }
     var selectedTableRowForTesting: Int { tableView.selectedRow }
+    var isHeroSelectedForTesting: Bool { heroView.isSelectedForTesting }
 
     /// Types into the query field exactly as AppKit does: set the value, then
     /// fire the delegate. Going through the notification rather than calling

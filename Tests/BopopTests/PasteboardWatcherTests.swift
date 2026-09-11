@@ -335,3 +335,23 @@ func watcherRemainsPausedAcrossSessionSwitch() throws {
     #expect(fixture.store.entries.isEmpty)
     #expect(!FileManager.default.fileExists(atPath: Storage(baseDirectory: fixture.root).clipboardFileURL.path))
 }
+
+/// The round trip behind the README's promise about generated passwords: what
+/// `ActionEffects.copySecret` writes is what the watcher must refuse to record.
+/// Each half is already tested alone; this is the one that fails if the two
+/// stop agreeing on the marker type.
+@MainActor
+@Test
+func watcherSkipsBopopsOwnGeneratedPasswordCopy() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let watcher = makeWatcher(fixture)
+
+    let password = PasswordGenerator.generate(
+        .characters(length: 20, alphabet: .everything))
+    SecretPasteboard.write(password, to: fixture.pasteboard)
+    watcher.pollPasteboard()
+
+    #expect(fixture.pasteboard.string(forType: .string) == password)
+    #expect(fixture.store.entries.isEmpty)
+}

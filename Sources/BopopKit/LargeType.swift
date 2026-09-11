@@ -18,6 +18,11 @@ public enum LargeType {
             if case .copyText(let text) = action {
                 return capped(text)
             }
+            // A generated password is one of the better things to blow up
+            // full-screen — it is usually being retyped on a phone.
+            if case .copySecret(let text) = action {
+                return capped(text)
+            }
         }
         if let hero = result.hero {
             return capped(hero.right)
