@@ -42,6 +42,16 @@ the expected behavior is correct. Tests created from existing behavior need an
 independent product or platform reason for the expectation. The former
 `noSuccessorIsAFocusLoss` test was mutation-sensitive and still pinned a bug.
 
+Arrange ordering, never race a wall clock for it. A `@MainActor` test body
+resumes only when the main actor is free, and under a parallel `swift test` that
+queues behind every other `@MainActor` test. A delay chosen as a "safe margin"
+is therefore unbounded in the worst case:
+`debounceCancellationStopsTranslate` cancelled a task and relied on a
+five-second debounce outlasting its own resumption, which failed about one run
+in four. The repair was a mock that pins the provider at a known point until the
+test releases it. Where a test needs step B to follow step A, gate it; a
+duration is not a guarantee, and raising it only lowers the failure rate.
+
 The palette's AppKit half has no faithful UI test host. An off-screen
 `NSTableView` does not reproduce the synchronous selection callback that caused
 the re-entrant draw hang; reverting the full-draw guard leaves controller tests
