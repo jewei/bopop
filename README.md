@@ -14,6 +14,7 @@ Bopop is a fast, keyboard-first launcher for macOS. Open apps, search files on d
 - **Currency** — convert currencies using cached ECB rates. Off by default; it's the one feature that contacts a server, so it asks first.
 - **Time zones** — convert times and inspect local time around the world.
 - **Dictionary** — look up words on-device.
+- **Passwords** — type `password` (or `password 32`) for strong, alphanumeric, passphrase (`sheep-book-sun-cliff-wrap`), and PIN variants. Copies are marked concealed, so they never enter clipboard history.
 - **Translation** — English and Chinese translation using Apple’s Translation framework.
 - **URL cleaner** — remove common tracking parameters.
 - **Clipboard history** — browse and re-copy recent plain-text entries, and pin the ones worth keeping above the rest.
@@ -59,6 +60,12 @@ with `swift Support/generate-emoji.swift > Sources/BopopKit/Resources/emoji.json
 Without local source-file arguments the generator fetches current Unicode and
 CLDR data; pass pinned downloads for reproducible offline generation.
 
+`Sources/BopopKit/Resources/wordlist.txt` is BIP-39's English word list,
+vendored unmodified and MIT-licensed (see [`LICENSE`](LICENSE)). It supplies the
+passphrase recipe. Exactly 2048 words, so each one contributes exactly 11 bits;
+a test pins the count, the uniqueness, and the four-letter-prefix property, so
+do not edit the file by hand.
+
 Engineering invariants worth knowing before changing anything live in
 [`CLAUDE.md`](CLAUDE.md). Instruments signposts and measurement procedure live in
 [`docs/performance-baseline.md`](docs/performance-baseline.md). The full
@@ -85,6 +92,8 @@ Bopop is local-first.
   its cached rates when you turn it off.
 - Released builds also use Sparkle to check the GitHub-hosted update feed;
   source-built `.dev` bundles do not.
+- Generated passwords come from `SecRandomCopyBytes`, are never written to
+  disk, and are copied with a concealed marker so clipboard history skips them.
 - Copies marked secret by the source app or macOS are never recorded. Some
   sources, notably Apple Passwords on the verified macOS path, expose copied
   passwords as unmarked plain text; those can appear temporarily until the

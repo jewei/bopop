@@ -29,7 +29,11 @@ public enum Ranker {
         .system: 55,
         .customSearch: 105,
         .snippets: 35,
-        .dictionary: 111
+        .dictionary: 111,
+        // Below `.apps` on purpose. These rows and Apple's Passwords app tie
+        // at prefix tier on "pass" and at exact tier on "passwords"; the app
+        // should win both, and does only because this number is smaller.
+        .password: 45
     ]
 
     public static func tier(query: String, candidate: String) -> MatchTier {

@@ -17,6 +17,7 @@ public enum ProviderID: String, Hashable, Sendable {
     case customSearch
     case snippets
     case dictionary
+    case password
 }
 
 public enum IconRef: Equatable, Sendable {
@@ -66,6 +67,12 @@ public enum ResultAction: Equatable, Sendable {
     case openApp(String)
     case openFile(String)
     case copyText(String)
+    /// A copy the pasteboard must be told is secret — a generated password.
+    /// The write declares `ClipboardCapturePolicy.sensitiveTypes`, so Bopop's
+    /// own watcher and every clipboard manager honouring the convention leave
+    /// it out of history. Distinct from `copyText` precisely so that marking
+    /// is not something a provider can forget to ask for.
+    case copySecret(String)
     case clearClipboardHistory
     case pinClipboard(UUID)
     case unpinClipboard(UUID)
@@ -89,7 +96,7 @@ public enum ResultAction: Equatable, Sendable {
         switch self {
         case .disabled: .disabled
         case .openApp, .openFile, .openURL: .open
-        case .copyText: .copy
+        case .copyText, .copySecret: .copy
         case .clearClipboardHistory: .clear
         case .pinClipboard: .pin
         case .unpinClipboard: .unpin
@@ -113,6 +120,12 @@ public struct HeroContent: Equatable, Sendable {
     /// the calculator's ungrouped result. `nil` (the default) means ⇥
     /// should cycle tabs as usual instead — see `PaletteState.tab(shift:)`.
     public let autocompleteText: String?
+    /// True when `right` is an opaque payload rather than prose — a generated
+    /// password. Word wrapping breaks such a value at its punctuation, which
+    /// both reads as ragged and wastes most of the second line: a 40-character
+    /// password needed four lines against a two-line cap and was silently
+    /// truncated in the card while the row below it showed the value in full.
+    public let rightWrapsByCharacter: Bool
 
     public init(
         left: String,
@@ -120,7 +133,8 @@ public struct HeroContent: Equatable, Sendable {
         right: String,
         rightBadge: String? = nil,
         note: String? = nil,
-        autocompleteText: String? = nil
+        autocompleteText: String? = nil,
+        rightWrapsByCharacter: Bool = false
     ) {
         self.left = left
         self.leftBadge = leftBadge
@@ -128,6 +142,7 @@ public struct HeroContent: Equatable, Sendable {
         self.rightBadge = rightBadge
         self.note = note
         self.autocompleteText = autocompleteText
+        self.rightWrapsByCharacter = rightWrapsByCharacter
     }
 }
 

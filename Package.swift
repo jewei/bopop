@@ -17,7 +17,10 @@ let package = Package(
     targets: [
         .target(
             name: "BopopKit",
-            resources: [.copy("Resources/emoji.json")]
+            resources: [
+                .copy("Resources/emoji.json"),
+                .copy("Resources/wordlist.txt")
+            ]
         ),
         .executableTarget(
             name: "Bopop",

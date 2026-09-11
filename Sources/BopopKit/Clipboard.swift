@@ -13,6 +13,14 @@ public enum ClipboardCapturePolicy {
         "com.apple.is-sensitive"
     ]
 
+    /// What Bopop itself writes when it copies a secret it generated. A strict
+    /// subset of `sensitiveTypes`, and not the whole set: `TransientType`
+    /// claims the copy is about to expire, which is a different promise, and
+    /// `com.apple.is-sensitive` is Apple's own marker to set. Declared next to
+    /// the read side so the two can't drift into disagreeing about the one
+    /// type that matters.
+    public static let concealedMarkerTypes = ["org.nspasteboard.ConcealedType"]
+
     public static func shouldCapture(
         types: [String],
         frontmostBundleID: String?,

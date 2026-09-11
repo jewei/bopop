@@ -100,7 +100,16 @@ effects.
   record doesn't cost the rest. Additive fields use `decodeIfPresent` — a
   version bump quarantines existing data.
 - **`ClipboardCapturePolicy.sensitiveTypes` is the single place** deciding what
-  is never recorded.
+  is never recorded. It also owns the write side: `concealedMarkerTypes` is the
+  subset Bopop declares on its own secret copies, so the marker the pasteboard
+  is given and the marker the watcher looks for cannot drift apart.
+- **A generated password is `.copySecret`, never `.copyText`.** The plain copy
+  reaches the pasteboard unmarked and Bopop's own watcher records it half a
+  second later. Nothing generated is persisted either: the row id names the
+  recipe (`password:strong`), because `UsageStore` writes that id to disk on
+  every ⏎. `PasswordQuery.lengthLimits` caps at what the hero card can render
+  in full at its smallest font — the card is what ⏎ copies, so it must never
+  show a shorter password than the one on the pasteboard.
 - **Pins are exempt from the history limit, not from everything.** They survive
   Clear and the trim, have their own cap, and the upstream-clear heuristic
   leaves them alone — it can't identify who cleared the pasteboard, so it must

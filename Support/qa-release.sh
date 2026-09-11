@@ -45,6 +45,7 @@ EXPECTED_CHECKS=(
   QA_TRASH_CONFIRM QA_FINDER_CONSENT QA_EJECT
   QA_LOGOUT QA_RESTART QA_SHUTDOWN
   QA_PW_CAPTURED QA_PW_SCRUBBED
+  QA_PWGEN_ROWS QA_PWGEN_PASSPHRASE QA_PWGEN_PASTES QA_PWGEN_CONCEALED
   QA_CLIPBOARD_PAUSE QA_CLIPBOARD_PAUSE_PERSIST QA_CLIPBOARD_RESUME
   QA_QL_OPEN QA_QL_ESC QA_QL_TOGGLE QA_REVEAL
   QA_LT_OPEN QA_LT_TOGGLE QA_LT_AUTODISMISS
@@ -140,9 +141,13 @@ write_value QA_VERSION "$CURRENT_VERSION"
 write_value QA_RELEASE_STATUS incomplete
 
 stage_number=0
+# Counted from the source rather than hardcoded: the literal it replaced said
+# "13" while fourteen stages existed, so every run under-reported how much work
+# was left. Adding a stage now updates the total by itself.
+stage_total="$(grep -c '^stage ' "$SCRIPT_DIR/qa-release.sh")"
 stage() {
   stage_number=$((stage_number + 1))
-  printf '\n== Stage %s/13: %s ==\n' "$stage_number" "$1"
+  printf '\n== Stage %s/%s: %s ==\n' "$stage_number" "$stage_total" "$1"
 }
 step() { printf '  - %s\n' "$1"; }
 note() { printf '    %s\n' "$1"; }
@@ -232,6 +237,20 @@ step 'Turn off Record clipboard history before the source clears the pasteboard.
 step 'Wait a full two minutes without copying anything else, then check again.'
 pause 'Press Enter after two minutes.'
 verdict QA_PW_SCRUBBED 'Both passwords are gone, not just the newest?'
+
+stage 'Generated passwords stay out of history'
+note 'The automated test writes to a scratch pasteboard. This is the real one, the real 0.5 s poll, and the real palette.'
+step 'Turn ON Record clipboard history in Settings > Clipboard.'
+step "Summon the palette and type 'password'."
+verdict QA_PWGEN_ROWS 'Hero password is legible, and the Strong/Letters & digits/Passphrase/PIN rows all appear?'
+note 'The Passphrase row proves the word list reached the bundle — it is absent if wordlist.txt is missing.'
+verdict QA_PWGEN_PASSPHRASE 'Passphrase row shows real hyphen-separated words, not random characters?'
+step 'Press Return, then paste into TextEdit.'
+note 'The concealed marker must not break the plain-text write — paste has to produce the password.'
+verdict QA_PWGEN_PASTES 'The pasted text matches the password shown in the hero?'
+step 'Wait five seconds, then open Clipboard mode.'
+verdict QA_PWGEN_CONCEALED 'The generated password is absent from history?'
+step 'Delete the pasted password from TextEdit and close it without saving.'
 
 stage 'Clipboard recording control'
 step 'With recording off, copy disposable sample text and open Clipboard mode.'

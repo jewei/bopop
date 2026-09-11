@@ -58,14 +58,12 @@ final class ActionRunner {
     }
 
     func performCopy(_ result: SearchResult) {
-        let secondaryCopy = result.secondaryActions.first { action in
-            if case .copyText = action {
-                return true
-            }
-            return false
-        }
+        // Role rather than a case match, so this and
+        // `ResultActions.hasCopyAction` — which decides whether ⌘C is offered
+        // at all — cannot disagree about what counts as a copy.
+        let secondaryCopy = result.secondaryActions.first { $0.role == .copy }
         let copyAction = secondaryCopy ?? result.action
-        guard case .copyText = copyAction else {
+        guard copyAction.role == .copy else {
             return
         }
 
@@ -149,6 +147,8 @@ final class ActionRunner {
             }
         case let .copyText(text):
             effects.copyText(text)
+        case let .copySecret(text):
+            effects.copySecret(text)
         case .clearClipboardHistory:
             clipboardStore.clear()
         case let .pinClipboard(id):

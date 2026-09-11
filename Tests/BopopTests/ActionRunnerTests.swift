@@ -73,6 +73,9 @@ private func effects(
     value.sendLoginwindowEvent = sendLoginwindowEvent
     value.revealFile = { _ in }
     value.copyText = { _ in }
+    // Stubbed like every other effect: the live one writes to the user's real
+    // pasteboard, and a test suite has no business clobbering it.
+    value.copySecret = { _ in }
     value.openApplication = { _ in .success(()) }
     return value
 }
@@ -217,4 +220,50 @@ private func effects(
     ))
 
     #expect(failures.isEmpty)
+}
+
+/// A generated password must never take the plain-copy path: that write
+/// reaches the pasteboard unmarked, and Bopop's own watcher records it half a
+/// second later.
+@MainActor
+@Test func copyingAGeneratedPasswordTakesTheMarkedPath() throws {
+    var plain: [String] = []
+    var secret: [String] = []
+    var value = effects()
+    value.copyText = { plain.append($0) }
+    value.copySecret = { secret.append($0) }
+    let (runner, root) = try makeRunner(effects: value, onFailure: { _ in })
+    defer { try? FileManager.default.removeItem(at: root) }
+    runner.hidePalette = {}
+
+    runner.perform(SearchResult(
+        id: "password:strong", providerID: .password, title: "aB3!xQ",
+        action: .copySecret("aB3!xQ"), sortHint: 0
+    ))
+
+    #expect(secret == ["aB3!xQ"])
+    #expect(plain.isEmpty)
+}
+
+/// ⌘C reaches the same marked path. `performCopy` used to pattern-match
+/// `.copyText`, while `ResultActions.hasCopyAction` — which decides whether
+/// ⌘C is offered — asks for the `.copy` role; a secret copy satisfied the
+/// second and not the first, so the key did nothing at all.
+@MainActor
+@Test func commandCCopiesASecretRatherThanSilentlyDoingNothing() throws {
+    var secret: [String] = []
+    var value = effects()
+    value.copySecret = { secret.append($0) }
+    let (runner, root) = try makeRunner(effects: value, onFailure: { _ in })
+    defer { try? FileManager.default.removeItem(at: root) }
+    runner.hidePalette = {}
+
+    let result = SearchResult(
+        id: "password:pin", providerID: .password, title: "402913",
+        action: .copySecret("402913"), sortHint: 0
+    )
+    #expect(ResultActions.hasCopyAction(result))
+    runner.performCopy(result)
+
+    #expect(secret == ["402913"])
 }
