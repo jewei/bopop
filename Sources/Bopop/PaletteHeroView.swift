@@ -22,6 +22,11 @@ final class PaletteHeroView: NSView {
     /// the size depends on the laid-out pane width, which `configure` does not
     /// yet know, so the decision is deferred to `layout()`.
     private var shrinkToFitPayload: String?
+    private var selected = false
+
+    /// The card draws its selection itself rather than through AppKit's
+    /// selection machinery, so there is nothing else a test can read back.
+    var isSelectedForTesting: Bool { selected }
     private let leftBadge = PaletteHeroBadgeView()
     private let rightBadge = PaletteHeroBadgeView()
     private let arrowLabel = NSTextField(labelWithString: "→")
@@ -61,6 +66,42 @@ final class PaletteHeroView: NSView {
             .compactMap { $0 }
             .joined(separator: ", ")
         setAccessibilityLabel(accessibilityText)
+    }
+
+    /// Marks the card as the thing ⏎ will act on.
+    ///
+    /// The card competes with the rows below it for exactly one Return, and
+    /// until this existed the palette answered "which one?" with nothing at
+    /// all: `PaletteController.applyFocus` deselects the table when focus is
+    /// `.hero`, so no row was lit and neither was the card. Harmless where the
+    /// hero IS the only answer (a calculation, a conversion), but the password
+    /// generator puts four near-identical payloads on screen at once and the
+    /// only way to see the target was to press ↓ — which moved it.
+    func setSelected(_ isSelected: Bool) {
+        guard selected != isSelected else {
+            return
+        }
+        selected = isSelected
+        updateSelectionStyle()
+    }
+
+    /// Deliberately the same fill and stroke as `PaletteRowView.drawSelection`.
+    /// "This owns ⏎" has to read identically whether it lands on a row or on
+    /// the card, so these two are the same treatment on different geometry —
+    /// the card keeps its own 10 pt radius rather than the row capsule's.
+    private func updateSelectionStyle() {
+        CATransaction.begin()
+        // No decorative motion (docs/design-system.md), and selection moves
+        // under held arrow keys — a cross-fade per keystroke would smear.
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = selected
+            ? NSColor.bopopAccent.withAlphaComponent(0.14).cgColor
+            : NSColor.white.withAlphaComponent(0.04).cgColor
+        layer?.borderWidth = selected ? 1 : 0
+        layer?.borderColor = selected
+            ? NSColor.bopopAccent.withAlphaComponent(0.30).cgColor
+            : nil
+        CATransaction.commit()
     }
 
     /// Applies the fitted font once the pane width is known.
@@ -116,9 +157,11 @@ final class PaletteHeroView: NSView {
         // This lives INSIDE the already-masked panel content view, so a plain
         // layer corner radius is fine here — the maskImage gotcha only
         // applies to the panel's own NSVisualEffectView (docs/gotchas.md #5).
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.04).cgColor
         layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
+        // Owns the unselected background too, so the two states live in one
+        // place rather than here and in `setSelected`.
+        updateSelectionStyle()
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityElement(true)
         setAccessibilityRole(.group)

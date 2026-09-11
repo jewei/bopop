@@ -74,6 +74,11 @@ effects.
   candidate and blanks the list mid-word.
 - **Selection is `PaletteFocus`** — `.none`, `.hero`, `.row(Int)`. Not an index
   with a sentinel, so `.row(4)` over an empty list is unconstructible.
+  The table therefore needs `allowsEmptySelection = true`: two of those three
+  states belong to no row, and while it was false `applyFocus`'s `deselectAll`
+  was a no-op that left row 0 lit — and drawing its ↵ keycap — while Return
+  acted on the hero card. The hero draws its own selection via
+  `PaletteHeroView.setSelected`, since AppKit has no selection machinery for it.
   `apply(_:)` resets focus each update unless a stay-open action (pin, unpin,
   hide) named a row to restore; that restoration survives interim updates and
   is spent on the final one, keeping ⏎ on the row the action touched.

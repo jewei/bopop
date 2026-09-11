@@ -251,7 +251,14 @@ enum PaletteLayout {
         tableView.rowHeight = PaletteMetrics.rowHeight
         tableView.intercellSpacing = NSSize(width: 0, height: PaletteMetrics.interRowGap)
         tableView.selectionHighlightStyle = .regular
-        tableView.allowsEmptySelection = false
+        // True, because `.hero` and `.none` are both real focus states and
+        // neither of them belongs to a row. While this was false,
+        // `applyFocus`'s `deselectAll` was a silent no-op: the table kept row 0
+        // lit and kept drawing its ↵ keycap while Return actually acted on the
+        // hero card. The highlight did not merely fail to move, it named the
+        // wrong result. `PaletteState` is the only owner of focus, so AppKit's
+        // selection is a rendering of it and has to be able to render "none".
+        tableView.allowsEmptySelection = true
         tableView.allowsMultipleSelection = false
         // Keyboard focus must never leave the query field: if the table
         // becomes first responder (a row click does this by default),
